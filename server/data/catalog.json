@@ -1,0 +1,631 @@
+{
+ "pujas": [
+  {
+   "id": "lakshmi",
+   "name": "Lakshmi Puja",
+   "hindi": "लक्ष्मी पूजा",
+   "cat": "Festival",
+   "icon": "🪷",
+   "dur": 90,
+   "price": 3100,
+   "deity": "Goddess Lakshmi",
+   "ben": "Invites prosperity and stability into your home and business.",
+   "kit": "k_lakshmi",
+   "pop": 1,
+   "tags": "wealth money prosperity business diwali peace family abundance"
+  },
+  {
+   "id": "satyanarayan",
+   "name": "Satyanarayan Katha",
+   "hindi": "सत्यनारायण कथा",
+   "cat": "Prosperity",
+   "icon": "📿",
+   "dur": 120,
+   "price": 2500,
+   "deity": "Lord Vishnu",
+   "ben": "A family katha for gratitude, harmony and a fresh start.",
+   "kit": "k_satya",
+   "pop": 1,
+   "tags": "peace family prosperity gratitude harmony happiness"
+  },
+  {
+   "id": "griha",
+   "name": "Griha Pravesh",
+   "hindi": "गृह प्रवेश",
+   "cat": "Life Event",
+   "icon": "🏠",
+   "dur": 180,
+   "price": 5100,
+   "deity": "Vastu and Navagraha",
+   "ben": "Blesses a new home before you move in.",
+   "kit": "k_griha",
+   "pop": 1,
+   "tags": "new home house housewarming flat moving"
+  },
+  {
+   "id": "ganesh",
+   "name": "Ganesh Puja",
+   "hindi": "गणेश पूजा",
+   "cat": "Deity Worship",
+   "icon": "🐘",
+   "dur": 60,
+   "price": 1800,
+   "deity": "Lord Ganesha",
+   "ben": "Removes obstacles before a new beginning.",
+   "kit": "k_ganesh",
+   "pop": 1,
+   "tags": "obstacles new beginning start success vighna"
+  },
+  {
+   "id": "rudra",
+   "name": "Rudrabhishek",
+   "hindi": "रुद्राभिषेक",
+   "cat": "Deity Worship",
+   "icon": "🔱",
+   "dur": 90,
+   "price": 3500,
+   "deity": "Lord Shiva",
+   "ben": "Abhishek of Shivling for calm, health and relief from stress.",
+   "kit": "k_shiv",
+   "pop": 1,
+   "tags": "shiva peace health mental stress calm anxiety"
+  },
+  {
+   "id": "mrityunjaya",
+   "name": "Maha Mrityunjaya Jaap",
+   "hindi": "महामृत्युंजय जाप",
+   "cat": "Health & Dosha",
+   "icon": "🕉️",
+   "dur": 180,
+   "price": 5500,
+   "deity": "Lord Shiva",
+   "ben": "Sankalp jaap for health, recovery and protection.",
+   "kit": "k_havan",
+   "pop": 0,
+   "tags": "health illness recovery surgery protection sick hospital"
+  },
+  {
+   "id": "navgraha",
+   "name": "Navgraha Shanti",
+   "hindi": "नवग्रह शांति",
+   "cat": "Health & Dosha",
+   "icon": "⭐",
+   "dur": 150,
+   "price": 4100,
+   "deity": "Nine planets",
+   "ben": "Havan to pacify planetary influences in your chart.",
+   "kit": "k_havan",
+   "pop": 0,
+   "tags": "planets graha dosha career delays obstacles saturn shani"
+  },
+  {
+   "id": "kaalsarp",
+   "name": "Kaal Sarp Dosh Nivaran",
+   "hindi": "कालसर्प दोष निवारण",
+   "cat": "Health & Dosha",
+   "icon": "🐍",
+   "dur": 150,
+   "price": 6100,
+   "deity": "Lord Shiva and Nag Devta",
+   "ben": "A traditional remedy for Kaal Sarp dosh.",
+   "kit": "k_havan",
+   "pop": 0,
+   "tags": "kaal sarp dosh rahu ketu"
+  },
+  {
+   "id": "vivah",
+   "name": "Vivah Sanskar",
+   "hindi": "विवाह संस्कार",
+   "cat": "Life Event",
+   "icon": "💍",
+   "dur": 300,
+   "price": 21000,
+   "deity": "Agni and family deities",
+   "ben": "Complete Vedic wedding ceremony with a senior pandit.",
+   "kit": "k_havan",
+   "pop": 0,
+   "tags": "wedding marriage shaadi vivah"
+  },
+  {
+   "id": "namkaran",
+   "name": "Namkaran Sanskar",
+   "hindi": "नामकरण संस्कार",
+   "cat": "Life Event",
+   "icon": "👶",
+   "dur": 90,
+   "price": 2600,
+   "deity": "Family deities",
+   "ben": "Naming ceremony for a newborn with kundli-based letter.",
+   "kit": "k_basic",
+   "pop": 0,
+   "tags": "baby naming newborn child birth"
+  },
+  {
+   "id": "vastu",
+   "name": "Vastu Shanti",
+   "hindi": "वास्तु शांति",
+   "cat": "Life Event",
+   "icon": "🧭",
+   "dur": 150,
+   "price": 4500,
+   "deity": "Vastu Purusha",
+   "ben": "Corrects vastu doshas in a home or workplace.",
+   "kit": "k_griha",
+   "pop": 0,
+   "tags": "vastu home office negative energy shanti"
+  },
+  {
+   "id": "durga",
+   "name": "Durga Saptashati Path",
+   "hindi": "दुर्गा सप्तशती पाठ",
+   "cat": "Festival",
+   "icon": "🦁",
+   "dur": 120,
+   "price": 3300,
+   "deity": "Goddess Durga",
+   "ben": "Path and havan for strength and protection during Navratri.",
+   "kit": "k_nav",
+   "pop": 1,
+   "tags": "navratri durga shakti strength protection courage women"
+  },
+  {
+   "id": "hanuman",
+   "name": "Sundarkand Path",
+   "hindi": "सुंदरकांड पाठ",
+   "cat": "Deity Worship",
+   "icon": "🚩",
+   "dur": 150,
+   "price": 2800,
+   "deity": "Lord Hanuman",
+   "ben": "Recitation for courage, protection and resolve.",
+   "kit": "k_basic",
+   "pop": 0,
+   "tags": "hanuman courage fear strength protection tuesday saturday"
+  },
+  {
+   "id": "pitru",
+   "name": "Pitru Tarpan and Shraddha",
+   "hindi": "पितृ तर्पण",
+   "cat": "Life Event",
+   "icon": "🪔",
+   "dur": 120,
+   "price": 2900,
+   "deity": "Ancestors",
+   "ben": "Offerings for ancestors, usually in Pitru Paksha.",
+   "kit": "k_pitru",
+   "pop": 0,
+   "tags": "ancestors pitru shraddha parents death anniversary"
+  },
+  {
+   "id": "vyapar",
+   "name": "Shop or Office Opening Puja",
+   "hindi": "व्यापार शुभारंभ",
+   "cat": "Prosperity",
+   "icon": "🏪",
+   "dur": 90,
+   "price": 3000,
+   "deity": "Lakshmi and Ganesha",
+   "ben": "Inaugurates a new shop, clinic or office.",
+   "kit": "k_lakshmi",
+   "pop": 0,
+   "tags": "business shop office opening new venture startup clinic"
+  },
+  {
+   "id": "saraswati",
+   "name": "Saraswati Puja",
+   "hindi": "सरस्वती पूजा",
+   "cat": "Deity Worship",
+   "icon": "📚",
+   "dur": 75,
+   "price": 2100,
+   "deity": "Goddess Saraswati",
+   "ben": "For students, artists and anyone beginning to learn.",
+   "kit": "k_basic",
+   "pop": 0,
+   "tags": "education exam student knowledge learning school music"
+  }
+ ],
+ "kits": [
+  {
+   "id": "k_basic",
+   "name": "Basic Puja Kit",
+   "price": 399,
+   "icon": "🧺",
+   "items": [
+    "Roli, moli, akshat",
+    "Incense and camphor",
+    "Cotton wicks and diya",
+    "Haldi, kumkum, sindoor",
+    "Janeu and supari",
+    "Panchamrit ingredients"
+   ]
+  },
+  {
+   "id": "k_lakshmi",
+   "name": "Lakshmi Puja Kit",
+   "price": 799,
+   "icon": "🪷",
+   "items": [
+    "Lakshmi-Ganesh photo",
+    "Lotus and marigold flowers",
+    "Kamal gatta, coins, cowrie",
+    "Ghee diyas (11)",
+    "Betel leaves and nuts",
+    "Fruits and mishri",
+    "Red cloth and roli"
+   ]
+  },
+  {
+   "id": "k_satya",
+   "name": "Satyanarayan Katha Kit",
+   "price": 649,
+   "icon": "📿",
+   "items": [
+    "Katha book",
+    "Tulsi leaves",
+    "Banana leaves",
+    "Panjiri ingredients",
+    "Yellow cloth",
+    "Panchamrit",
+    "Havan samagri (small)"
+   ]
+  },
+  {
+   "id": "k_griha",
+   "name": "Griha Pravesh Kit",
+   "price": 1499,
+   "icon": "🏠",
+   "items": [
+    "Kalash and coconut",
+    "Mango leaf toran",
+    "Havan kund and samagri",
+    "Navdhanya",
+    "Vastu yantra",
+    "Rangoli colours",
+    "Cow ghee (250 g)"
+   ]
+  },
+  {
+   "id": "k_shiv",
+   "name": "Rudrabhishek Kit",
+   "price": 899,
+   "icon": "🔱",
+   "items": [
+    "Bel patra",
+    "Gangajal",
+    "Milk, curd, honey, ghee",
+    "Dhatura and aak flowers",
+    "Rudraksha mala",
+    "Chandan and bhasma"
+   ]
+  },
+  {
+   "id": "k_havan",
+   "name": "Havan Kit",
+   "price": 549,
+   "icon": "🔥",
+   "items": [
+    "Havan samagri (1 kg)",
+    "Mango wood samidha",
+    "Cow ghee (250 g)",
+    "Camphor and kalava",
+    "Black sesame and barley",
+    "Copper havan kund"
+   ]
+  },
+  {
+   "id": "k_nav",
+   "name": "Navratri Durga Kit",
+   "price": 749,
+   "icon": "🦁",
+   "items": [
+    "Chunri and shringar set",
+    "Kalash and jau",
+    "Durga saptashati book",
+    "Red flowers",
+    "Coconut",
+    "Akhand jyot diya"
+   ]
+  },
+  {
+   "id": "k_pitru",
+   "name": "Pitru Tarpan Kit",
+   "price": 499,
+   "icon": "🪔",
+   "items": [
+    "Kusha grass",
+    "Black sesame",
+    "Barley and rice for pind",
+    "Tulsi and white flowers",
+    "Copper lota",
+    "Gangajal"
+   ]
+  },
+  {
+   "id": "k_ganesh",
+   "name": "Ganesh Puja Kit",
+   "price": 449,
+   "icon": "🐘",
+   "items": [
+    "Durva grass",
+    "Red hibiscus",
+    "Modak (sweet)",
+    "Sindoor and janeu",
+    "Ganesh idol (clay, small)",
+    "Incense"
+   ]
+  }
+ ],
+ "prasad": [
+  {
+   "id": "pr1",
+   "name": "Laddu Prasad Box (500 g)",
+   "price": 351,
+   "icon": "🟠",
+   "descr": "Fresh besan laddu prepared in ghee"
+  },
+  {
+   "id": "pr2",
+   "name": "Kesar Peda Box (400 g)",
+   "price": 451,
+   "icon": "🥮",
+   "descr": "Milk peda with saffron"
+  },
+  {
+   "id": "pr3",
+   "name": "Panchmeva Prasad",
+   "price": 551,
+   "icon": "🥜",
+   "descr": "Five dry fruits, blessed after puja"
+  },
+  {
+   "id": "pr4",
+   "name": "Temple Prasad Parcel",
+   "price": 651,
+   "icon": "🛕",
+   "descr": "Prasad from the partner temple where your puja is offered"
+  },
+  {
+   "id": "pr5",
+   "name": "Mishri and Makhana Pack",
+   "price": 299,
+   "icon": "🍚",
+   "descr": "Light prasad suited to fasting days"
+  },
+  {
+   "id": "pr6",
+   "name": "Gangajal (250 ml)",
+   "price": 149,
+   "icon": "💧",
+   "descr": "Sealed holy water"
+  }
+ ],
+ "temples": [
+  {
+   "id": "t1",
+   "name": "Kashi Vishwanath Temple",
+   "city": "Varanasi",
+   "deity": "Shiva",
+   "icon": "🔱",
+   "pujas": [
+    "rudra",
+    "mrityunjaya",
+    "navgraha"
+   ],
+   "offering": 251,
+   "descr": "Rudrabhishek and jaap offered in the temple town of Kashi."
+  },
+  {
+   "id": "t2",
+   "name": "Mahakaleshwar Temple",
+   "city": "Ujjain",
+   "deity": "Shiva",
+   "icon": "🛕",
+   "pujas": [
+    "rudra",
+    "kaalsarp",
+    "mrityunjaya"
+   ],
+   "offering": 251,
+   "descr": "Known for Shiva worship and Kaal Sarp shanti rituals."
+  },
+  {
+   "id": "t3",
+   "name": "Siddhivinayak Temple",
+   "city": "Mumbai",
+   "deity": "Ganesha",
+   "icon": "🐘",
+   "pujas": [
+    "ganesh"
+   ],
+   "offering": 251,
+   "descr": "Ganesh puja and sankalp offered on your behalf."
+  },
+  {
+   "id": "t4",
+   "name": "Trimbakeshwar Temple",
+   "city": "Nashik",
+   "deity": "Shiva",
+   "icon": "🕉️",
+   "pujas": [
+    "kaalsarp",
+    "pitru",
+    "rudra"
+   ],
+   "offering": 251,
+   "descr": "A traditional centre for Pitru and Kaal Sarp rituals."
+  },
+  {
+   "id": "t5",
+   "name": "Mahalakshmi Temple",
+   "city": "Kolhapur",
+   "deity": "Lakshmi",
+   "icon": "🪷",
+   "pujas": [
+    "lakshmi",
+    "vyapar"
+   ],
+   "offering": 251,
+   "descr": "Lakshmi puja for prosperity and business beginnings."
+  },
+  {
+   "id": "t6",
+   "name": "Sankat Mochan Temple",
+   "city": "Varanasi",
+   "deity": "Hanuman",
+   "icon": "🚩",
+   "pujas": [
+    "hanuman"
+   ],
+   "offering": 251,
+   "descr": "Sundarkand and Hanuman worship for courage and protection."
+  }
+ ],
+ "festivals": [
+  {
+   "id": "anant",
+   "name": "Anant Chaturdashi",
+   "date": "2026-09-25",
+   "pujas": [
+    "ganesh",
+    "satyanarayan"
+   ],
+   "note": "Concludes the Ganesh festival; Anant vrat and Vishnu worship."
+  },
+  {
+   "id": "pitru",
+   "name": "Pitru Paksha begins",
+   "date": "2026-09-26",
+   "pujas": [
+    "pitru"
+   ],
+   "note": "Fortnight for shraddha and tarpan for ancestors."
+  },
+  {
+   "id": "navratri",
+   "name": "Sharad Navratri begins",
+   "date": "2026-10-11",
+   "pujas": [
+    "durga",
+    "navgraha"
+   ],
+   "note": "Nine nights of Goddess Durga; ghatasthapana on day one."
+  },
+  {
+   "id": "dussehra",
+   "name": "Vijayadashami (Dussehra)",
+   "date": "2026-10-20",
+   "pujas": [
+    "durga",
+    "vyapar"
+   ],
+   "note": "Victory of good over evil; auspicious for new ventures."
+  },
+  {
+   "id": "dhanteras",
+   "name": "Dhanteras",
+   "date": "2026-11-06",
+   "pujas": [
+    "lakshmi",
+    "vyapar"
+   ],
+   "note": "Start of Diwali; worship of wealth and Dhanvantari."
+  },
+  {
+   "id": "diwali",
+   "name": "Diwali (Lakshmi Puja)",
+   "date": "2026-11-08",
+   "pujas": [
+    "lakshmi",
+    "ganesh"
+   ],
+   "note": "Festival of lights; Lakshmi-Ganesh puja in the evening."
+  },
+  {
+   "id": "devdiwali",
+   "name": "Kartik Purnima (Dev Diwali)",
+   "date": "2026-11-24",
+   "pujas": [
+    "satyanarayan",
+    "rudra"
+   ],
+   "note": "Auspicious full moon for Satyanarayan katha and Shiva worship."
+  },
+  {
+   "id": "sankranti",
+   "name": "Makar Sankranti",
+   "date": "2027-01-14",
+   "pujas": [
+    "rudra",
+    "satyanarayan"
+   ],
+   "note": "Sun enters Capricorn; daan and worship."
+  },
+  {
+   "id": "vasant",
+   "name": "Vasant Panchami",
+   "date": "2027-02-11",
+   "pujas": [
+    "saraswati"
+   ],
+   "note": "Saraswati puja; a traditional day to begin learning."
+  },
+  {
+   "id": "shivratri",
+   "name": "Maha Shivratri",
+   "date": "2027-03-06",
+   "pujas": [
+    "rudra",
+    "mrityunjaya"
+   ],
+   "note": "Night-long worship of Lord Shiva."
+  },
+  {
+   "id": "holi",
+   "name": "Holi",
+   "date": "2027-03-22",
+   "pujas": [
+    "satyanarayan"
+   ],
+   "note": "Festival of colours, preceded by Holika Dahan."
+  },
+  {
+   "id": "ramnavami",
+   "name": "Ram Navami",
+   "date": "2027-04-15",
+   "pujas": [
+    "hanuman",
+    "satyanarayan"
+   ],
+   "note": "Birth of Lord Rama; Ramayan and Sundarkand path."
+  },
+  {
+   "id": "akshaya",
+   "name": "Akshaya Tritiya",
+   "date": "2027-05-09",
+   "pujas": [
+    "lakshmi",
+    "griha"
+   ],
+   "note": "A day considered auspicious for new beginnings and purchases."
+  },
+  {
+   "id": "janmashtami",
+   "name": "Krishna Janmashtami",
+   "date": "2027-08-25",
+   "pujas": [
+    "satyanarayan"
+   ],
+   "note": "Birth of Lord Krishna; midnight celebrations."
+  },
+  {
+   "id": "ganesh27",
+   "name": "Ganesh Chaturthi",
+   "date": "2027-09-04",
+   "pujas": [
+    "ganesh"
+   ],
+   "note": "Ten-day festival of Lord Ganesha."
+  }
+ ]
+}

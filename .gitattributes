@@ -1,0 +1,11 @@
+# Normalize line endings on commit so clones match across Windows/macOS/Linux.
+# LF matters for the Dockerfile and any shell scripts.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

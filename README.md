@@ -1,0 +1,82 @@
+# DevPooja: full-stack puja booking platform
+
+Customer site, pandit partner portal and admin panel, backed by a REST API and a SQLite database.
+
+- **Backend:** Node.js, Express, SQLite (better-sqlite3), JWT auth, bcrypt, multer uploads, helmet, rate limiting
+- **Frontend:** vanilla JavaScript single-page app in `public/` (no build step). It renders from `GET /api/state` and sends every change to the API
+- **Shared rules:** `shared/pricing.js` runs in both the browser (live price preview) and the server (the price that is actually charged)
+
+## Quick start
+
+```bash
+npm install
+cp .env.example .env        # edit values if you like
+npm start                   # http://localhost:3000
+```
+
+With `DEMO_MODE=true` (default in development) the first start seeds sample pandits, customers and bookings.
+
+| Role | How to log in in demo mode |
+|---|---|
+| Customer | "Continue with demo account", or any 10-digit mobile with OTP `123456` |
+| Pandit | Partner with us, "Open demo portal", or Pandit login with `9810000001` and OTP `123456` |
+| Admin | `/#/admin`, `admin@devpooja.in` / `admin123` (from `.env`) |
+
+Other commands: `npm test` (15 API tests), `npm run test:ui` (drives the real UI in jsdom), `npm run reset` (clear and reseed), `docker build -t devpooja . && docker run -p 3000:3000 -v dp:/data -e JWT_SECRET=... devpooja`.
+
+## Project layout
+
+```
+server/
+  index.js            app setup, security headers, static hosting, error handler
+  db.js               SQLite schema (created automatically)
+  seed.js             catalogue seed, admin account, demo data
+  auth.js             JWT sign/verify, role middleware
+  routes/             auth.js  customer.js  pandit.js  admin.js
+  services/           bookings.js (all business rules)  payments.js  notify.js
+  lib/                state.js (role-scoped state)  serialize.js  validate helpers  upload.js
+  data/catalog.json   pujas, kits, prasad, temples, festivals
+shared/pricing.js     price, GST, coupon, points and refund-tier rules
+public/               index.html, css/app.css, js/*.js
+tests/                api.test.js  ui-smoke.js
+```
+
+## What the backend enforces
+
+- **Double-booking is impossible:** a partial unique index on (pandit, date, slot) rejects overlaps, even under concurrent requests
+- **Prices are computed on the server** from the database. The browser preview is only a preview
+- Coupons, reward points, kit stock and temple availability are validated on the server; stock and points are released when a booking is cancelled or a payment hold expires
+- Refund tiers: 100% more than 48 h ahead, 75% from 24 to 48 h, 50% inside 24 h
+- Customers only receive their own data. Pandits see their own bookings with customer mobile numbers masked. KYC documents are stored outside the public folder and streamed only to admins
+- OTPs are hashed, expire in 5 minutes and lock after 5 wrong attempts. Rate limits on login, OTP and lead forms
+- Payouts are created when a puja is completed, using the commission rate at that moment
+
+## API overview
+
+Public: `GET /api/state`, `POST /api/quote`, `POST /api/leads`, `POST /api/auth/otp/send`, `/otp/verify`, `/email`, `/admin`, `POST /api/pandit/register` (multipart)
+
+Customer (Bearer token): `PATCH /api/me`, `/me/addresses`, `/me/family`, `/me/plus`, `POST /api/bookings`, `/bookings/:id/cancel|reschedule|review`, `POST /api/payments/verify`, `POST /api/orders`, `POST /api/tickets`
+
+Pandit: `POST /api/pandit/bookings/:id/accept|reject|start|complete` (complete accepts photo/video uploads), `/availability`, `PATCH /profile`
+
+Admin: `/api/admin/...` bookings (assign, status, refund, escalate, ops, manual), pandits (KYC, feature, documents), pujas, settings, coupons, payouts, banners, campaigns, push, inventory, orders, tickets, review moderation
+
+## Going live: checklist
+
+1. Set `NODE_ENV=production`, a strong `JWT_SECRET`, and `ADMIN_EMAIL` / `ADMIN_PASSWORD`. `DEMO_MODE` turns off by default
+2. Configure an SMS provider (`TWILIO_*`). Without it, mobile OTP codes cannot be delivered
+3. Set `PAYMENT_MODE=razorpay` with your keys and test with Razorpay test mode. Add a Razorpay webhook (`payment.captured`) as a second confirmation path in case the customer closes the browser after paying
+4. Serve behind HTTPS (nginx, Caddy, or your host) and set `TRUST_PROXY=1`
+5. Back up `data/` and `uploads/` (or move to Postgres and object storage before running more than one server)
+6. Have the terms, privacy policy, GST invoicing format and refund policy reviewed by your CA and lawyer
+
+## Known gaps (not built or not verifiable here)
+
+- **Razorpay and Twilio/SendGrid were not run against live accounts.** The order creation, signature check and hold-expiry logic are covered by tests using a stubbed gateway; use test keys first
+- **Live video puja** is a placeholder screen. Integrate Jitsi, Daily or Zoom and store the room link on the booking
+- **Standalone samagri/prasad orders** are placed as pay-on-delivery. **DevPooja Plus** and **featured listings** activate without billing in mock mode and return 501 in Razorpay mode until you add subscription billing
+- **WhatsApp** through Twilio needs a WhatsApp Business sender and approved message templates
+- **Kundli, horoscope and muhurat** are placeholders. Use a licensed astrology API
+- **Analytics** are computed in the browser from the admin state, which is fine for thousands of bookings but should move to SQL aggregates as you grow
+- **Data protection:** the app stores names, mobile numbers and addresses. Add consent capture, a data-deletion flow and retention rules to meet the DPDP Act
+- SQLite suits a single server. For several servers or high traffic, switch to Postgres
