@@ -9,7 +9,7 @@
     "url": "https://github.com/Amit-2013/DevPooja.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node server/index.js",

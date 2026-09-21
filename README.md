@@ -8,6 +8,8 @@ Full-stack puja booking platform: customer site, pandit partner portal and admin
 
 ## Quick start
 
+Requires **Node 22 or newer** (better-sqlite3 13 needs it).
+
 ```bash
 npm install
 cp .env.example .env        # edit values if you like
