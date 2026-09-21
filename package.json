@@ -1,9 +1,13 @@
 {
-  "name": "devpooja",
+  "name": "deivikpooja",
   "version": "1.0.0",
-  "description": "DevPooja: full-stack puja booking platform (Express + SQLite + vanilla JS SPA)",
+  "description": "DeivikPooja – Sanatan Seva Platform: full-stack puja booking platform (Express + SQLite + vanilla JS SPA)",
   "main": "server/index.js",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Amit-2013/DevPooja.git"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -13,7 +17,9 @@
     "seed": "node server/seed.js",
     "reset": "node server/seed.js --reset",
     "test": "node --test tests/api.test.js",
-    "test:ui": "node tests/ui-smoke.js"
+    "test:ui": "node tests/ui-smoke.js",
+    "build:pages": "node tools/build-pages.js",
+    "preview:pages": "node tools/serve-pages.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

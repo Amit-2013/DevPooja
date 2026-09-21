@@ -60,7 +60,7 @@ test('email signup and login', async () => {
 
 test('server quote matches shared pricing and validates coupons', async () => {
   const t = await login('customer');
-  const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DEVPOOJA10' } });
+  const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DEIVIKPOOJA10' } });
   const expected = P.quote('home', { puja: { price: 3100 }, pandit: { pf: 1.15 }, plus: false, kits: [{ price: 799 }], prasad: [], coupon: { active: true, type: 'pct', val: 10, max: 500, min: 1500 }, points: 0 });
   assert.equal(r.json.q.total, expected.total);
   const bad = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', coupon: 'NOPE' } });
@@ -152,8 +152,8 @@ test('a pandit cannot act on another pandit\'s booking; customers cannot use adm
 });
 
 test('admin: login, assign, cancel with refund, process refund, coupons, settings', async () => {
-  assert.equal((await call('POST', '/auth/admin', { body: { email: 'admin@devpooja.in', password: 'bad' } })).status, 401);
-  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@devpooja.in', password: 'admin123' } })).json.token;
+  assert.equal((await call('POST', '/auth/admin', { body: { email: 'admin@deivikpooja.in', password: 'bad' } })).status, 401);
+  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@deivikpooja.in', password: 'admin123' } })).json.token;
   const tc = await login('customer');
   const b = (await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(70), slot: '04:00 PM', panditId: '' }) })).json.booking;
   const a = await call('POST', `/admin/bookings/${b.id}/assign`, { token: ta, body: { panditId: 'p4' } });
@@ -178,7 +178,7 @@ test('pandit registration needs OTP and an ID document; KYC approval', async () 
   assert.equal((await call('POST', '/pandit/register', { form: f(false) })).status, 400);
   await call('POST', '/auth/otp/send', { body: { mobile: '9000044444' } });
   assert.equal((await call('POST', '/pandit/register', { form: f(true) })).status, 201);
-  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@devpooja.in', password: 'admin123' } })).json.token;
+  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@deivikpooja.in', password: 'admin123' } })).json.token;
   const st = (await call('GET', '/state', { token: ta })).json;
   const np = st.pandits.find((p) => p.n === 'Pt. Test');
   assert.equal(np.st, 'pending');

@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const file = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'devpooja.db');
+const file = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'deivikpooja.db');
 if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
 const db = new Database(file);
 db.pragma('journal_mode = WAL');

@@ -31,7 +31,7 @@ function notify(userId, channel, message) {
   if (!u) return;
   const job = channel === 'SMS' && u.mobile ? twilio(u.mobile, message, false)
     : channel === 'WhatsApp' && u.mobile ? twilio(u.mobile, message, true)
-    : channel === 'Email' && u.email ? sendgrid(u.email, 'DevPooja update', message) : null;
+    : channel === 'Email' && u.email ? sendgrid(u.email, 'DeivikPooja update', message) : null;
   if (job) job.catch((e) => console.error('[notify]', channel, e.message));
   if (process.env.NODE_ENV !== 'test' && !process.env.QUIET) console.log(`[notify:${channel}] ${userId}: ${message}`);
 }
@@ -39,6 +39,6 @@ function notify(userId, channel, message) {
 /* Raw SMS for OTP (not stored in notifs) */
 async function sendOtp(mobile, code) {
   if (process.env.NODE_ENV !== 'production') console.log(`[otp] ${mobile} -> ${code}`);
-  try { await twilio(mobile, `Your DevPooja OTP is ${code}. Valid for 5 minutes.`, false); } catch (e) { console.error('[otp]', e.message); }
+  try { await twilio(mobile, `Your DeivikPooja OTP is ${code}. Valid for 5 minutes.`, false); } catch (e) { console.error('[otp]', e.message); }
 }
 module.exports = { notify, sendOtp };

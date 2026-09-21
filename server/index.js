@@ -67,5 +67,5 @@ app.use((err, _req, res, _next) => {
 });
 
 const port = process.env.PORT || 3000;
-if (require.main === module) app.listen(port, () => console.log(`DevPooja running at http://localhost:${port}  (payments: ${process.env.PAYMENT_MODE || 'mock'})`));
+if (require.main === module) app.listen(port, () => console.log(`DeivikPooja running at http://localhost:${port}  (payments: ${process.env.PAYMENT_MODE || 'mock'})`));
 module.exports = app;

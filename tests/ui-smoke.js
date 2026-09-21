@@ -22,7 +22,7 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   const setv = (id, v) => { const e = d.getElementById(id); if (!e) errs.push('NOID ' + id); else e.value = v; };
   const text = () => d.getElementById('view').textContent;
   for (let i = 0; i < 40 && !d.querySelector('#view h1'); i++) await sleep(100);
-  console.log('home rendered:', /DevPooja|puja/i.test(text()));
+  console.log('home rendered:', /DeivikPooja|puja/i.test(text()));
 
   for (const r of ['', 'pujas', 'pujas?q=peace', 'puja/lakshmi', 'pandits', 'pandit/p1', 'temples', 'samagri', 'prasad', 'festivals', 'astrology', 'corporate', 'about', 'contact', 'partner', 'register-pandit', 'rewards', 'plus', 'account', 'portal', 'admin']) await go('#/' + r);
 
@@ -38,7 +38,7 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   const ad = d.querySelector('[data-in=wz][data-k="addr.line"]'); ad.value = '5 Test Lane'; ad.dispatchEvent(new w.Event('input', { bubbles: true }));
   await click('[data-act=wz-next]'); await click('[data-act=wz-pandit][data-v=p1]'); await click('[data-act=wz-next]');
   await click('[data-act=wz-sam]'); await click('[data-act=wz-next]');
-  setv('cpn', 'DEVPOOJA10'); await click('[data-act=wz-coupon]', 500); console.log('coupon msg:', /Coupon applied/.test(text()));
+  setv('cpn', 'DEIVIKPOOJA10'); await click('[data-act=wz-coupon]', 500); console.log('coupon msg:', /Coupon applied/.test(text()));
   await click('[data-act=wz-next]'); await click('[data-act=wz-pay]', 700);
   console.log('booking confirmed:', /Booking confirmed/.test(text()));
   for (const t of ['bookings', 'orders', 'notifs', 'profile', 'addresses', 'family', 'rewards', 'support']) await go('#/account/' + t);

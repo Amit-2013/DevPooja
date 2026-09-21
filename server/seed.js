@@ -17,13 +17,13 @@ function seedCatalog() {
     catalog.temples.forEach((t) => db.prepare('INSERT INTO temples(id,name,city,deity,icon,pujas,offering,descr) VALUES(?,?,?,?,?,?,?,?)').run(t.id, t.name, t.city, t.deity, t.icon, JSON.stringify(t.pujas), t.offering, t.descr));
     catalog.festivals.forEach((f) => db.prepare('INSERT INTO festivals(id,name,date,pujas,note) VALUES(?,?,?,?,?)').run(f.id, f.name, f.date, JSON.stringify(f.pujas), f.note));
     setSetting('commission', 20);
-    [['DEVPOOJA10', 'pct', 10, 500, 1500], ['FIRST100', 'flat', 100, 100, 1000], ['FESTIVE15', 'pct', 15, 750, 3000]].forEach((c) => db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(...c));
+    [['DEIVIKPOOJA10', 'pct', 10, 500, 1500], ['FIRST100', 'flat', 100, 100, 1000], ['FESTIVE15', 'pct', 15, 750, 3000]].forEach((c) => db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(...c));
     db.prepare('INSERT INTO banners(id,text,enabled) VALUES(?,?,1)').run('b1', 'Diwali Lakshmi Puja: book early');
   })();
 }
 
 function ensureAdmin() {
-  const email = (process.env.ADMIN_EMAIL || (isProd() ? '' : 'admin@devpooja.in')).toLowerCase();
+  const email = (process.env.ADMIN_EMAIL || (isProd() ? '' : 'admin@deivikpooja.in')).toLowerCase();
   const pass = process.env.ADMIN_PASSWORD || (isProd() ? '' : 'admin123');
   if (!email || !pass) { console.warn('[seed] No admin account created. Set ADMIN_EMAIL and ADMIN_PASSWORD in .env'); return; }
   const hash = bcrypt.hashSync(pass, 10);
@@ -54,8 +54,8 @@ function seedDemo() {
     ['p6', 'Pt. Dinesh Pandey', 'Pune', 10, ['Marathi', 'Hindi'], ['ganesh', 'satyanarayan', 'namkaran', 'griha'], 4.5, 140, 420, 0.9, 'Ganesh and life-event ceremonies in Marathi and Hindi.', '#a5201a', 'verified', 0],
     ['p7', 'Acharya Gopal Rao', 'Bengaluru', 16, ['Kannada', 'Telugu', 'English'], ['durga', 'lakshmi', 'rudra', 'vivah'], 4.7, 215, 760, 1.05, 'Conducts pujas in Kannada, Telugu and English for families across Bengaluru.', '#1f6a3a', 'verified', 0],
     ['p8', 'Pt. Mahesh Tiwari', 'Varanasi', 22, ['Hindi', 'Sanskrit'], ['rudra', 'pitru', 'mrityunjaya', 'kaalsarp'], 4.9, 330, 1180, 1.1, 'Pitru and Shiva rituals from Kashi tradition.', '#6b4e00', 'verified', 0],
-    ['p9', 'Pt. Sanjay Dubey', 'Hyderabad', 7, ['Hindi', 'Telugu'], ['ganesh', 'satyanarayan'], 0, 0, 0, 0.9, 'Recently applied to join DevPooja.', '#555555', 'pending', 0],
-    ['p10', 'Pt. Rakesh Pathak', 'Delhi NCR', 9, ['Hindi'], ['hanuman', 'lakshmi'], 0, 0, 0, 0.9, 'Recently applied to join DevPooja.', '#555555', 'pending', 0]
+    ['p9', 'Pt. Sanjay Dubey', 'Hyderabad', 7, ['Hindi', 'Telugu'], ['ganesh', 'satyanarayan'], 0, 0, 0, 0.9, 'Recently applied to join DeivikPooja.', '#555555', 'pending', 0],
+    ['p10', 'Pt. Rakesh Pathak', 'Delhi NCR', 9, ['Hindi'], ['hanuman', 'lakshmi'], 0, 0, 0, 0.9, 'Recently applied to join DeivikPooja.', '#555555', 'pending', 0]
   ];
   P.forEach((p, i) => {
     const mobile = '98100000' + String(i + 1).padStart(2, '0'), uid = 'pu' + (i + 1);
