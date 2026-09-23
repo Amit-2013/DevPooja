@@ -89,6 +89,129 @@ router.post('/push', (req, res) => {
   res.json({ sent: users.length });
 });
 router.post('/inventory/:kit/restock', (req, res) => { const r = db.prepare('UPDATE kits SET stock=stock+? WHERE id=?').run(v.int(req.body.qty || 20, 'Quantity', { min: 1, max: 5000 }), req.params.kit); if (!r.changes) throw notFound(); res.json({ ok: true }); });
+
+/* --- samagri kit catalog management --- */
+router.post('/kits', (req, res) => {
+  const b = req.body;
+  const name = v.str(b.name, 'Kit name', { max: 80 });
+  const id = 'k_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) + '_' + rid(2);
+  const items = v.arr(b.items, 'Kit contents', 40).map((x) => v.str(x, 'Kit contents', { max: 80 })).filter(Boolean);
+  db.prepare('INSERT INTO kits(id,name,price,icon,items,stock,active) VALUES(?,?,?,?,?,?,1)')
+    .run(id, name, v.int(b.price, 'Price', { min: 0, max: 1000000 }), '🧘', JSON.stringify(items), v.int(b.stock === undefined || b.stock === '' ? 20 : b.stock, 'Stock', { min: 0, max: 100000 }));
+  res.status(201).json({ id });
+});
+router.patch('/kits/:id', (req, res) => {
+  const k = db.prepare('SELECT * FROM kits WHERE id=?').get(req.params.id); if (!k) throw notFound('Kit not found');
+  if (req.body.name !== undefined) db.prepare('UPDATE kits SET name=? WHERE id=?').run(v.str(req.body.name, 'Kit name', { max: 80 }), k.id);
+  if (req.body.price !== undefined) db.prepare('UPDATE kits SET price=? WHERE id=?').run(v.int(req.body.price, 'Price', { min: 0, max: 1000000 }), k.id);
+  if (req.body.stock !== undefined) db.prepare('UPDATE kits SET stock=? WHERE id=?').run(v.int(req.body.stock, 'Stock', { min: 0, max: 100000 }), k.id);
+  if (req.body.active !== undefined) db.prepare('UPDATE kits SET active=? WHERE id=?').run(req.body.active ? 1 : 0, k.id);
+  res.json({ ok: true });
+});
+
+/* --- prasad catalog management --- */
+router.post('/prasad', (req, res) => {
+  const b = req.body;
+  const name = v.str(b.name, 'Prasad name', { max: 80 });
+  const id = 'pr' + rid(3);
+  db.prepare('INSERT INTO prasad(id,name,price,icon,descr,stock,active) VALUES(?,?,?,?,?,?,1)')
+    .run(id, name, v.int(b.price, 'Price', { min: 0, max: 1000000 }), '🍬', v.str(b.descr || '', 'Description', { optional: true, max: 200 }), b.stock === undefined || b.stock === '' ? null : v.int(b.stock, 'Stock', { min: 0, max: 100000 }));
+  res.status(201).json({ id });
+});
+router.patch('/prasad/:id', (req, res) => {
+  const pr = db.prepare('SELECT * FROM prasad WHERE id=?').get(req.params.id); if (!pr) throw notFound('Prasad item not found');
+  if (req.body.name !== undefined) db.prepare('UPDATE prasad SET name=? WHERE id=?').run(v.str(req.body.name, 'Prasad name', { max: 80 }), pr.id);
+  if (req.body.price !== undefined) db.prepare('UPDATE prasad SET price=? WHERE id=?').run(v.int(req.body.price, 'Price', { min: 0, max: 1000000 }), pr.id);
+  if (req.body.stock !== undefined) db.prepare('UPDATE prasad SET stock=? WHERE id=?').run(req.body.stock === null ? null : v.int(req.body.stock, 'Stock', { min: 0, max: 100000 }), pr.id);
+  if (req.body.active !== undefined) db.prepare('UPDATE prasad SET active=? WHERE id=?').run(req.body.active ? 1 : 0, pr.id);
+  res.json({ ok: true });
+});
+
+/* Deleting is refused while bookings, orders or carts still reference the item:
+   their JSON would render broken. Deactivate instead — that is always safe.
+   cart_items comes from a migration, so its presence is checked, not assumed. */
+const likeId = (id) => '%' + JSON.stringify(id).slice(1, -1) + '%';
+const hasCarts = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cart_items'").get();
+const itemUsed = (id) =>
+  db.prepare('SELECT COUNT(*) c FROM bookings WHERE sam LIKE ? OR pra LIKE ?').get(likeId(id), likeId(id)).c
+  + db.prepare('SELECT COUNT(*) c FROM orders WHERE items LIKE ?').get(likeId(id)).c
+  + (hasCarts ? db.prepare('SELECT COUNT(*) c FROM cart_items WHERE item_id=?').get(id).c : 0);
+router.delete('/kits/:id', (req, res) => {
+  const k = db.prepare('SELECT * FROM kits WHERE id=?').get(req.params.id); if (!k) throw notFound('Kit not found');
+  if (db.prepare('SELECT 1 FROM pujas WHERE kit=? LIMIT 1').get(k.id)) throw conflict('This kit is assigned to a puja. Deactivate it instead.');
+  if (itemUsed(k.id)) throw conflict('Past bookings or orders still reference this kit. Deactivate it instead.');
+  db.prepare('DELETE FROM kits WHERE id=?').run(k.id); res.json({ ok: true });
+});
+router.delete('/prasad/:id', (req, res) => {
+  const pr = db.prepare('SELECT * FROM prasad WHERE id=?').get(req.params.id); if (!pr) throw notFound('Prasad item not found');
+  if (itemUsed(pr.id)) throw conflict('Past bookings or orders still reference this item. Deactivate it instead.');
+  db.prepare('DELETE FROM prasad WHERE id=?').run(pr.id); res.json({ ok: true });
+});
+/* --- Kundali module management: conditions and condition -> puja rules --- */
+const CONDITION_CODES = () => db.prepare('SELECT code FROM kundali_conditions').all().map((r) => r.code);
+
+router.get('/kundali/conditions', (req, res) => {
+  const rows = db.prepare(`
+    SELECT c.code, c.name, c.descr, c.severity, c.remedy, c.active,
+      (SELECT COUNT(*) FROM dosh_analysis d WHERE d.dosh_type = c.code AND d.detected = 1) AS timesDetected,
+      (SELECT json_group_array(json_object('pujaId', r.puja_id, 'weight', r.weight, 'priority', r.priority, 'reason', r.reason))
+         FROM condition_puja_rules r WHERE r.condition_code = c.code) AS rules
+    FROM kundali_conditions c ORDER BY c.severity, c.name`).all();
+  res.json({ conditions: rows.map((r) => ({ ...r, rules: j(r.rules, []) })) });
+});
+
+router.patch('/kundali/conditions/:code', (req, res) => {
+  const c = db.prepare('SELECT * FROM kundali_conditions WHERE code=?').get(req.params.code);
+  if (!c) throw notFound('Condition not found');
+  const b = req.body || {};
+  if (b.name !== undefined) db.prepare('UPDATE kundali_conditions SET name=? WHERE code=?').run(v.str(b.name, 'Name', { max: 60 }), c.code);
+  if (b.descr !== undefined) db.prepare('UPDATE kundali_conditions SET descr=? WHERE code=?').run(v.str(b.descr, 'Description', { optional: true, max: 300 }), c.code);
+  if (b.remedy !== undefined) db.prepare('UPDATE kundali_conditions SET remedy=? WHERE code=?').run(v.str(b.remedy, 'Remedy', { optional: true, max: 300 }), c.code);
+  if (b.severity !== undefined) db.prepare('UPDATE kundali_conditions SET severity=? WHERE code=?').run(v.oneOf(b.severity, ['low', 'medium', 'high'], 'Severity'), c.code);
+  if (b.active !== undefined) db.prepare('UPDATE kundali_conditions SET active=? WHERE code=?').run(b.active ? 1 : 0, c.code);
+  res.json({ ok: true });
+});
+
+/* Add a condition row (the astrological rule itself is code: rules/*.js). */
+router.post('/kundali/conditions', (req, res) => {
+  const b = req.body || {};
+  const code = v.str(b.code, 'Code', { max: 40 }).toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+  if (!code) throw bad('Code is required');
+  if (db.prepare('SELECT 1 FROM kundali_conditions WHERE code=?').get(code)) throw conflict('That condition code already exists');
+  db.prepare('INSERT INTO kundali_conditions(code,name,descr,severity,active) VALUES(?,?,?,?,1)')
+    .run(code, v.str(b.name, 'Name', { max: 60 }), v.str(b.descr || '', 'Description', { optional: true, max: 300 }), v.oneOf(b.severity || 'low', ['low', 'medium', 'high'], 'Severity'));
+  res.status(201).json({ ok: true, code });
+});
+
+router.post('/kundali/rules', (req, res) => {
+  const b = req.body || {};
+  const code = v.str(b.conditionCode, 'Condition', { max: 40 });
+  if (!CONDITION_CODES().includes(code)) throw bad('Unknown condition code');
+  const puja = db.prepare('SELECT id FROM pujas WHERE id=?').get(v.str(b.pujaId, 'Puja', { max: 30 }));
+  if (!puja) throw bad('Unknown puja');
+  const priority = v.oneOf(b.priority || 'secondary', ['primary', 'secondary', 'optional'], 'Priority');
+  db.prepare(`INSERT INTO condition_puja_rules(condition_code,puja_id,weight,priority,reason) VALUES(?,?,?,?,?)
+              ON CONFLICT(condition_code, puja_id) DO UPDATE SET weight=excluded.weight, priority=excluded.priority, reason=excluded.reason`)
+    .run(code, puja.id, v.int(b.weight || 5, 'Weight', { min: 1, max: 100 }), priority, v.str(b.reason || '', 'Reason', { optional: true, max: 300 }));
+  res.status(201).json({ ok: true });
+});
+
+router.delete('/kundali/rules/:conditionCode/:pujaId', (req, res) => {
+  const r = db.prepare('DELETE FROM condition_puja_rules WHERE condition_code=? AND puja_id=?').run(req.params.conditionCode, req.params.pujaId);
+  if (!r.changes) throw notFound('Rule not found');
+  res.json({ ok: true });
+});
+
+/* Recent kundali analyses for the admin overview. */
+router.get('/kundali/analyses', (req, res) => {
+  const rows = db.prepare(`
+    SELECT k.id, k.name, k.lagna, k.rashi, k.nakshatra, k.pada, k.created_at, k.calculation_version,
+      (SELECT COUNT(*) FROM dosh_analysis d WHERE d.kundali_id = k.id AND d.detected = 1) AS doshas,
+      (SELECT COUNT(*) FROM puja_recommendations pr WHERE pr.kundali_id = k.id) AS recommendations
+    FROM kundalis k ORDER BY k.created_at DESC LIMIT 100`).all();
+  res.json({ analyses: rows });
+});
+
 router.post('/orders/:id/advance', (req, res) => {
   const o = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id); if (!o) throw notFound();
   const s = ['Placed', 'Packed', 'Dispatched', 'Delivered'], nx = s[Math.min(3, s.indexOf(o.status) + 1)];

@@ -107,3 +107,18 @@ details{border-bottom:1px solid var(--line);padding:14px 0}summary{cursor:pointe
 .vid{aspect-ratio:16/9;background:var(--hero);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--heroink);flex-direction:column;gap:8px;position:relative}
 .ph{aspect-ratio:4/3;border-radius:8px;background:linear-gradient(135deg,var(--goldsoft),var(--bg2));display:flex;align-items:center;justify-content:center;font-size:2.2rem;border:1px solid var(--line)}
 @media print{.util,.nav,footer,.fab,#asst,#toast,.noprint{display:none!important}#modal{position:static;background:none;display:block}.mbox{border:0;max-height:none}.mx{display:none}}
+
+/* ---------- Kundali flow ---------- */
+.khead{background:var(--hero);color:#fff;margin:-32px calc(50% - 50vw) 0;padding:36px 0;text-align:center;border-bottom:4px solid var(--gold)}
+.khead .wrap{max-width:900px}
+.kload .diya{width:84px;height:auto;margin:0 auto;display:block}
+.kload .flame{animation:flick 1.6s infinite ease-in-out}
+.dosh{border-left-width:4px}
+.dosh-high{border-left-color:var(--bad);background:rgba(210,56,27,.06)}
+.dosh-medium{border-left-color:var(--gold);background:rgba(242,169,0,.07)}
+.dosh-low{border-left-color:var(--info,#3a7ca5);background:rgba(58,124,165,.05)}
+.dosh-none{border-left-color:var(--ok,#2e7d32)}
+.dosh details,.reco details{margin-top:4px}
+.dosh summary,.reco summary{cursor:pointer;color:var(--pri)}
+.reco{border-top:3px solid var(--gold)}
+.kcta{background:linear-gradient(135deg,rgba(242,169,0,.10),rgba(12,75,73,.06));border:1px solid var(--gold)}

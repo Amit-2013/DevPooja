@@ -1,7 +1,7 @@
 {
-  "name": "deivikpooja",
+  "name": "daivikpooja",
   "version": "1.0.0",
-  "description": "DeivikPooja – Sanatan Seva Platform: full-stack puja booking platform (Express + SQLite + vanilla JS SPA)",
+  "description": "DaivikPooja – Sanatan Seva Platform: full-stack puja booking platform (Express + SQLite + vanilla JS SPA)",
   "main": "server/index.js",
   "private": true,
   "repository": {
@@ -16,9 +16,14 @@
     "dev": "node --watch server/index.js",
     "seed": "node server/seed.js",
     "reset": "node server/seed.js --reset",
+    "db:migrate": "node server/migrate.js",
+    "db:status": "node server/migrate.js --status",
+    "db:inspect": "node server/tools/inspect-db.js",
+    "db:health": "node server/tools/db-health.js",
     "test": "node --test tests/api.test.js",
     "test:ui": "node tests/ui-smoke.js",
     "build:pages": "node tools/build-pages.js",
+    "build:netlify": "node tools/build-netlify.js",
     "preview:pages": "node tools/serve-pages.js"
   },
   "dependencies": {

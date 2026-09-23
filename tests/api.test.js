@@ -60,7 +60,7 @@ test('email signup and login', async () => {
 
 test('server quote matches shared pricing and validates coupons', async () => {
   const t = await login('customer');
-  const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DEIVIKPOOJA10' } });
+  const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DAIVIKPOOJA10' } });
   const expected = P.quote('home', { puja: { price: 3100 }, pandit: { pf: 1.15 }, plus: false, kits: [{ price: 799 }], prasad: [], coupon: { active: true, type: 'pct', val: 10, max: 500, min: 1500 }, points: 0 });
   assert.equal(r.json.q.total, expected.total);
   const bad = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', coupon: 'NOPE' } });
@@ -152,8 +152,8 @@ test('a pandit cannot act on another pandit\'s booking; customers cannot use adm
 });
 
 test('admin: login, assign, cancel with refund, process refund, coupons, settings', async () => {
-  assert.equal((await call('POST', '/auth/admin', { body: { email: 'admin@deivikpooja.in', password: 'bad' } })).status, 401);
-  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@deivikpooja.in', password: 'admin123' } })).json.token;
+  assert.equal((await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'bad' } })).status, 401);
+  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const tc = await login('customer');
   const b = (await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(70), slot: '04:00 PM', panditId: '' }) })).json.booking;
   const a = await call('POST', `/admin/bookings/${b.id}/assign`, { token: ta, body: { panditId: 'p4' } });
@@ -172,13 +172,64 @@ test('admin: login, assign, cancel with refund, process refund, coupons, setting
   assert.ok(st.bookings.length > 10);
 });
 
+test('admin manages samagri kits and prasad; inactive items cannot be sold', async () => {
+  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const tc = await login('customer');
+  // create kit + prasad
+  const nk = await call('POST', '/admin/kits', { token: ta, body: { name: 'Navagraha Special', price: 649, stock: 5, items: ['Agarbatti', 'Kumkum', 'Navagraha samidha'] } });
+  assert.equal(nk.status, 201);
+  const npr = await call('POST', '/admin/prasad', { token: ta, body: { name: 'Tirupati Laddu Box', price: 399, descr: 'Two dozen laddus', stock: 3 } });
+  assert.equal(npr.status, 201);
+  // visible to customers, with stock serialized
+  let st = (await call('GET', '/state', { token: tc })).json;
+  assert.ok(st.catalog.kits.some((k) => k.id === nk.json.id));
+  const prRow = st.catalog.prasad.find((p) => p.id === npr.json.id);
+  assert.ok(prRow);
+  assert.equal(prRow.stock, 3);
+  // edit price and stock
+  assert.equal((await call('PATCH', `/admin/kits/${nk.json.id}`, { token: ta, body: { price: 699, stock: 2 } })).status, 200);
+  // kit stock: order takes it to 0, then next order conflicts, and booking with the kit conflicts
+  const o1 = await call('POST', '/orders', { token: tc, body: { items: [{ k: nk.json.id, q: 2 }], address: '12 Test Street', city: 'Pune' } });
+  assert.equal(o1.status, 201);
+  assert.equal((await call('POST', '/orders', { token: tc, body: { items: [{ k: nk.json.id, q: 1 }], address: '12 Test Street', city: 'Pune' } })).status, 409);
+  const bk = bookingBody({ date: dayPlus(95), pujaId: 'ganesh', sam: [nk.json.id] });
+  assert.equal((await call('POST', '/bookings', { token: tc, body: bk })).status, 409);
+  // prasad stock: tracked decrement, then conflict, then set to unlimited
+  const o2 = await call('POST', '/orders', { token: tc, body: { items: [{ k: npr.json.id, q: 3 }], address: '12 Test Street', city: 'Pune' } });
+  assert.equal(o2.status, 201);
+  assert.equal((await call('POST', '/orders', { token: tc, body: { items: [{ k: npr.json.id, q: 1 }], address: '12 Test Street', city: 'Pune' } })).status, 409);
+  assert.equal((await call('PATCH', `/admin/prasad/${npr.json.id}`, { token: ta, body: { stock: null } })).status, 200);
+  assert.equal((await call('POST', '/orders', { token: tc, body: { items: [{ k: npr.json.id, q: 1 }], address: '12 Test Street', city: 'Pune' } })).status, 201);
+  // deactivate: hidden from customer state, rejected on booking/order
+  assert.equal((await call('PATCH', `/admin/kits/${nk.json.id}`, { token: ta, body: { active: false } })).status, 200);
+  assert.equal((await call('PATCH', `/admin/prasad/${npr.json.id}`, { token: ta, body: { active: false } })).status, 200);
+  st = (await call('GET', '/state', { token: tc })).json;
+  // inactive items stay in state (historical bookings reference them) but are flagged
+  assert.equal(st.catalog.kits.find((k) => k.id === nk.json.id).active, 0);
+  assert.equal(st.catalog.prasad.find((p) => p.id === npr.json.id).active, 0);
+  assert.ok((await call('GET', '/state', { token: ta })).json.catalog.kits.some((k) => k.id === nk.json.id)); // admin still sees it
+  assert.equal((await call('POST', '/orders', { token: tc, body: { items: [{ k: nk.json.id, q: 1 }], address: '12 Test Street', city: 'Pune' } })).status, 400);
+  const bk2 = bookingBody({ date: dayPlus(96), pujaId: 'ganesh', sam: [nk.json.id] });
+  assert.equal((await call('POST', '/bookings', { token: tc, body: bk2 })).status, 400);
+  // delete: refused while referenced, allowed when clean
+  assert.equal((await call('DELETE', `/admin/kits/${nk.json.id}`, { token: ta })).status, 409);
+  const tmp = await call('POST', '/admin/kits', { token: ta, body: { name: 'Temp Delete Kit', price: 100 } });
+  assert.equal((await call('DELETE', `/admin/kits/${tmp.json.id}`, { token: ta })).status, 200);
+  assert.equal((await call('DELETE', '/admin/prasad/pr_nope00', { token: ta })).status, 404);
+  // validation errors
+  assert.equal((await call('POST', '/admin/kits', { token: ta, body: { name: '', price: 10 } })).status, 400);
+  assert.equal((await call('POST', '/admin/kits', { token: ta, body: { name: 'X', price: -5 } })).status, 400);
+  assert.equal((await call('PATCH', '/admin/kits/k_nope_00', { token: ta, body: { price: 10 } })).status, 404);
+  assert.equal((await call('POST', '/admin/kits', { token: tc, body: { name: 'Y', price: 10 } })).status, 403);
+});
+
 test('pandit registration needs OTP and an ID document; KYC approval', async () => {
   await call('POST', '/auth/otp/send', { body: { mobile: '9000044444' } });
   const f = (withId) => { const form = new FormData(); Object.entries({ name: 'Pt. Test', mobile: '9000044444', otp: '123456', city: 'Pune', exp: '5', langs: 'Hindi', spec: 'ganesh,lakshmi' }).forEach(([k, v]) => form.append(k, v)); if (withId) form.append('idDoc', new Blob(['%PDF-1.4'], { type: 'application/pdf' }), 'id.pdf'); return form; };
   assert.equal((await call('POST', '/pandit/register', { form: f(false) })).status, 400);
   await call('POST', '/auth/otp/send', { body: { mobile: '9000044444' } });
   assert.equal((await call('POST', '/pandit/register', { form: f(true) })).status, 201);
-  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@deivikpooja.in', password: 'admin123' } })).json.token;
+  const ta = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const st = (await call('GET', '/state', { token: ta })).json;
   const np = st.pandits.find((p) => p.n === 'Pt. Test');
   assert.equal(np.st, 'pending');

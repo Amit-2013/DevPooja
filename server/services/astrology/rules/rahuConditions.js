@@ -1,0 +1,25 @@
+/* Rahu-related conditions: a strong Rahu influence is traditionally read when Rahu
+   sits in the 3rd, 6th, 10th or 11th (its "good" houses — traditionally NOT flagged),
+   so this rule only flags the difficult placements: Rahu in the 1st, 5th, 8th or 9th,
+   or Rahu conjunct the Moon. */
+'use strict';
+const { houseFrom } = require('./helpers');
+
+function evaluate(view) {
+  const evidence = [];
+  let strength = 0;
+  const R = view.planets.rahu;
+  const h = houseFrom(R, view.lagnaSign);
+  if ([1, 5, 8, 9].includes(h)) { evidence.push('Rahu occupies the ' + h + 'th house from the lagna.'.replace('1th', '1st').replace('2th', '2nd').replace('3th', '3rd')); strength += 1; }
+  if (view.planets.moon.sign === R.sign) { evidence.push('The Moon is conjunct Rahu, a traditionally strong Rahu influence on the mind.'); strength += 1; }
+
+  if (!evidence.length) return null;
+  return {
+    detected: true,
+    severity: strength >= 2 ? 'high' : 'medium',
+    confidence: Math.min(0.85, 0.55 + 0.15 * strength),
+    evidence
+  };
+}
+
+module.exports = { evaluate };

@@ -1,0 +1,18 @@
+[build]
+  command = "npm run build:netlify"
+  publish = "dist"
+
+[build.environment]
+  # Your hosted backend URL. Set it in Netlify UI > Site settings > Environment variables
+  # to override this. Leave empty for same-origin deployments (site and API on one domain).
+  DP_API_BASE = ""
+
+[[redirects]]
+  from = "/api/*"
+  to = "/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -22,9 +22,20 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   const setv = (id, v) => { const e = d.getElementById(id); if (!e) errs.push('NOID ' + id); else e.value = v; };
   const text = () => d.getElementById('view').textContent;
   for (let i = 0; i < 40 && !d.querySelector('#view h1'); i++) await sleep(100);
-  console.log('home rendered:', /DeivikPooja|puja/i.test(text()));
+  console.log('home rendered:', /DaivikPooja|puja/i.test(text()));
 
-  for (const r of ['', 'pujas', 'pujas?q=peace', 'puja/lakshmi', 'pandits', 'pandit/p1', 'temples', 'samagri', 'prasad', 'festivals', 'astrology', 'corporate', 'about', 'contact', 'partner', 'register-pandit', 'rewards', 'plus', 'account', 'portal', 'admin']) await go('#/' + r);
+  for (const r of ['', 'pujas', 'pujas?q=peace', 'puja/lakshmi', 'pandits', 'pandit/p1', 'temples', 'samagri', 'prasad', 'festivals', 'astrology', 'kundali', 'corporate', 'about', 'contact', 'partner', 'register-pandit', 'rewards', 'plus', 'account', 'portal', 'admin']) await go('#/' + r);
+
+  // kundali: full generate -> result flow
+  await go('#/kundali'); setv('kn', 'Kundali Tester'); setv('kd', '1990-08-15'); setv('kt', '10:30');
+  const kpi = d.getElementById('kp'); kpi.value = 'Delhi'; kpi.dispatchEvent(new w.Event('input', { bubbles: true }));
+  await sleep(600); // wait for the debounced place search
+  const pick = d.querySelector('[data-act=kplace]'); if (pick) pick.click(); else errs.push('NO PLACE RESULTS');
+  await sleep(200);
+  await click('[data-act=kgen]', 1500);
+  console.log('kundali result:', /Your Kundali/.test(text()) && /Planetary overview/.test(text()));
+  console.log('kundali dosh section:', /Kundali dosh & spiritual analysis|No traditional dosh/.test(text()));
+  await go('#/kundali/result'); console.log('result persists on reload:', /Planetary overview/.test(text()));
 
   // customer: login by OTP (new user)
   await click('[data-act=login]'); setv('ln', 'UI Tester'); setv('lm', '9123456789');
@@ -38,7 +49,7 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   const ad = d.querySelector('[data-in=wz][data-k="addr.line"]'); ad.value = '5 Test Lane'; ad.dispatchEvent(new w.Event('input', { bubbles: true }));
   await click('[data-act=wz-next]'); await click('[data-act=wz-pandit][data-v=p1]'); await click('[data-act=wz-next]');
   await click('[data-act=wz-sam]'); await click('[data-act=wz-next]');
-  setv('cpn', 'DEIVIKPOOJA10'); await click('[data-act=wz-coupon]', 500); console.log('coupon msg:', /Coupon applied/.test(text()));
+  setv('cpn', 'DAIVIKPOOJA10'); await click('[data-act=wz-coupon]', 500); console.log('coupon msg:', /Coupon applied/.test(text()));
   await click('[data-act=wz-next]'); await click('[data-act=wz-pay]', 700);
   console.log('booking confirmed:', /Booking confirmed/.test(text()));
   for (const t of ['bookings', 'orders', 'notifs', 'profile', 'addresses', 'family', 'rewards', 'support']) await go('#/account/' + t);
@@ -63,7 +74,7 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
-  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support']) await go('#/admin/' + t);
+  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support']) await go('#/admin/' + t);
   await go('#/admin/bookings'); await click('[data-act=aman]'); setv('mn', 'Manual Cust'); setv('mm', '9000055555'); await click('[data-act=amanok]', 600);
   await go('#/admin/pandits'); await click('[data-act=akyc]', 500); await go('#/admin/finance'); await click('[data-act=acm]', 400);
   await go('#/admin/pujas'); setv('npn', 'Test Puja'); await click('[data-act=anp]', 500);

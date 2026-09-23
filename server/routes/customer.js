@@ -71,7 +71,8 @@ router.post('/orders', (req, res) => {
       const q = v.int(it.q, 'Quantity', { min: 1, max: 20 });
       const kit = db.prepare('SELECT * FROM kits WHERE id=?').get(it.k), pr = kit ? null : db.prepare('SELECT * FROM prasad WHERE id=?').get(it.k);
       if (!kit && !pr) throw bad('Unknown item');
-      if (kit) { const r = db.prepare('UPDATE kits SET stock=stock-? WHERE id=? AND stock>=?').run(q, kit.id, q); if (!r.changes) throw conflict(kit.name + ' does not have enough stock'); }
+      if (kit) { if (!kit.active) throw bad(kit.name + ' is currently unavailable'); const r = db.prepare('UPDATE kits SET stock=stock-? WHERE id=? AND stock>=?').run(q, kit.id, q); if (!r.changes) throw conflict(kit.name + ' does not have enough stock'); }
+      else { if (!pr.active) throw bad(pr.name + ' is currently unavailable'); if (pr.stock != null) { const r = db.prepare('UPDATE prasad SET stock=stock-? WHERE id=? AND stock>=?').run(q, pr.id, q); if (!r.changes) throw conflict(pr.name + ' does not have enough stock'); } }
       sub += (kit || pr).price * q; clean.push({ k: it.k, q });
     }
     const del = sub >= 999 || u.plus ? 0 : 49;

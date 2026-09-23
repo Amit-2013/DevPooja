@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const file = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'deivikpooja.db');
+const file = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'daivikpooja.db');
 if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
 const db = new Database(file);
 db.pragma('journal_mode = WAL');
@@ -10,7 +10,7 @@ db.pragma('foreign_keys = ON');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(
-  id TEXT PRIMARY KEY, role TEXT NOT NULL DEFAULT 'customer', name TEXT, mobile TEXT UNIQUE, email TEXT UNIQUE, pass_hash TEXT,
+  id TEXT PRIMARY KEY, role TEXT NOT NULL DEFAULT 'customer', name TEXT,  mobile TEXT UNIQUE, email TEXT UNIQUE, pass_hash TEXT,
   pts INTEGER NOT NULL DEFAULT 0, plus INTEGER NOT NULL DEFAULT 0, pref TEXT NOT NULL DEFAULT '{}', addr TEXT NOT NULL DEFAULT '[]',
   fam TEXT NOT NULL DEFAULT '[]', joined TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS pandits(
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS pujas(
   id TEXT PRIMARY KEY, name TEXT NOT NULL, hindi TEXT, cat TEXT, icon TEXT, dur INTEGER, price INTEGER NOT NULL, deity TEXT, ben TEXT,
   kit TEXT, pop INTEGER DEFAULT 0, tags TEXT DEFAULT '', hidden INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS kits(id TEXT PRIMARY KEY, name TEXT, price INTEGER, icon TEXT, items TEXT, stock INTEGER DEFAULT 0);
-CREATE TABLE IF NOT EXISTS prasad(id TEXT PRIMARY KEY, name TEXT, price INTEGER, icon TEXT, descr TEXT);
+CREATE TABLE IF NOT EXISTS prasad(id TEXT PRIMARY KEY, name TEXT, price INTEGER, icon TEXT, descr TEXT, stock INTEGER, active INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS temples(id TEXT PRIMARY KEY, name TEXT, city TEXT, deity TEXT, icon TEXT, pujas TEXT, offering INTEGER, descr TEXT);
 CREATE TABLE IF NOT EXISTS festivals(id TEXT PRIMARY KEY, name TEXT, date TEXT, pujas TEXT, note TEXT);
 CREATE TABLE IF NOT EXISTS bookings(
@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS banners(id TEXT PRIMARY KEY, text TEXT, enabled INTEG
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS otps(mobile TEXT PRIMARY KEY, code_hash TEXT, expires INTEGER, attempts INTEGER DEFAULT 0);
 `);
+
+/* Column additions for databases created before these fields existed.
+   Kept out of migrations because SQLite has no ADD COLUMN IF NOT EXISTS: a pure-SQL
+   migration would crash fresh installs whose base schema (above) already has them. */
+for (const [tbl, col, ddl] of [
+  ['kits', 'active', 'ALTER TABLE kits ADD COLUMN active INTEGER NOT NULL DEFAULT 1'],
+  ['prasad', 'stock', 'ALTER TABLE prasad ADD COLUMN stock INTEGER'],
+  ['prasad', 'active', 'ALTER TABLE prasad ADD COLUMN active INTEGER NOT NULL DEFAULT 1']
+]) {
+  const has = db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name=?').get(tbl, col);
+  if (!has) db.exec(ddl);
+}
 
 const getSetting = (k, d) => { const r = db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r ? JSON.parse(r.value) : d; };
 const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, JSON.stringify(v));

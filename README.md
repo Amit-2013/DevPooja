@@ -1,4 +1,4 @@
-# DeivikPooja – Sanatan Seva Platform
+# DaivikPooja – Sanatan Seva Platform
 
 Full-stack puja booking platform: customer site, pandit partner portal and admin panel, backed by a REST API and a SQLite database.
 
@@ -22,9 +22,17 @@ With `DEMO_MODE=true` (default in development) the first start seeds sample pand
 |---|---|
 | Customer | "Continue with demo account", or any 10-digit mobile with OTP `123456` |
 | Pandit | Partner with us, "Open demo portal", or Pandit login with `9810000001` and OTP `123456` |
-| Admin | `/#/admin`, `admin@deivikpooja.in` / `admin123` (from `.env`) |
+| Admin | `/#/admin`, `admin@daivikpuja.in` / `admin123` (from `.env`) |
 
-Other commands: `npm test` (15 API tests), `npm run test:ui` (drives the real UI in jsdom), `npm run reset` (clear and reseed), `docker build -t deivikpooja . && docker run -p 3000:3000 -v dp:/data -e JWT_SECRET=... deivikpooja`.
+Other commands: `npm test` (15 API tests + engine tests), `npm run test:ui` (drives the real UI in jsdom), `npm run reset` (clear and reseed), `docker build -t daivikpooja . && docker run -p 3000:3000 -v dp:/data -e JWT_SECRET=... daivikpooja`.
+
+## Hosting (backend + Netlify frontend)
+
+The backend runs on any Node host and **saves all data** (users, bookings, kundalis, payments) to `data/daivikpooja.db` — verified to survive restarts. `npm run build:netlify` produces a live `dist/` that talks to the hosted API.
+
+Short version: deploy this repo on Render/Railway (`npm install`, `npm start`, set `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`), then drag `dist/` onto Netlify after putting the API URL in `dist/config.js`, and set `CORS_ORIGIN` on the backend to the Netlify URL.
+
+Full step-by-step with all options and environment variables: **[DEPLOY.md](DEPLOY.md)**.
 
 ## Live demo on GitHub Pages
 
@@ -36,8 +44,9 @@ demo seed run, then captures the JSON that `GET /api/state` returns for each rol
 see is rendering genuine seeded data, and `shared/pricing.js` is still the code that prices a booking.
 
 What works: the whole catalogue, puja and pandit pages, temples, festivals, astrology, the
-booking wizard with live pricing and coupons, the guide assistant, and the customer, pandit and
-admin panels (log in with the usual demo accounts).
+booking wizard with live pricing and coupons, the guide assistant, the customer, pandit and
+admin panels (log in with the usual demo accounts), and the read-only version of the
+**Kundali → Dosh → Puja recommendation** flow.
 
 What does not: **nothing is saved.** Booking, payments, cancellations, profile edits and admin
 changes need a database, and the demo says so instead of pretending. Clone the repo and `npm start`
@@ -64,14 +73,17 @@ server/
   index.js            app setup, security headers, static hosting, error handler
   db.js               SQLite schema (created automatically)
   seed.js             catalogue seed, admin account, demo data
+  migrate.js          numbered SQL migrations (applied automatically at boot, `--status` to inspect)
+  migrations/         001_core … 005_conditions_backfill (kundali tables, conditions, rules)
   auth.js             JWT sign/verify, role middleware
-  routes/             auth.js  customer.js  pandit.js  admin.js
+  routes/             auth.js  customer.js  pandit.js  admin.js  kundali.js
   services/           bookings.js (all business rules)  payments.js  notify.js
+  services/astrology/ ephemeris.js  kundaliEngine.js  doshEngine.js  recommendationEngine.js  rules/
   lib/                state.js (role-scoped state)  serialize.js  validate helpers  upload.js
   data/catalog.json   pujas, kits, prasad, temples, festivals
 shared/pricing.js     price, GST, coupon, points and refund-tier rules
-public/               index.html, css/app.css, js/*.js
-tests/                api.test.js  ui-smoke.js
+public/               index.html, css/app.css, js/*.js (kundali.js = kundali form + result page)
+tests/                api.test.js  astro.test.js  ui-smoke.js
 tools/                build-pages.js (Pages snapshot)  serve-pages.js (preview)
 .github/workflows/    pages.yml (build and deploy the static demo)
 ```
@@ -90,11 +102,13 @@ tools/                build-pages.js (Pages snapshot)  serve-pages.js (preview)
 
 Public: `GET /api/state`, `POST /api/quote`, `POST /api/leads`, `POST /api/auth/otp/send`, `/otp/verify`, `/email`, `/admin`, `POST /api/pandit/register` (multipart)
 
+Kundali (public, rate-limited): `GET /api/kundali/places?q=`, `/conditions`, `/catalog`, `POST /api/kundali/generate`, `GET /api/kundali/:id` — generates a real sidereal chart (Lahiri), runs the configurable dosh rules and returns ranked puja recommendations from the database
+
 Customer (Bearer token): `PATCH /api/me`, `/me/addresses`, `/me/family`, `/me/plus`, `POST /api/bookings`, `/bookings/:id/cancel|reschedule|review`, `POST /api/payments/verify`, `POST /api/orders`, `POST /api/tickets`
 
 Pandit: `POST /api/pandit/bookings/:id/accept|reject|start|complete` (complete accepts photo/video uploads), `/availability`, `PATCH /profile`
 
-Admin: `/api/admin/...` bookings (assign, status, refund, escalate, ops, manual), pandits (KYC, feature, documents), pujas, settings, coupons, payouts, banners, campaigns, push, inventory, orders, tickets, review moderation
+Admin: `/api/admin/...` bookings (assign, status, refund, escalate, ops, manual), pandits (KYC, feature, documents), pujas, settings, coupons, payouts, banners, campaigns, push, inventory, orders, tickets, review moderation, `kundali/conditions` (list, edit, add), `kundali/rules` (map a condition to a puja with priority + reason), `kundali/analyses` (recent kundalis with their doshas and recommendations)
 
 ## Going live: checklist
 
@@ -109,9 +123,10 @@ Admin: `/api/admin/...` bookings (assign, status, refund, escalate, ops, manual)
 
 - **Razorpay and Twilio/SendGrid were not run against live accounts.** The order creation, signature check and hold-expiry logic are covered by tests using a stubbed gateway; use test keys first
 - **Live video puja** is a placeholder screen. Integrate Jitsi, Daily or Zoom and store the room link on the booking
-- **Standalone samagri/prasad orders** are placed as pay-on-delivery. **DeivikPooja Plus** and **featured listings** activate without billing in mock mode and return 501 in Razorpay mode until you add subscription billing
+- **Standalone samagri/prasad orders** are placed as pay-on-delivery. **DaivikPooja Plus** and **featured listings** activate without billing in mock mode and return 501 in Razorpay mode until you add subscription billing
 - **WhatsApp** through Twilio needs a WhatsApp Business sender and approved message templates
-- **Kundli, horoscope and muhurat** are placeholders. Use a licensed astrology API
+- **Kundali engine accuracy:** positions come from a self-contained Meeus-based sidereal engine, validated against JPL Horizons to within ~1–4 arc-minutes for 1990–2026 — good for every Jyotish purpose (a nakshatra pada spans 3°15′). It is not a high-precision ephemeris; swap in Swiss Ephemeris via `services/astrology/ephemeris.js` if you ever need arc-second work
+- **Dosh rules are traditional, not predictive:** each result explains its evidence and the language avoids guarantees. Keep it that way, and have a jyotishi review the seeded rule text before you go live
 - **Analytics** are computed in the browser from the admin state, which is fine for thousands of bookings but should move to SQL aggregates as you grow
 - **Data protection:** the app stores names, mobile numbers and addresses. Add consent capture, a data-deletion flow and retention rules to meet the DPDP Act
 - **The Pages demo is read-only.** Writes are refused with an explanation rather than simulated, so nobody mistakes a static snapshot for a working database

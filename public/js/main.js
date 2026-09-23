@@ -1,6 +1,6 @@
 /* Router, event handlers and startup. Every mutation goes to the API; the server is the source of truth. */
-const ROUTES={'':home,pujas,puja:pujaDetail,book,pandits:panditsPage,pandit:panditProfile,temples,samagri:samagriPage,prasad:prasadPage,festivals:festivalsPage,astrology,corporate,about,contact,account,rewards:rewardsPage,plus:plusPage,partner,'register-pandit':regPandit,portal,admin};
-function render(keep){const r=route();if(r.page!=='book')W=null;const fn=ROUTES[r.page]||nf;header();$('#view').innerHTML=fn(r);const h=$('#view h1');document.title=(h?h.textContent.slice(0,60)+' | ':'')+'DeivikPooja';if(!keep)scrollTo(0,0)}
+const ROUTES={'':home,pujas,puja:pujaDetail,book,pandits:panditsPage,pandit:panditProfile,temples,samagri:samagriPage,prasad:prasadPage,festivals:festivalsPage,astrology,corporate,about,contact,account,rewards:rewardsPage,plus:plusPage,partner,'register-pandit':regPandit,portal,admin,kundali(r){return r.arg==='result'?kundaliResult():kundaliForm()}};
+function render(keep){const r=route();if(r.page!=='book')W=null;const fn=ROUTES[r.page]||nf;header();$('#view').innerHTML=fn(r);const h=$('#view h1');document.title=(h?h.textContent.slice(0,60)+' | ':'')+'DaivikPooja';if(!keep)scrollTo(0,0)}
 async function logout(){setToken(null);try{await sync()}catch(e){}location.hash='#/';render()}
 const chk=v=>v&&v.trim().length>0;
 const lead=(type,name,details)=>api('/leads',{body:{type,name,details}});
@@ -28,7 +28,30 @@ const ACT={
  async 'demo-user'(){try{doLogin(await api('/auth/demo',{body:{role:'customer'}}))}catch(e){toast(e.message)}},
  async 'demo-pandit'(){try{await doLogin(await api('/auth/demo',{body:{role:'pandit'}}))}catch(e){toast(e.message)}},
  async alogin(){try{await doLogin(await api('/auth/admin',{body:{email:val('ae'),password:val('ap2')}}))}catch(e){toast(e.message)}},
+ /* kundali admin */
+ akcond(d,el){run(()=>api('/admin/kundali/conditions/'+d.id,{method:'PATCH',body:{active:el.checked}}))},
+ akcedit(d){const c=((db.kundali||{}).conditions||[]).find(x=>x.code===d.id);if(!c)return;
+  modal('<h2>Edit condition</h2><div class="frm mt"><label class="f">Name<input id="kcen" value="'+esc(c.name)+'"></label><label class="f">Customer-facing description<textarea id="kced">'+esc(c.descr||'')+'</textarea></label><label class="f">Suggested remedy<textarea id="kcer">'+esc(c.remedy||'')+'</textarea></label><label class="f">Severity<select id="kces">'+['low','medium','high'].map(s=>'<option'+(c.severity===s?' selected':'')+'>'+s+'</option>').join('')+'</select></label><button class="btn mt" data-act="akceditok" data-id="'+esc(c.code)+'">Save</button></div>')},
+ async akceditok(d){await closeAnd(run(()=>api('/admin/kundali/conditions/'+d.id,{method:'PATCH',body:{name:val('kcen'),descr:val('kced'),remedy:val('kcer'),severity:val('kces')}}),'Condition saved'))},
+ async akrule(){await closeAnd(run(()=>api('/admin/kundali/rules',{body:{conditionCode:val('krc'),pujaId:val('krp'),priority:val('krr'),weight:val('krw'),reason:val('krreason')}}),'Mapping saved'))},
+ async akcondadd(){await closeAnd(run(()=>api('/admin/kundali/conditions',{body:{code:val('knc'),name:val('knn'),severity:val('kns'),descr:val('knd')}}),'Condition added'))},
  hsearch(){location.hash='#/pujas?q='+encodeURIComponent(val('hq'))},
+ /* kundali flow */
+ async kgen(){const f=PAGE.kf=PAGE.kf||{};
+  if(!chk(val('kn')))return toast('Enter your full name');
+  if(!val('kd'))return toast('Enter your date of birth');
+  if(!f.placeId)return toast('Choose your birth place from the list');
+  const acc=val('ka');
+  if(acc==='exact'&&!val('kt'))return toast('Enter the time of birth, or change accuracy to approximate/unknown');
+  const body={name:val('kn'),gender:val('kg')||undefined,dob:val('kd'),tob:val('kt')||undefined,birthTimeAccuracy:acc,placeId:f.placeId,purpose:val('ku'),email:val('ke')||undefined,mobile:val('km')||undefined,gotra:val('kgot')||undefined,save:$('#ksave').checked};
+  const prev=$('#view').innerHTML;$('#view').innerHTML=kLoading(val('kn'));
+  try{const r=await api('/kundali/generate',{body});
+   r.catalogConditions=await api('/kundali/conditions').then(x=>x.conditions).catch(()=>[]);
+   PAGE.k=r;
+   if(location.hash!=='#/kundali/result')location.hash='#/kundali/result';else render(true);
+   scrollTo(0,0);
+  }catch(e){$('#view').innerHTML=prev;toast(e.message)}},
+ kplace(d,el){const f=PAGE.kf=PAGE.kf||{};f.placeId=+d.id;f.placeLabel=d.label;$('#kp').value=d.label;$('#kpl').innerHTML='<span class="badge ok">'+esc(d.label)+'</span>'},
  intent(d){$('#skout').innerHTML=sankalpOut(d.q)},
  asst:openAsst,ask(){const q=val('aq');$('#aq').value='';askGuide(q)},askq(d){askGuide(d.q)},askp(d){askGuide('Tell me about '+PU(d.id).n+' and what I need')},
  calm(d){const g=PAGE.cal;g.m+=+d.d;if(g.m<0){g.m=11;g.y--}if(g.m>11){g.m=0;g.y++}calRender()},
@@ -58,8 +81,8 @@ const ACT={
  bcan(d){const b=B(d.id),pc=refundPct(b);PAGE.cn=b.id;modal('<h2>Cancel '+b.id+'?</h2><p class="mt">Refund policy: 100% more than 48 hours ahead, 75% between 24 and 48 hours, 50% within 24 hours.</p><div class="note mt">You will get <b>'+pc+'%</b>, which is <b>'+inr(b.q.total*pc/100)+'</b>, back to your original payment method.</div><div class="row mt"><button class="btn bad" data-act="bcanok">Cancel booking</button><button class="btn ghost" data-act="close">Keep booking</button></div>')},
  async bcanok(){await closeAnd(run(()=>api('/bookings/'+PAGE.cn+'/cancel',{body:{}}),'Booking cancelled. Refund initiated.'))},
  blive(d){const b=B(d.id),pd=PD(b.panditId);modal('<h2>Live puja</h2><div class="vid"><div style="font-size:3rem" class="flame">🪔</div><b>'+esc(pd?pd.n:'Pandit')+' is conducting the puja</b><span class="sm" style="opacity:.8">Video room. Plug in your video provider (see README)</span></div><p class="sm mut mt">Your sankalp is read with your name and gotra. Photos and a certificate follow after completion.</p><button class="btn mt" data-act="close">Leave call</button>')},
- bmed(d){const b=B(d.id),m=b.mediaUrls||[];modal('<h2>Photos and video</h2><div class="grid g3 mt">'+(m.length?m.map(u=>isImg(u)?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img src="'+esc(u)+'" alt="Puja photo" style="width:100%;border-radius:8px;aspect-ratio:4/3;object-fit:cover"></a>':'<video controls src="'+esc(u)+'" style="width:100%;border-radius:8px"></video>').join(''):'<div class="ph">🪔</div>')+'</div>'+(m.length?'':'<p class="sm mut mt">The pandit has not uploaded media for this puja.</p>'))},
- bcert(d){const b=B(d.id),pd=PD(b.panditId);modal('<div class="cert"><h2>Puja Completion Certificate</h2><p class="mt">This confirms that</p><h3 style="font-size:1.5rem">'+esc(PU(b.pujaId).n)+'</h3><p>was performed for <b>'+esc(b.member&&b.member!=='Self'?b.member:me().n)+'</b> on '+fmtD(b.date)+'<br>by <b>'+esc(pd?pd.n:'DeivikPooja pandit')+'</b> ('+MODES[b.mode].n+')</p><p class="sm mut mt">Booking '+b.id+'. Digital confirmation by DeivikPooja.</p></div><button class="btn s mt noprint" data-act="print">Print</button>')},
+ bmed(d){const b=B(d.id),m=b.mediaUrls||[];modal('<h2>Photos and video</h2><div class="grid g3 mt">'+(m.length?m.map(u=>isImg(u)?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img src="'+esc(mediaUrl(u))+'" alt="Puja photo" style="width:100%;border-radius:8px;aspect-ratio:4/3;object-fit:cover"></a>':'<video controls src="'+esc(mediaUrl(u))+'" style="width:100%;border-radius:8px"></video>').join(''):'<div class="ph">🪔</div>')+'</div>'+(m.length?'':'<p class="sm mut mt">The pandit has not uploaded media for this puja.</p>'))},
+ bcert(d){const b=B(d.id),pd=PD(b.panditId);modal('<div class="cert"><h2>Puja Completion Certificate</h2><p class="mt">This confirms that</p><h3 style="font-size:1.5rem">'+esc(PU(b.pujaId).n)+'</h3><p>was performed for <b>'+esc(b.member&&b.member!=='Self'?b.member:me().n)+'</b> on '+fmtD(b.date)+'<br>by <b>'+esc(pd?pd.n:'DaivikPooja pandit')+'</b> ('+MODES[b.mode].n+')</p><p class="sm mut mt">Booking '+b.id+'. Digital confirmation by DaivikPooja.</p></div><button class="btn s mt noprint" data-act="print">Print</button>')},
  brev(d){PAGE.rv={id:d.id,r:5};modal('<h2>Rate your puja</h2><div class="row mt" id="rst">'+[1,2,3,4,5].map(n=>'<button class="chip on" data-act="rstar" data-v="'+n+'" aria-label="'+n+' stars">'+n+' ★</button>').join('')+'</div><label class="f mt">Your review<textarea id="rvt" maxlength="500"></textarea></label><button class="btn mt" data-act="brevok">Submit review</button>')},
  rstar(d){PAGE.rv.r=+d.v;$$('#rst .chip').forEach((c,i)=>c.classList.toggle('on',i<+d.v))},
  async brevok(){await closeAnd(run(()=>api('/bookings/'+PAGE.rv.id+'/review',{body:{r:PAGE.rv.r,t:val('rvt')}}),'Thank you. You earned 10 points.'))},
@@ -69,7 +92,7 @@ const ACT={
  fadd(){run(()=>api('/me/family',{body:{n:val('fn'),rel:val('fr'),gotra:val('fg')}}),'Member saved')},
  fdel(d){run(()=>api('/me/family/'+d.id,{method:'DELETE'}))},
  tadd(){run(()=>api('/tickets',{body:{b:val('tb'),t:val('tt')}}),'Ticket raised')},
- plus(d){if(!me()){afterLogin=()=>render(true);loginModal();return}run(()=>api('/me/plus',{body:{on:true}}),'Welcome to DeivikPooja Plus')},
+ plus(d){if(!me()){afterLogin=()=>render(true);loginModal();return}run(()=>api('/me/plus',{body:{on:true}}),'Welcome to DaivikPooja Plus')},
  plusx(){run(()=>api('/me/plus',{body:{on:false}}),'Membership cancelled')},
  /* public forms */
  astr(d){modal('<h2>'+esc(d.n)+'</h2><div class="frm mt"><label class="f">Name<input id="an"></label><label class="f">Mobile<input id="am" inputmode="numeric" maxlength="10"></label></div><button class="btn mt" data-act="astrok" data-n="'+esc(d.n)+'">Request callback</button>')},
@@ -111,6 +134,18 @@ const ACT={
  acam(){run(()=>api('/admin/campaigns',{body:{name:val('cn2'),channel:val('cc2'),audience:val('ca2')}}),'Campaign scheduled')},
  async apush(){const r=await run(()=>api('/admin/push',{body:{message:val('pnm')}}));if(r&&r.sent!==undefined)toast('Sent to '+r.sent+' customers')},
  ares(d){run(()=>api('/admin/inventory/'+d.id+'/restock',{body:{qty:20}}),'Restocked')},
+ akit(d){run(()=>api('/admin/kits/'+d.id,{method:'PATCH',body:{price:val('kp_'+d.id)}}),'Kit price saved')},
+ akst(d){run(()=>api('/admin/kits/'+d.id,{method:'PATCH',body:{stock:val('ks_'+d.id)}}),'Kit stock updated')},
+ akact(d,el){run(()=>api('/admin/kits/'+d.id,{method:'PATCH',body:{active:el.checked}}))},
+ ank(){run(()=>api('/admin/kits',{body:{name:val('nkn'),price:val('nkp'),stock:val('nks'),items:val('nki').split('\n').map(x=>x.trim()).filter(Boolean)}}),'Kit added')},
+ aprs(d){run(()=>api('/admin/prasad/'+d.id,{method:'PATCH',body:{price:val('ppr_'+d.id)}}),'Prasad price saved')},
+ aprst(d){run(()=>api('/admin/prasad/'+d.id,{method:'PATCH',body:{stock:val('psr_'+d.id)===''?null:val('psr_'+d.id)}}),'Prasad stock updated')},
+ apract(d,el){run(()=>api('/admin/prasad/'+d.id,{method:'PATCH',body:{active:el.checked}}))},
+ anpr(){run(()=>api('/admin/prasad',{body:{name:val('npn2'),price:val('npp2'),descr:val('npd2'),stock:val('nps2')}}),'Prasad added')},
+ akdel(d){modal('<h2>Delete kit?</h2><p class="mt">'+esc(KITS.find(k=>k.id===d.id).n)+'</p><p class="sm mut mt">Only possible if no puja, booking or order references it. Otherwise deactivate it.</p><div class="row mt"><button class="btn bad" data-act="akdelok" data-id="'+d.id+'">Delete</button><button class="btn ghost" data-act="close">Keep</button></div>')},
+ async akdelok(d){await closeAnd(run(()=>api('/admin/kits/'+d.id,{method:'DELETE'}),'Kit deleted'))},
+ aprdel(d){modal('<h2>Delete prasad item?</h2><p class="mt">'+esc(PRASAD.find(k=>k.id===d.id).n)+'</p><p class="sm mut mt">Only possible if no booking or order references it. Otherwise deactivate it.</p><div class="row mt"><button class="btn bad" data-act="aprdelok" data-id="'+d.id+'">Delete</button><button class="btn ghost" data-act="close">Keep</button></div>')},
+ async aprdelok(d){await closeAnd(run(()=>api('/admin/prasad/'+d.id,{method:'DELETE'}),'Prasad item deleted'))},
  adel2(d){run(()=>api('/admin/bookings/'+d.id+'/ops',{body:{sam:'Delivered'}}),'Marked delivered')},
  adsp(d){run(()=>api('/admin/bookings/'+d.id+'/ops',{body:{pra:d.v}}),'Prasad '+d.v.toLowerCase())},
  aord(d){run(()=>api('/admin/orders/'+d.id+'/advance',{body:{}}))},
@@ -119,6 +154,7 @@ const ACT={
 };
 const INP={
  pf(el){PAGE.f[el.dataset.k]=el.value;$('#pl').innerHTML=pujaResults()},
+ kplaceIn(el){kPlacePick(el)},
  pdf(el){PAGE.pf[el.dataset.k]=el.value;$('#pdl').innerHTML=panditList()},
  wz(el){const k=el.dataset.k,v=el.value;if(k.startsWith('addr.'))W.addr[k.slice(5)]=v;else W[k]=v;
   if(k==='asel'){const u=me(),a=u&&u.addr.find(x=>x.id===v);W.addr=a?Object.assign({},a):{line:'',city:W.addr.city,pin:''}}
@@ -136,4 +172,4 @@ document.addEventListener('change',e=>{const el=e.target;if(!el.dataset||!el.dat
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if(e.key==='Enter'||e.key===' '){const el=e.target.closest&&e.target.closest('.opt[data-act]');if(el){e.preventDefault();el.click()}}if(e.key==='Enter'){if(e.target.id==='aq')ACT.ask();if(e.target.id==='hq')ACT.hsearch()}});
 window.addEventListener('hashchange',()=>{const p=pageOf();if(['account','portal','admin','book'].includes(p))sync().then(()=>render()).catch(()=>render());else render()});
 const th=store.get('dp_theme',null);if(th)document.documentElement.dataset.theme=th;
-(async()=>{try{await sync();if(token&&!session)setToken(null)}catch(e){$('#view').innerHTML='<div class="page"><div class="wrap"><h1>DeivikPooja is unavailable</h1><p class="mut mt">'+esc(e.message)+'</p></div></div>';return}footer();render()})();
+(async()=>{try{await sync();if(token&&!session)setToken(null)}catch(e){$('#view').innerHTML='<div class="page"><div class="wrap"><h1>DaivikPooja is unavailable</h1><p class="mut mt">'+esc(e.message)+'</p></div></div>';return}footer();render()})();

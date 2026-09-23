@@ -17,18 +17,23 @@ function seedCatalog() {
     catalog.temples.forEach((t) => db.prepare('INSERT INTO temples(id,name,city,deity,icon,pujas,offering,descr) VALUES(?,?,?,?,?,?,?,?)').run(t.id, t.name, t.city, t.deity, t.icon, JSON.stringify(t.pujas), t.offering, t.descr));
     catalog.festivals.forEach((f) => db.prepare('INSERT INTO festivals(id,name,date,pujas,note) VALUES(?,?,?,?,?)').run(f.id, f.name, f.date, JSON.stringify(f.pujas), f.note));
     setSetting('commission', 20);
-    [['DEIVIKPOOJA10', 'pct', 10, 500, 1500], ['FIRST100', 'flat', 100, 100, 1000], ['FESTIVE15', 'pct', 15, 750, 3000]].forEach((c) => db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(...c));
+    [['DAIVIKPOOJA10', 'pct', 10, 500, 1500], ['FIRST100', 'flat', 100, 100, 1000], ['FESTIVE15', 'pct', 15, 750, 3000]].forEach((c) => db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(...c));
     db.prepare('INSERT INTO banners(id,text,enabled) VALUES(?,?,1)').run('b1', 'Diwali Lakshmi Puja: book early');
   })();
 }
 
 function ensureAdmin() {
-  const email = (process.env.ADMIN_EMAIL || (isProd() ? '' : 'admin@deivikpooja.in')).toLowerCase();
+  const email = (process.env.ADMIN_EMAIL || (isProd() ? '' : 'admin@daivikpuja.in')).toLowerCase();
   const pass = process.env.ADMIN_PASSWORD || (isProd() ? '' : 'admin123');
   if (!email || !pass) { console.warn('[seed] No admin account created. Set ADMIN_EMAIL and ADMIN_PASSWORD in .env'); return; }
   const hash = bcrypt.hashSync(pass, 10);
+  /* An existing admin keeps its account and just gets the new password. The id is only
+     fixed for a fresh database: reusing 'admin1' for a different email would collide
+     with the admin already in an existing database and crash every boot. */
+  const anyAdmin = db.prepare("SELECT id, email FROM users WHERE role='admin' ORDER BY created_at LIMIT 1").get();
   const ex = db.prepare("SELECT id FROM users WHERE role='admin' AND email=?").get(email);
   if (ex) db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(hash, ex.id);
+  else if (anyAdmin) db.prepare('UPDATE users SET email=?, pass_hash=? WHERE id=?').run(email, hash, anyAdmin.id);
   else db.prepare("INSERT INTO users(id,role,name,email,pass_hash,joined,created_at) VALUES(?,?,?,?,?,?,?)").run('admin1', 'admin', 'Administrator', email, hash, today(), Date.now());
 }
 
@@ -54,8 +59,8 @@ function seedDemo() {
     ['p6', 'Pt. Dinesh Pandey', 'Pune', 10, ['Marathi', 'Hindi'], ['ganesh', 'satyanarayan', 'namkaran', 'griha'], 4.5, 140, 420, 0.9, 'Ganesh and life-event ceremonies in Marathi and Hindi.', '#a5201a', 'verified', 0],
     ['p7', 'Acharya Gopal Rao', 'Bengaluru', 16, ['Kannada', 'Telugu', 'English'], ['durga', 'lakshmi', 'rudra', 'vivah'], 4.7, 215, 760, 1.05, 'Conducts pujas in Kannada, Telugu and English for families across Bengaluru.', '#1f6a3a', 'verified', 0],
     ['p8', 'Pt. Mahesh Tiwari', 'Varanasi', 22, ['Hindi', 'Sanskrit'], ['rudra', 'pitru', 'mrityunjaya', 'kaalsarp'], 4.9, 330, 1180, 1.1, 'Pitru and Shiva rituals from Kashi tradition.', '#6b4e00', 'verified', 0],
-    ['p9', 'Pt. Sanjay Dubey', 'Hyderabad', 7, ['Hindi', 'Telugu'], ['ganesh', 'satyanarayan'], 0, 0, 0, 0.9, 'Recently applied to join DeivikPooja.', '#555555', 'pending', 0],
-    ['p10', 'Pt. Rakesh Pathak', 'Delhi NCR', 9, ['Hindi'], ['hanuman', 'lakshmi'], 0, 0, 0, 0.9, 'Recently applied to join DeivikPooja.', '#555555', 'pending', 0]
+    ['p9', 'Pt. Sanjay Dubey', 'Hyderabad', 7, ['Hindi', 'Telugu'], ['ganesh', 'satyanarayan'], 0, 0, 0, 0.9, 'Recently applied to join DaivikPooja.', '#555555', 'pending', 0],
+    ['p10', 'Pt. Rakesh Pathak', 'Delhi NCR', 9, ['Hindi'], ['hanuman', 'lakshmi'], 0, 0, 0, 0.9, 'Recently applied to join DaivikPooja.', '#555555', 'pending', 0]
   ];
   P.forEach((p, i) => {
     const mobile = '98100000' + String(i + 1).padStart(2, '0'), uid = 'pu' + (i + 1);
@@ -100,12 +105,82 @@ function seedDemo() {
   db.prepare("INSERT INTO notifs(user_id,channel,message,ts) VALUES('u1','WhatsApp','Your Satyanarayan Katha is assigned to Pt. Ramesh Sharma.',?)").run(Date.now() - 36e5);
 }
 
-function resetAll() {
-  ['bookings', 'orders', 'notifs', 'tickets', 'campaigns', 'leads', 'payouts', 'coupons', 'banners', 'settings', 'otps', 'pandits', 'users', 'pujas', 'kits', 'prasad', 'temples', 'festivals'].forEach((t) => db.prepare('DELETE FROM ' + t).run());
-}
-function bootstrap() { seedCatalog(); ensureAdmin(); if (demoOn()) seedDemo(); }
+/* Kundali module seed: condition -> puja rules, havan kunds and samagri for the
+   recommended pujas. Runs after seedCatalog (needs pujas). Idempotent, and safe on
+   databases where pujas were added by migration 004 instead of the JSON seed. */
+function seedKundaliCatalog() {
+  const hasPuja = (id) => !!db.prepare('SELECT 1 FROM pujas WHERE id=?').get(id);
+  const txrun = db.transaction(() => {
+    /* Rule mapping: condition -> (puja, weight, priority, reason). Admins can edit or
+       extend these in the admin panel; this seed only fills a fresh install. */
+    const rules = [
+      ['mangal_dosha', 'mangal', 10, 'primary', 'Mangal Dosh Nivaran Puja is the traditional remedy associated with the Mars combination identified in this chart.'],
+      ['mangal_dosha', 'vivah', 5, 'secondary', 'A Mars-focused chart is traditionally matched and addressed before marriage.'],
+      ['mangal_dosha', 'navgraha', 3, 'optional', 'Navagraha Shanti is a supplementary practice for planetary peace.'],
+      ['kaal_sarp', 'kaalsarp', 10, 'primary', 'Kaal Sarp Dosh Nivaran is the traditional remedy associated with the Rahu-Ketu axis combination.'],
+      ['kaal_sarp', 'rudra', 6, 'secondary', 'Rudrabhishek is traditionally performed alongside Kaal Sarp shanti.'],
+      ['pitru_dosha', 'pitru', 10, 'primary', 'Pitru Tarpan and Shraddha is the traditional seva associated with ancestral combinations.'],
+      ['grahan_dosha', 'navgraha', 8, 'primary', 'Navagraha Shanti havan is the traditional remedy for an eclipse-like Sun-Moon node combination.'],
+      ['grahan_dosha', 'mrityunjaya', 5, 'secondary', 'Mahamrityunjaya jaap is traditionally recited for protection alongside Grahan shanti.'],
+      ['guru_chandal', 'navgraha', 8, 'primary', 'Navagraha Shanti havan is the traditional remedy associated with a Jupiter-node combination.'],
+      ['guru_chandal', 'rudra', 5, 'secondary', 'Rudrabhishek is traditionally performed to pacify Jupiter-related combinations.'],
+      ['shani_condition', 'shani', 10, 'primary', 'Shani shanti puja is the traditional remedy associated with Saturn conditions and Sade Sati.'],
+      ['shani_condition', 'navgraha', 5, 'secondary', 'Navagraha Shanti is a supplementary practice for Saturn periods.'],
+      ['rahu_condition', 'kaalsarp', 7, 'primary', 'Kaal Sarp Dosh Nivaran includes Rahu shanti in the traditional sequence.'],
+      ['rahu_condition', 'durga', 5, 'secondary', 'Durga Saptashati path is traditionally recited for Rahu pacification.'],
+      ['ketu_condition', 'kaalsarp', 7, 'primary', 'Kaal Sarp Dosh Nivaran includes Ketu shanti in the traditional sequence.'],
+      ['ketu_condition', 'ganesh', 5, 'secondary', 'Ganesha worship is traditionally associated with Ketu pacification.']
+    ];
+    const insRule = db.prepare('INSERT OR IGNORE INTO condition_puja_rules(condition_code,puja_id,weight,priority,reason) VALUES(?,?,?,?,?)');
+    for (const [code, pujaId, weight, priority, reason] of rules) if (hasPuja(pujaId)) insRule.run(code, pujaId, weight, priority, reason);
 
-module.exports = { bootstrap, seedCatalog, seedDemo, ensureAdmin, resetAll, demoOn };
+    /* Upgrade rows that migration 002 created without priority/reason. */
+    db.prepare("UPDATE condition_puja_rules SET priority='primary', reason='Mangal Dosh Nivaran Puja is the traditional remedy associated with the Mars combination identified in this chart.' WHERE condition_code='mangal_dosha' AND puja_id='mangal'").run();
+    db.prepare("UPDATE condition_puja_rules SET priority='secondary', reason='A Mars-focused chart is traditionally matched and addressed before marriage.' WHERE condition_code='mangal_dosha' AND puja_id='vivah'").run();
+    db.prepare("UPDATE condition_puja_rules SET priority='primary', reason='Pitru Tarpan and Shraddha is the traditional seva associated with ancestral combinations.' WHERE condition_code='pitru_dosha' AND puja_id='pitru'").run();
+    db.prepare("UPDATE condition_puja_rules SET priority='primary', reason='Rudrabhishek is the traditional seva associated with the Rahu-Ketu axis when no dedicated puja is mapped.' WHERE condition_code='kaal_sarp' AND puja_id='rudra' AND NOT EXISTS(SELECT 1 FROM condition_puja_rules WHERE condition_code='kaal_sarp' AND puja_id='kaalsarp')").run();
+
+    /* Havan kunds and samagri for the recommended pujas. */
+    const kunds = [
+      ['mangal', 'hk_brass_12', 1], ['kaalsarp', 'hk_stone_15', 1], ['shani', 'hk_brass_12', 1],
+      ['navgraha', 'hk_copper_9', 1], ['pitru', 'hk_copper_9', 1]
+    ];
+    for (const [pujaId, kundId, rec] of kunds) if (hasPuja(pujaId)) db.prepare('INSERT OR IGNORE INTO puja_kunds(puja_id,kund_id,recommended) VALUES(?,?,?)').run(pujaId, kundId, rec);
+    const samagri = [
+      ['navgraha', 'si_ghee', 250], ['navgraha', 'si_camphor', 10], ['kaalsarp', 'si_til', 100],
+      ['pitru', 'si_til', 250], ['pitru', 'si_akshat', 100], ['mangal', 'si_ghee', 250],
+      ['mangal', 'si_wood', 21], ['shani', 'si_til', 250], ['shani', 'si_ghee', 250]
+    ];
+    for (const [pujaId, itemId, qty] of samagri) if (hasPuja(pujaId)) db.prepare('INSERT OR IGNORE INTO puja_samagri(puja_id,item_id,qty) VALUES(?,?,?)').run(pujaId, itemId, qty);
+  })();
+  void txrun;
+}
+
+function resetAll() {
+  ['bookings', 'orders', 'notifs', 'tickets', 'campaigns', 'leads', 'payouts', 'coupons', 'banners', 'settings', 'otps', 'pandits', 'users', 'pujas', 'kits', 'prasad', 'temples', 'festivals', 'kundali_profiles', 'kundalis', 'dosh_analysis', 'puja_recommendations', 'kundali_analysis', 'kundali_recommendations'].forEach((t) => { try { db.prepare('DELETE FROM ' + t).run(); } catch (e) { /* table may not exist yet */ } });
+}
+
+/* Applies pending SQL migrations from server/migrations/ (same logic as migrate.js,
+   so `npm start` always boots with the current schema without a separate step). */
+function runMigrations() {
+  const fs = require('fs'), path = require('path');
+  const dir = path.join(__dirname, 'migrations');
+  if (!fs.existsSync(dir)) return;
+  db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))");
+  const done = new Set(db.prepare('SELECT name FROM schema_migrations').all().map((r) => r.name));
+  const pending = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().filter((f) => !done.has(f));
+  if (!pending.length) return;
+  for (const file of pending) {
+    const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+    const apply = db.transaction(() => { db.exec(sql); db.prepare('INSERT INTO schema_migrations(name) VALUES(?)').run(file); });
+    try { apply(); if (!process.env.QUIET) console.log('[migrate] applied ' + file); }
+    catch (err) { console.error('[migrate] FAILED ' + file + ': ' + err.message + ' — fix server/migrations/' + file + ' and re-run (nothing else was touched).'); throw err; }
+  }
+}
+
+function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); ensureAdmin(); if (demoOn()) seedDemo(); }
+
+module.exports = { bootstrap, seedCatalog, seedKundaliCatalog, seedDemo, ensureAdmin, resetAll, demoOn };
 
 if (require.main === module) {
   if (process.argv.includes('--reset')) { resetAll(); console.log('Database cleared.'); }

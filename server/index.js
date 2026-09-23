@@ -20,6 +20,23 @@ if (process.env.NODE_ENV === 'production') {
 }
 const app = express();
 app.disable('x-powered-by');
+
+/* CORS for split hosting: the site can live on Netlify/GitHub Pages while the API runs
+   on a host that runs Node (Render/Railway/Fly/VPS). Same-origin requests need no headers. */
+const corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+if (corsOrigins.length) {
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && (corsOrigins.includes('*') || corsOrigins.includes(origin))) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+      if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+    }
+    next();
+  });
+}
 if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: { directives: {
@@ -48,6 +65,7 @@ app.post('/api/leads', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, skip: ()
   res.status(201).json({ ok: true });
 });
 app.use('/api/auth', require('./routes/auth').router);
+app.use('/api/kundali', require('./routes/kundali'));
 app.use('/api/pandit', require('./routes/pandit'));
 app.use('/api/admin', require('./routes/admin'));
 const customer = require('./routes/customer');
@@ -67,5 +85,5 @@ app.use((err, _req, res, _next) => {
 });
 
 const port = process.env.PORT || 3000;
-if (require.main === module) app.listen(port, () => console.log(`DeivikPooja running at http://localhost:${port}  (payments: ${process.env.PAYMENT_MODE || 'mock'})`));
+if (require.main === module) app.listen(port, () => console.log(`DaivikPooja running at http://localhost:${port}  (payments: ${process.env.PAYMENT_MODE || 'mock'})`));
 module.exports = app;

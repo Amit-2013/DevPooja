@@ -183,6 +183,34 @@
    "tags": "hanuman courage fear strength protection tuesday saturday"
   },
   {
+   "id": "mangal",
+   "name": "Mangal Dosh Nivaran Puja",
+   "hindi": "मंगल दोष निवारण पूजा",
+   "cat": "Health & Dosha",
+   "icon": "♂",
+   "dur": 150,
+   "price": 5100,
+   "deity": "Mangal (Mars) and Hanuman",
+   "ben": "Traditional Mangal dosh shanti with Mangal jaap and havan.",
+   "kit": "k_havan",
+   "pop": 0,
+   "tags": "mangal dosh mars manglik marriage matching kuja"
+  },
+  {
+   "id": "shani",
+   "name": "Shani Shanti Puja",
+   "hindi": "शनि शांति पूजा",
+   "cat": "Health & Dosha",
+   "icon": "♄",
+   "dur": 150,
+   "price": 4600,
+   "deity": "Shani Dev and Hanuman",
+   "ben": "Traditional Shani shanti with oil daan, jaap and havan.",
+   "kit": "k_havan",
+   "pop": 0,
+   "tags": "shani saturn sade sati sadesati dhaiya karma discipline delay"
+  },
+  {
    "id": "pitru",
    "name": "Pitru Tarpan and Shraddha",
    "hindi": "पितृ तर्पण",

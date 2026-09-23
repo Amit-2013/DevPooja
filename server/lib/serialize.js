@@ -17,8 +17,8 @@ const booking = (r) => {
   };
 };
 const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [] });
-const kit = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, items: j(r.items, []) });
-const prasad = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, d: r.descr });
+const kit = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, items: j(r.items, []), active: r.active === undefined ? 1 : r.active });
+const prasad = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, d: r.descr, stock: r.stock === undefined ? null : r.stock, active: r.active === undefined ? 1 : r.active });
 const temple = (r) => ({ id: r.id, n: r.name, city: r.city, deity: r.deity, ic: r.icon, pujas: j(r.pujas, []), off: r.offering, d: r.descr });
 const festival = (r) => ({ id: r.id, n: r.name, d: r.date, p: j(r.pujas, []), t: r.note });
 const order = (r) => ({ id: r.id, userId: r.user_id, items: j(r.items, []), total: r.total, date: r.date, st: r.status, city: r.city });

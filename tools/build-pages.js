@@ -14,7 +14,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'dist');
 const ROLES = ['anon', 'customer', 'pandit', 'admin'];
-const tmproot = fs.mkdtempSync(path.join(os.tmpdir(), 'deivikpooja-pages-'));
+const tmproot = fs.mkdtempSync(path.join(os.tmpdir(), 'daivikpooja-pages-'));
 
 /* A throwaway database keeps the build reproducible and free of local data. dotenv never
    overrides a variable that is already set, so these values win over any .env file. */
@@ -24,7 +24,7 @@ process.env.QUIET = '1';
 process.env.JWT_SECRET = 'pages-build-secret';
 process.env.DB_PATH = path.join(tmproot, 'pages.db');
 process.env.UPLOAD_DIR = path.join(tmproot, 'uploads');
-process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@deivikpooja.in';
+process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@daivikpuja.in';
 process.env.ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 process.env.PAYMENT_MODE = 'mock';              /* never contact a live payment gateway */
 

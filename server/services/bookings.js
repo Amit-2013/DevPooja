@@ -40,8 +40,8 @@ function priceRequest(userRow, body, { strictCoupon = true } = {}) {
   let pandit = null;
   if (body.panditId) { pandit = db.prepare("SELECT * FROM pandits WHERE id=? AND status='verified'").get(body.panditId); if (!pandit) throw bad('Pandit not available'); }
   const ids = (arr, name) => [...new Set(v.arr(arr, name))];
-  const kits = ids(body.sam, 'Samagri').map((id) => { const k = db.prepare('SELECT * FROM kits WHERE id=?').get(id); if (!k) throw bad('Unknown samagri kit'); return k; });
-  const prasad = ids(body.pra, 'Prasad').map((id) => { const k = db.prepare('SELECT * FROM prasad WHERE id=?').get(id); if (!k) throw bad('Unknown prasad item'); return k; });
+  const kits = ids(body.sam, 'Samagri').map((id) => { const k = db.prepare('SELECT * FROM kits WHERE id=?').get(id); if (!k) throw bad('Unknown samagri kit'); if (!k.active) throw bad(k.name + ' is currently unavailable'); return k; });
+  const prasad = ids(body.pra, 'Prasad').map((id) => { const k = db.prepare('SELECT * FROM prasad WHERE id=?').get(id); if (!k) throw bad('Unknown prasad item'); if (!k.active) throw bad(k.name + ' is currently unavailable'); return k; });
   let coupon = null, couponError = '';
   if (body.coupon) {
     const c = db.prepare('SELECT * FROM coupons WHERE code=?').get(String(body.coupon).toUpperCase());

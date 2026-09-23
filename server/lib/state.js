@@ -23,6 +23,7 @@ function buildState(auth) {
       festivals: db.prepare('SELECT * FROM festivals ORDER BY date').all().map(S.festival)
     },
     banners: db.prepare('SELECT * FROM banners WHERE enabled=1').all().map((b) => ({ id: b.id, t: b.text, on: true })),
+    kundali: { enabled: true, purposes: ['General', 'Marriage', 'Career', 'Business', 'Health & Wellness', 'Finance', 'Education', 'Family', 'Child', 'Spiritual', 'Property', 'Other'] },
     pandits: [], busy: [], reviews: [],
     me: null, users: [], bookings: [], orders: [], notifs: [], tickets: [], coupons: [], payouts: [], inv: {}, campaigns: [], leads: [], set: {}, hidden: []
   };
