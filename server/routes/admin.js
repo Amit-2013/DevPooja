@@ -2,7 +2,7 @@ const router = require('express').Router();
 const path = require('path');
 const fs = require('fs');
 const { db, setSetting, nextSeq } = require('../db');
-const { requireRole } = require('../auth');
+const { requireRole, sign } = require('../auth');
 const B = require('../services/bookings');
 const S = require('../lib/serialize');
 const upload = require('../lib/upload');
@@ -210,6 +210,43 @@ router.get('/kundali/analyses', (req, res) => {
       (SELECT COUNT(*) FROM puja_recommendations pr WHERE pr.kundali_id = k.id) AS recommendations
     FROM kundalis k ORDER BY k.created_at DESC LIMIT 100`).all();
   res.json({ analyses: rows });
+});
+
+/* --- demo data management: reset the database or generate mock bookings --- */
+const seedMod = require('../seed');
+
+router.get('/demo/stats', (req, res) => res.json(seedMod.demoStats()));
+
+/* Wipes ALL data (bookings, kundalis, users, catalogue...) and re-seeds a fresh
+   demo state: admin account, catalogue, demo accounts, sample bookings and mock
+   kundalis. The logged-in admin's own account is recreated with the same email,
+   but their session token stops working — the response carries a fresh one. */
+router.post('/demo/reset', (req, res) => {
+  if (req.body && req.body.confirm !== 'RESET') throw bad('Type RESET to confirm');
+  const me = db.prepare('SELECT email FROM users WHERE id=?').get(req.auth.uid);
+  const adminEmail = me ? me.email : null;
+  seedMod.resetAll();
+  setSetting('booking_seq', 2400);
+  seedMod.bootstrap();
+  let token = null;
+  try {
+    const email = (process.env.ADMIN_EMAIL || adminEmail || 'admin@daivikpuja.in').toLowerCase();
+    const u = db.prepare("SELECT * FROM users WHERE role='admin' AND email=?").get(email) || db.prepare("SELECT * FROM users WHERE role='admin' LIMIT 1").get();
+    token = u ? sign(u) : null;
+  } catch (e) { /* token stays null; the UI falls back to the admin login form */ }
+  res.json({ ok: true, stats: seedMod.demoStats(), token });
+});
+
+/* Generate mock bookings across the demo customers (demo mode only). */
+router.post('/demo/bookings', (req, res) => {
+  res.status(201).json(Object.assign({ ok: true }, seedMod.mockBookings(req.body && req.body.count)));
+});
+
+/* Demo accounts list for the login modal picker. */
+router.get('/demo/accounts', (req, res) => {
+  const customers = db.prepare("SELECT id, name, mobile, email, plus, pts FROM users WHERE role='customer' AND mobile LIKE '98111%' ORDER BY id LIMIT 8").all();
+  const pd = db.prepare("SELECT p.id, p.name, p.city, p.status, u.mobile FROM pandits p JOIN users u ON u.id=p.user_id WHERE p.mobile LIKE '98100000%' ORDER BY p.id LIMIT 3").all();
+  res.json({ customers: customers.map((u) => ({ id: u.id, name: u.name, mobile: u.mobile, email: u.email, plus: !!u.plus, pts: u.pts })), pandits: pd.map((p) => ({ id: p.id, name: p.name, city: p.city, mobile: p.mobile, status: p.status })), password: seedMod.DEMO_PASSWORD });
 });
 
 router.post('/orders/:id/advance', (req, res) => {

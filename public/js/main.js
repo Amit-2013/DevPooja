@@ -26,10 +26,15 @@ const ACT={
  async verifyotp(){try{doLogin(await api('/auth/otp/verify',{body:{mobile:val('lm'),otp:val('lo'),name:val('ln'),as:PAGE.la==='pandit'?'pandit':undefined}}))}catch(e){toast(e.message)}},
  async emlogin(){try{doLogin(await api('/auth/email',{body:{email:val('le'),password:val('lp'),name:val('ln')}}))}catch(e){toast(e.message)}},
  async 'demo-user'(){try{doLogin(await api('/auth/demo',{body:{role:'customer'}}))}catch(e){toast(e.message)}},
+ dfill(d){const m=$('#lm');if(m)m.value=d.m;const n=$('#ln');if(n&&d.n)n.value=d.n;const o=$('#lo');if(o)o.focus();},
  async 'demo-pandit'(){try{await doLogin(await api('/auth/demo',{body:{role:'pandit'}}))}catch(e){toast(e.message)}},
  async alogin(){try{await doLogin(await api('/auth/admin',{body:{email:val('ae'),password:val('ap2')}}))}catch(e){toast(e.message)}},
  /* kundali admin */
  akcond(d,el){run(()=>api('/admin/kundali/conditions/'+d.id,{method:'PATCH',body:{active:el.checked}}))},
+ /* demo data tab */
+ async amock(){try{const r=await api('/admin/demo/bookings',{body:{count:val('mkcount')}});await sync();toast('Mock bookings created: '+(r.created||0));render(true)}catch(e){toast(e.message)}},
+ async areset(){if(val('mkconfirm')!=='RESET')return toast('Type RESET in the box to confirm');
+  try{const r=await api('/admin/demo/reset',{body:{confirm:'RESET'}});if(r.token)setToken(r.token);await sync();toast('All data reset to the fresh demo state');render();}catch(e){toast(e.message)}},
  akcedit(d){const c=((db.kundali||{}).conditions||[]).find(x=>x.code===d.id);if(!c)return;
   modal('<h2>Edit condition</h2><div class="frm mt"><label class="f">Name<input id="kcen" value="'+esc(c.name)+'"></label><label class="f">Customer-facing description<textarea id="kced">'+esc(c.descr||'')+'</textarea></label><label class="f">Suggested remedy<textarea id="kcer">'+esc(c.remedy||'')+'</textarea></label><label class="f">Severity<select id="kces">'+['low','medium','high'].map(s=>'<option'+(c.severity===s?' selected':'')+'>'+s+'</option>').join('')+'</select></label><button class="btn mt" data-act="akceditok" data-id="'+esc(c.code)+'">Save</button></div>')},
  async akceditok(d){await closeAnd(run(()=>api('/admin/kundali/conditions/'+d.id,{method:'PATCH',body:{name:val('kcen'),descr:val('kced'),remedy:val('kcer'),severity:val('kces')}}),'Condition saved'))},

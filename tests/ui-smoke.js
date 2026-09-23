@@ -74,11 +74,16 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
-  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support']) await go('#/admin/' + t);
+  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'demo']) await go('#/admin/' + t);
   await go('#/admin/bookings'); await click('[data-act=aman]'); setv('mn', 'Manual Cust'); setv('mm', '9000055555'); await click('[data-act=amanok]', 600);
   await go('#/admin/pandits'); await click('[data-act=akyc]', 500); await go('#/admin/finance'); await click('[data-act=acm]', 400);
   await go('#/admin/pujas'); setv('npn', 'Test Puja'); await click('[data-act=anp]', 500);
   console.log('admin puja added:', /Test Puja/.test(text()));
+  // demo data tab: mock booking generation, then a full reset that keeps the admin session
+  await go('#/admin/demo'); await click('[data-act=amock]', 800);
+  console.log('mock bookings generated:', /Mock bookings created/.test(d.getElementById('toast').textContent));
+  setv('mkconfirm', 'RESET'); await click('[data-act=areset]', 900);
+  console.log('demo reset: still admin, Test Puja wiped:', /Admin panel/.test(text()) && !/Test Puja/.test(text()));
   console.log(errs.length ? errs.join('\n') : 'NO UI ERRORS');
   server.closeAllConnections(); server.close(); process.exit(errs.length ? 1 : 0);
 })().catch((e) => { console.error('FATAL', e); process.exit(2); });

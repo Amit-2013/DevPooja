@@ -1,7 +1,7 @@
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const { db, tx, setSetting } = require('./db');
-const { addDays, today } = require('./lib/util');
+const { addDays, today, j, rid } = require('./lib/util');
 const catalog = require('./data/catalog.json');
 
 const isProd = () => process.env.NODE_ENV === 'production';
@@ -37,18 +37,23 @@ function ensureAdmin() {
   else db.prepare("INSERT INTO users(id,role,name,email,pass_hash,joined,created_at) VALUES(?,?,?,?,?,?,?)").run('admin1', 'admin', 'Administrator', email, hash, today(), Date.now());
 }
 
+const DEMO_PASSWORD = 'demo1234';
 function seedDemo() {
   if (db.prepare("SELECT COUNT(*) c FROM users WHERE role='customer'").get().c) return;
   const svc = require('./services/bookings');
-  const insU = db.prepare("INSERT INTO users(id,role,name,mobile,email,pts,plus,pref,addr,fam,joined,created_at) VALUES(?,'customer',?,?,?,?,?,?,?,?,?,?)");
+  const insU = db.prepare("INSERT INTO users(id,role,name,mobile,email,pass_hash,pts,plus,pref,addr,fam,joined,created_at) VALUES(?,'customer',?,?,?,?,?,?,?,?,?,?,?)");
+  const hash = bcrypt.hashSync(DEMO_PASSWORD, 10);
   const U = [
     ['u1', 'Aarav Mehta', '9876543210', 'aarav@example.com', 240, 0, { deity: 'Lakshmi', lang: 'Hindi', wa: true, sms: true, em: true }, [{ id: 'a1', l: 'Home', line: 'B-204, Green Park Residency', city: 'Delhi NCR', pin: '110016' }], [{ id: 'f1', n: 'Kavita Mehta', rel: 'Mother', gotra: 'Kashyap' }, { id: 'f2', n: 'Riya Mehta', rel: 'Spouse', gotra: '' }], -160],
     ['u2', 'Priya Nair', '9811100002', 'priya@example.com', 90, 1, { deity: 'Ganesha', lang: 'English', wa: true, sms: false, em: true }, [{ id: 'a2', l: 'Home', line: '12 Lake View Road', city: 'Bengaluru', pin: '560008' }], [], -120],
     ['u3', 'Karan Desai', '9811100003', 'karan@example.com', 0, 0, { deity: 'Shiva', lang: 'Hindi', wa: true, sms: true, em: false }, [{ id: 'a3', l: 'Home', line: '44 Marine Drive Apartments', city: 'Mumbai', pin: '400020' }], [], -70],
     ['u4', 'Meera Iyer', '9811100004', 'meera@example.com', 410, 1, { deity: 'Lakshmi', lang: 'Tamil', wa: true, sms: true, em: true }, [{ id: 'a4', l: 'Home', line: '8 Temple Street, Mylapore', city: 'Chennai', pin: '600004' }], [], -200],
-    ['u5', 'Vikram Singh', '9811100005', 'vikram@example.com', 30, 0, { deity: 'Hanuman', lang: 'Hindi', wa: true, sms: true, em: false }, [{ id: 'a5', l: 'Home', line: '21 Civil Lines', city: 'Jaipur', pin: '302006' }], [], -40]
+    ['u5', 'Vikram Singh', '9811100005', 'vikram@example.com', 30, 0, { deity: 'Hanuman', lang: 'Hindi', wa: true, sms: true, em: false }, [{ id: 'a5', l: 'Home', line: '21 Civil Lines', city: 'Jaipur', pin: '302006' }], [], -40],
+    ['u6', 'Sunita Rao', '9811100006', 'sunita@example.com', 120, 0, { deity: 'Ganesha', lang: 'English', wa: true, sms: true, em: true }, [{ id: 'a6', l: 'Home', line: '7 Rose Villa', city: 'Hyderabad', pin: '500081' }], [], -55],
+    ['u7', 'Rahul Sharma', '9811100007', 'rahul@example.com', 60, 0, { deity: 'Shiva', lang: 'Hindi', wa: true, sms: false, em: true }, [{ id: 'a7', l: 'Home', line: '321 Sector 18', city: 'Noida', pin: '201301' }], [], -25],
+    ['u8', 'Anjali Patel', '9811100008', 'anjali@example.com', 310, 1, { deity: 'Lakshmi', lang: 'Gujarati', wa: true, sms: true, em: true }, [{ id: 'a8', l: 'Home', line: '56 Satellite Road', city: 'Ahmedabad', pin: '380015' }], [], -90]
   ];
-  U.forEach((u) => insU.run(u[0], u[1], u[2], u[3], u[4], u[5], JSON.stringify(u[6]), JSON.stringify(u[7]), JSON.stringify(u[8]), addDays(u[9]), Date.now()));
+  U.forEach((u) => insU.run(u[0], u[1], u[2], u[3], hash, u[4], u[5], JSON.stringify(u[6]), JSON.stringify(u[7]), JSON.stringify(u[8]), addDays(u[9]), Date.now()));
 
   const P = [
     ['p1', 'Pt. Ramesh Sharma', 'Delhi NCR', 18, ['Hindi', 'Sanskrit'], ['lakshmi', 'griha', 'satyanarayan', 'vastu', 'vyapar'], 4.9, 412, 1260, 1.15, 'Trained in Varanasi. Known for clear explanations of each ritual step in Hindi.', '#0c4b49', 'verified', 1],
@@ -103,6 +108,37 @@ function seedDemo() {
   db.prepare("INSERT INTO campaigns(id,name,channel,audience,status,sent) VALUES('C1','Diwali early bird','WhatsApp','Repeat customers','Scheduled',0),('C2','Pitru Paksha reminder','Email','All customers','Sent',1280)").run();
   db.prepare("INSERT INTO banners(id,text,enabled) VALUES('b2','Pitru Paksha tarpan at Trimbakeshwar',1)").run();
   db.prepare("INSERT INTO notifs(user_id,channel,message,ts) VALUES('u1','WhatsApp','Your Satyanarayan Katha is assigned to Pt. Ramesh Sharma.',?)").run(Date.now() - 36e5);
+
+  /* Mock kundalis through the REAL engine (no hard-coded charts), saved for the demo
+     customers so /#/kundali/result?id= and the admin Kundali tab have history. */
+  try {
+    const astro = require('./services/astrology');
+    const places = db.prepare('SELECT * FROM place_index WHERE city IN (?, ?, ?) AND country=? ORDER BY population DESC').all('Delhi', 'Chennai', 'Mumbai', 'India');
+    const byCity = Object.fromEntries(places.map((p) => [p.city, p]));
+    const samples = [
+      ['u1', 'Aarav Mehta', '1990-01-15', '10:30', 'exact', byCity.Delhi, 'Marriage'],
+      ['u4', 'Meera Iyer', '1987-07-04', '06:45', 'exact', byCity.Chennai, 'Health & Wellness'],
+      ['u3', 'Karan Desai', '1995-11-02', '14:10', 'exact', byCity.Mumbai, 'Career']
+    ];
+    for (const [uid, name, dob, tob, acc, place, purpose] of samples) {
+      if (!place) continue;
+      const chart = astro.kundali.buildChart({ name, gender: dob === '1987-07-04' ? 'female' : 'male', dob, tob, birthTimeAccuracy: acc, lat: place.lat, lon: place.lon, tz: place.tz, place: [place.city, place.state, place.country].join(', ') });
+      const results = astro.dosh.analyze(chart);
+      const detected = astro.dosh.detected(results);
+      const recs = astro.recommend.recommendationsFor(detected, { purpose });
+      const kid = 'K' + rid(6);
+      db.prepare(`INSERT INTO kundalis(id,profile_id,name,chart_data,planetary_data,lagna,rashi,nakshatra,pada,dasha_data,navamsa_data,calculation_version)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(kid, null, name, JSON.stringify(chart), JSON.stringify(astro.kundali.analysisView(chart)),
+          chart.lagna.signName, chart.rashi.signName, chart.panchang.nakshatra, chart.planets.moon.nakshatra.pada,
+          JSON.stringify(chart.dashas), JSON.stringify(chart.navamsaSigns), 'internal-ephemeris-v1');
+      const insDosh = db.prepare('INSERT INTO dosh_analysis(kundali_id,dosh_type,detected,severity,confidence,explanation,evidence,recommendation) VALUES(?,?,?,?,?,?,?,?)');
+      for (const r of results) insDosh.run(kid, r.code, r.detected ? 1 : 0, r.severity, r.confidence, r.explanation, JSON.stringify(r.evidence), '');
+      const insRec = db.prepare('INSERT INTO puja_recommendations(kundali_id,puja_id,recommendation_reason,priority,relevance_score,related_doshas) VALUES(?,?,?,?,?,?)');
+      for (const r of recs) insRec.run(kid, r.pujaId, r.reason, r.priority, r.weight, JSON.stringify(r.relatedDoshas));
+      db.prepare('INSERT INTO kundali_activity(user_id,action,detail) VALUES(?,?,?)').run(uid, 'kundali.generate', JSON.stringify({ kundaliId: kid, detected: detected.length, recommendations: recs.length }));
+    }
+  } catch (e) { if (!process.env.QUIET) console.warn('[seed] demo kundalis skipped:', e.message); }
 }
 
 /* Kundali module seed: condition -> puja rules, havan kunds and samagri for the
@@ -157,7 +193,23 @@ function seedKundaliCatalog() {
 }
 
 function resetAll() {
-  ['bookings', 'orders', 'notifs', 'tickets', 'campaigns', 'leads', 'payouts', 'coupons', 'banners', 'settings', 'otps', 'pandits', 'users', 'pujas', 'kits', 'prasad', 'temples', 'festivals', 'kundali_profiles', 'kundalis', 'dosh_analysis', 'puja_recommendations', 'kundali_analysis', 'kundali_recommendations'].forEach((t) => { try { db.prepare('DELETE FROM ' + t).run(); } catch (e) { /* table may not exist yet */ } });
+  /* Foreign keys are ON, so child tables must go before their parents. Ordered:
+     kundali flow -> analytics/history -> transactional -> catalogue -> identity. */
+  const order = [
+    'puja_recommendations', 'dosh_analysis', 'kundalis', 'kundali_recommendations',
+    'kundali_analysis', 'kundali_profiles', 'kundali_activity',
+    'booking_status_history', 'payments', 'reviews', 'payouts', 'ticket_messages',
+    'tickets', 'cart_items', 'order_items', 'orders', 'bookings',
+    'notifs', 'campaigns', 'leads', 'audit_logs',
+    'puja_kunds', 'puja_samagri', 'condition_puja_rules', 'temple_pujas',
+    'coupons', 'banners', 'otps', 'settings',
+    'kits', 'prasad', 'temples', 'festivals', 'havan_kunds', 'samagri_items', 'kundali_conditions',
+    'pandits', 'pujas', 'users'
+  ];
+  tx(() => {
+    for (const t of order) { try { db.prepare('DELETE FROM ' + t).run(); } catch (e) { /* table may not exist on older databases */ } }
+  })();
+  replayMigrationSeeds();
 }
 
 /* Applies pending SQL migrations from server/migrations/ (same logic as migrate.js,
@@ -169,12 +221,36 @@ function runMigrations() {
   db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))");
   const done = new Set(db.prepare('SELECT name FROM schema_migrations').all().map((r) => r.name));
   const pending = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().filter((f) => !done.has(f));
-  if (!pending.length) return;
-  for (const file of pending) {
+  if (pending.length) for (const file of pending) {
     const sql = fs.readFileSync(path.join(dir, file), 'utf8');
     const apply = db.transaction(() => { db.exec(sql); db.prepare('INSERT INTO schema_migrations(name) VALUES(?)').run(file); });
     try { apply(); if (!process.env.QUIET) console.log('[migrate] applied ' + file); }
     catch (err) { console.error('[migrate] FAILED ' + file + ': ' + err.message + ' — fix server/migrations/' + file + ' and re-run (nothing else was touched).'); throw err; }
+  }
+}
+
+/* Replays migration seed data after a full wipe (place index, kunds, samagri items,
+   condition rows). Safe on untouched databases too: every statement is guarded by
+   NOT EXISTS / INSERT OR IGNORE. Each statement is isolated so one failure (e.g. a
+   rule row referencing a puja that is not re-seeded yet) cannot abort the rest. */
+function replayMigrationSeeds() {
+  const fs = require('fs'), path = require('path');
+  const dir = path.join(__dirname, 'migrations');
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
+    const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+    /* Comments must go BEFORE splitting on ';': a comment can contain a semicolon
+       ("...from migration 002; align..."), which would otherwise split mid-comment
+       and make the following INSERT chunk start with comment residue. */
+    const noComments = sql.replace(/--[^\n]*/g, '');
+    for (const stmt of noComments.split(';')) {
+      const s = stmt.trim();
+      if (!s) continue;
+      if (/^(ALTER|CREATE|DROP|UPDATE|DELETE)\b/i.test(s)) continue;   /* structure + data fixes are migration-time only */
+      if (!/^INSERT/i.test(s)) continue;                                /* replay seed inserts only */
+      try { db.exec(s + ';'); }
+      catch (e) { if (!process.env.QUIET) console.warn('[seed] replay skip (' + file + '):', e.message); }
+    }
   }
 }
 
@@ -187,3 +263,64 @@ if (require.main === module) {
   bootstrap();
   console.log('Seed complete. Demo data:', demoOn() ? 'on' : 'off');
 }
+
+/* Counted demo data (used by the admin Demo data tab and tests). */
+function demoStats() {
+  const c = (sql, ...args) => db.prepare(sql).get(...args).c;
+  return {
+    demo: demoOn(),
+    customers: c("SELECT COUNT(*) c FROM users WHERE role='customer'"),
+    pandits: c('SELECT COUNT(*) c FROM pandits'),
+    bookings: c('SELECT COUNT(*) c FROM bookings'),
+    orders: c('SELECT COUNT(*) c FROM orders'),
+    tickets: c('SELECT COUNT(*) c FROM tickets'),
+    kundalis: c('SELECT COUNT(*) c FROM kundalis'),
+    doshDetected: c('SELECT COUNT(*) c FROM dosh_analysis WHERE detected=1'),
+    recommendations: c('SELECT COUNT(*) c FROM puja_recommendations')
+  };
+}
+
+/* Generate N realistic mock bookings spread across the seeded demo customers, pujas,
+   modes and dates, using the real booking service so pricing/stock/log stay consistent. */
+function mockBookings(n) {
+  if (!demoOn()) throw Object.assign(new Error('Demo mode is off; enable DEMO_MODE to generate mock data.'), { status: 400 });
+  const count = Math.max(1, Math.min(50, Number(n) || 5));
+  const svc = require('./services/bookings');
+  const users = db.prepare("SELECT * FROM users WHERE role='customer' ORDER BY id").all();
+  const pujas = db.prepare('SELECT id FROM pujas WHERE hidden=0 ORDER BY id').all().map((r) => r.id);
+  const temples = db.prepare('SELECT id, pujas FROM temples').all();
+  if (!users.length || !pujas.length) throw Object.assign(new Error('Seed the catalogue first: run `npm run reset`.'), { status: 400 });
+  const slots = ['06:00 AM', '08:00 AM', '10:00 AM', '12:00 PM', '02:00 PM', '04:00 PM', '06:00 PM'];
+  const cities = ['Delhi NCR', 'Mumbai', 'Bengaluru', 'Chennai', 'Jaipur', 'Hyderabad', 'Pune', 'Ahmedabad'];
+  const pins = { 'Delhi NCR': '110016', Mumbai: '400020', Bengaluru: '560008', Chennai: '600004', Jaipur: '302006', Hyderabad: '500081', Pune: '411001', Ahmedabad: '380015' };
+  const made = [];
+  const run = tx(() => {
+    for (let i = 0; i < count; i++) {
+      const u = users[Math.floor(Math.random() * users.length)];
+      const pujaId = pujas[Math.floor(Math.random() * pujas.length)];
+      const temple = temples.find((t) => j(t.pujas, []).includes(pujaId));
+      const mode = temple && Math.random() < 0.15 ? 'temple' : Math.random() < 0.3 ? 'online' : 'home';
+      const date = addDays(2 + Math.floor(Math.random() * 45));
+      const slot = slots[Math.floor(Math.random() * slots.length)];
+      const kit = db.prepare('SELECT id FROM kits WHERE active=1 ORDER BY RANDOM() LIMIT 1').get();
+      const prs = db.prepare('SELECT id FROM prasad WHERE active=1 ORDER BY RANDOM() LIMIT 1').get();
+      const city = cities[Math.floor(Math.random() * cities.length)];
+      let row = null;
+      try {
+        row = svc.createBooking(u, {
+          pujaId, mode, date, slot,
+          templeId: mode === 'temple' && temple ? temple.id : undefined,
+          addr: mode === 'temple' ? undefined : { line: 'House ' + (10 + Math.floor(Math.random() * 90)) + ', ' + city, city, pin: pins[city] || '' },
+          sam: kit && Math.random() < 0.5 ? [kit.id] : [],
+          pra: prs && Math.random() < 0.3 ? [prs.id] : [],
+          member: 'Self', payMethod: 'UPI'
+        });
+      } catch (e) { continue; } /* slot clash or stock: skip this one */
+      if (row) made.push(row.id);
+    }
+  });
+  run();
+  return { created: made.length, ids: made, requested: count };
+}
+
+module.exports = { bootstrap, seedCatalog, seedKundaliCatalog, seedDemo, ensureAdmin, resetAll, demoOn, demoStats, mockBookings, DEMO_PASSWORD };

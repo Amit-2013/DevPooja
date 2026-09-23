@@ -31,6 +31,41 @@ const login = async (role) => (await call('POST', '/auth/demo', { body: { role }
 const dayPlus = (n) => { const d = new Date(); d.setHours(12); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const bookingBody = (o = {}) => ({ pujaId: 'satyanarayan', mode: 'home', date: dayPlus(20), slot: '10:00 AM', addr: { line: '12 Test Street', city: 'Delhi NCR', pin: '110001' }, panditId: 'p1', sam: [], pra: [], ...o });
 
+test('demo data: stats, accounts, mock bookings and full reset', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const stats = (await call('GET', '/admin/demo/stats', { token: admin })).json;
+  assert.equal(stats.demo, true);
+  assert.ok(stats.customers >= 5 && stats.pandits >= 5 && stats.kundalis >= 1);
+
+  const acc = (await call('GET', '/admin/demo/accounts', { token: admin })).json;
+  assert.ok(acc.customers.length >= 5);
+  assert.ok(acc.pandits.length >= 1);
+  assert.ok(acc.pandits.every((p) => /^98100000\d\d$/.test(p.mobile)));
+
+  const before = (await call('GET', '/admin/demo/stats', { token: admin })).json.bookings;
+  const mk = await call('POST', '/admin/demo/bookings', { token: admin, body: { count: 4 } });
+  assert.equal(mk.status, 201);
+  assert.ok(mk.json.created >= 1, 'at least one mock booking should be created');
+  const after = (await call('GET', '/admin/demo/stats', { token: admin })).json.bookings;
+  assert.ok(after >= before + mk.json.created);
+  /* mock bookings use the real engine: they belong to a seeded customer and have prices */
+  const st = (await call('GET', '/state', { token: await login('customer') })).json;
+  assert.ok(st.bookings.every((b) => b.q && b.q.total > 0));
+
+  const noConfirm = await call('POST', '/admin/demo/reset', { token: admin, body: {} });
+  assert.equal(noConfirm.status, 400);
+
+  const rd = await call('POST', '/admin/demo/reset', { token: admin, body: { confirm: 'RESET' } });
+  assert.equal(rd.status, 200);
+  assert.ok(rd.json.ok);
+  assert.equal(rd.json.stats.customers >= 5, true);
+  assert.ok(rd.json.token, 'reset returns a fresh admin token');
+  const st2 = (await call('GET', '/state', { token: rd.json.token })).json;
+  assert.equal(st2.session.role, 'admin');
+  assert.ok(st2.catalog.pujas.length >= 16);
+  assert.equal(st2.bookings.length, rd.json.stats.bookings);
+});
+
 test('anonymous state exposes catalogue but no private data', async () => {
   const { status, json } = await call('GET', '/state');
   assert.equal(status, 200);

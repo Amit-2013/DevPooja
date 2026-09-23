@@ -20,9 +20,11 @@ With `DEMO_MODE=true` (default in development) the first start seeds sample pand
 
 | Role | How to log in in demo mode |
 |---|---|
-| Customer | "Continue with demo account", or any 10-digit mobile with OTP `123456` |
-| Pandit | Partner with us, "Open demo portal", or Pandit login with `9810000001` and OTP `123456` |
+| Customer | "Continue with demo account", any of the 8 seeded customers from the login modal (Aarav Mehta `9876543210`, Priya Nair, Karan Desai, Meera Iyer, Vikram Singh, Sunita Rao, Rahul Sharma, Anjali Patel), or any 10-digit mobile — OTP `123456` for all |
+| Pandit | Partner with us, "Open demo portal", or Pandit login with `9810000001` … `9810000010` and OTP `123456` |
 | Admin | `/#/admin`, `admin@daivikpuja.in` / `admin123` (from `.env`) |
+
+Demo customers also sign in with email `aarav@example.com` … `anjali@example.com`, password `demo1234`. The admin panel's **Demo data** tab shows live counts, generates 1–50 mock bookings through the real booking engine, and can wipe everything back to the fresh demo state (type RESET to confirm; your admin session is renewed automatically).
 
 Other commands: `npm test` (15 API tests + engine tests), `npm run test:ui` (drives the real UI in jsdom), `npm run reset` (clear and reseed), `docker build -t daivikpooja . && docker run -p 3000:3000 -v dp:/data -e JWT_SECRET=... daivikpooja`.
 
