@@ -132,3 +132,77 @@ test('nadi dosha rule: same nadi detected, different nadi not', () => {
   assert.ok(diff && !diff.detected);
   assert.equal(rules.nadi_dosha.evaluate(base, null), null, 'no partner: rule does not fire');
 });
+
+/* ---- Hindi (Devanagari) fields: additive, English always intact ---- */
+test('hindi engine fields: signs, nakshatras, planets, dignity, panchang, dasha', () => {
+  /* all 12 rashis, English alongside Hindi */
+  assert.equal(K.SIGN_HI.length, 12);
+  assert.equal(K.SIGN_HI[0], 'मेष');
+  assert.equal(K.SIGN_HI[11], 'मीन');
+  assert.equal(K.SIGN_SHORT[0], 'Aries');
+  /* all 27 nakshatras in Hindi */
+  assert.equal(K.NAKSHATRAS_HI.length, 27);
+  assert.equal(K.NAKSHATRAS_HI[0], 'अश्विनी');
+  assert.equal(K.NAKSHATRAS_HI[26], 'रेवती');
+  assert.equal(K.NAKSHATRAS.length, 27);
+  /* planet names */
+  assert.equal(K.DISPLAY_HI.sun, 'सूर्य');
+  assert.equal(K.DISPLAY_HI.moon, 'चंद्र');
+  assert.equal(K.DISPLAY_HI.mars, 'मंगल');
+  assert.equal(K.DISPLAY_HI.mercury, 'बुध');
+  assert.equal(K.DISPLAY_HI.jupiter, 'गुरु');
+  assert.equal(K.DISPLAY_HI.venus, 'शुक्र');
+  assert.equal(K.DISPLAY_HI.saturn, 'शनि');
+  assert.equal(K.DISPLAY_HI.rahu, 'राहु');
+  assert.equal(K.DISPLAY_HI.ketu, 'केतु');
+
+  const c = K.buildChart({ name: 'Hindi Tester', dob: '1990-01-15', tob: '10:30', lat: 28.6139, lon: 77.209, tz: 'Asia/Kolkata', place: 'Delhi', city: 'Delhi', state: 'Delhi', country: 'India' });
+  /* English fields remain available next to the Hindi ones */
+  assert.equal(c.lagna.signName, 'Pisces');
+  assert.equal(c.lagna.signHi, 'मीन');
+  assert.equal(c.rashi.signName, 'Leo');
+  assert.equal(c.rashi.signHi, 'सिंह');
+  /* sign + signHi and name + nameHi work on every planet row */
+  for (const p of Object.values(c.planets)) {
+    assert.ok(p.signName && p.signHi, 'planet has signName and signHi');
+    assert.ok(K.NAKSHATRAS.includes(p.nakshatra.name), 'English nakshatra');
+    assert.ok(K.NAKSHATRAS_HI.includes(p.nakshatra.nameHi), 'Hindi nakshatra');
+    assert.ok(['उच्च', 'नीच', 'स्वराशि', 'मध्यम'].includes(p.dignityHi), 'Hindi dignity: ' + p.dignityHi);
+    assert.ok(p.dignity, 'English dignity kept');
+  }
+  /* panchang is translated */
+  assert.ok(c.panchang.tithiHi.includes('पक्ष'));
+  assert.ok(['रविवार', 'सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'].includes(c.panchang.varaHi));
+  /* dasha lords carry Hindi */
+  for (const d of c.dashas.periods) assert.ok(d.lordHi && d.lord !== d.lordHi);
+  /* place details ride on meta */
+  assert.equal(c.meta.city, 'Delhi');
+  assert.equal(c.meta.state, 'Delhi');
+  assert.equal(c.meta.country, 'India');
+});
+
+test('dosh rules emit Hindi evidence describing the actual condition', () => {
+  const view = {
+    lagnaSign: 0, moonSign: 0,
+    planets: {
+      sun: { sign: 2, house: 3, degreeInSign: 12.0, dignity: 'Neutral' },
+      moon: { sign: 3, house: 4, degreeInSign: 15.0, dignity: 'Neutral' },
+      rahu: { sign: 2, house: 3, degreeInSign: 16.0, dignity: 'Neutral' },
+      ketu: { sign: 8, house: 9, degreeInSign: 16.0, dignity: 'Neutral' },
+      mars: { sign: 6, house: 7, degreeInSign: 10, dignity: 'Neutral' },
+      mercury: { sign: 4, house: 5, degreeInSign: 20, dignity: 'Neutral' },
+      jupiter: { sign: 6, house: 7, degreeInSign: 1, dignity: 'Neutral' },
+      venus: { sign: 5, house: 6, degreeInSign: 1, dignity: 'Neutral' },
+      saturn: { sign: 7, house: 8, degreeInSign: 1, dignity: 'Neutral' }
+    }
+  };
+  const mg = rules.mangal_dosha.evaluate(view);
+  assert.ok(mg.detected && mg.evidenceHi.some((e) => e.includes('मंगल') && e.includes('सप्तम')));
+  const gr = rules.grahan_dosha.evaluate(view);
+  assert.ok(gr.detected && gr.evidenceHi.length && /[\u0900-\u097F]/.test(gr.evidenceHi[0]), 'Devanagari evidence');
+  const ks = rules.kaal_sarp.evaluate(view);
+  assert.ok(ks.detected && ks.evidenceHi.some((e) => e.includes('राहु-केतु')));
+  /* English evidence is still present side by side */
+  assert.ok(mg.evidence[0].includes('Mars'));
+  assert.ok(gr.evidence[0].includes('Sun'));
+});

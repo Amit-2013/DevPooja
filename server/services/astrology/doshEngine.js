@@ -3,7 +3,10 @@
    The set of conditions and their metadata (name, description, default severity,
    enabled/disabled) live in the kundali_conditions table — admins control them.
    The astrological evaluation logic lives in rules/*.js, keyed by condition code.
-   The engine combines both and returns structured, explainable results. */
+   The engine combines both and returns structured, explainable results in BOTH
+   languages: English fields are the source of truth (and the fallback), while
+   nameHi / explanationHi / evidenceHi carry the Hindi presentation. The UI picks
+   the language; the chart is analysed once. */
 'use strict';
 const { db } = require('../../db');
 const rules = require('./rules');
@@ -29,20 +32,24 @@ function analyze(chart, { now } = {}) {
     }
     if (!out) {
       results.push({
-        code: c.code, name: c.name, detected: false, severity: 'none', confidence: null,
-        explanation: c.descr || '', evidence: [], remedies: []
+        code: c.code, name: c.name, nameHi: c.name_hi || '', detected: false, severity: 'none', confidence: null,
+        explanation: c.descr || '', explanationHi: c.descr_hi || '', evidence: [], evidenceHi: [], remedies: []
       });
       continue;
     }
     results.push({
       code: c.code,
       name: c.name,
+      nameHi: c.name_hi || '',
       detected: !!out.detected,
       severity: out.severity || 'low',
       confidence: out.confidence,
       explanation: c.descr || '',
+      explanationHi: c.descr_hi || '',
       evidence: out.evidence || [],
-      remedies: []
+      evidenceHi: out.evidenceHi || [],
+      remedies: [],
+      remedyHi: c.remedy_hi || ''
     });
   }
   return results;

@@ -11,7 +11,12 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v)
 const stars=r=>'<span class="star" aria-label="'+r+' out of 5">'+'★'.repeat(Math.round(r))+'☆'.repeat(5-Math.round(r))+'</span>';
 
 const T={en:{pujas:'Pujas',pandits:'Pandits',temples:'Temples',samagri:'Samagri',prasad:'Prasad',festivals:'Festivals',kundali:'Kundali',astrology:'Astrology',corporate:'Corporate',login:'Login',h1a:'The whole puja,',h1b:'arranged in one place.',lead:'Choose the right puja, book a verified pandit, get samagri at your door, watch the ritual, and receive prasad.',search:'Search pujas, e.g. Griha Pravesh',find:'Find puja',sk:'Tell us your sankalp',book:'Book now'},
-hi:{pujas:'पूजा',pandits:'पंडित',temples:'मंदिर',samagri:'सामग्री',prasad:'प्रसाद',festivals:'त्योहार',kundali:'कुंडली',astrology:'ज्योतिष',corporate:'कॉर्पोरेट',login:'लॉगिन',h1a:'संपूर्ण पूजा,',h1b:'एक ही जगह पर।',lead:'सही पूजा चुनें, सत्यापित पंडित बुक करें, सामग्री घर पर पाएँ, पूजा देखें और प्रसाद प्राप्त करें।',search:'पूजा खोजें, जैसे गृह प्रवेश',find:'पूजा खोजें',sk:'अपना संकल्प बताएँ',book:'अभी बुक करें'}};
+hi:{pujas:'पूजा',pandits:'पंडित',temples:'मंदिर',samagri:'सामग्री',prasad:'प्रसाद',festivals:'त्योहार',kundali:'कुंडली',astrology:'ज्योतिष',corporate:'कॉर्पोरेट',login:'लॉगिन',h1a:'संपूर्ण पूजा,',h1b:'एक ही जगह पर।',lead:'सही पूजा चुनें, सत्यापित पंडित बुक करें, सामग्री घर पर पाएँ, पूजा देखें और प्रसाद प्राप्त करें।',search:'पूजा खोजें, जैसे गृह प्रवेश',find:'पूजा खोजें',sk:'अपना संकल्प बताएँ',book:'अभी बुक करें',
+ details:'विवरण',min:'मिनट',from:'से',newPuja:'नई पूजा चाहिए? अनुरोध भेजें',send:'भेजें',
+ stNew:'नया',stConfirmed:'पुष्ट',stAssigned:'पंडित नियुक्त',stStarted:'प्रारंभ',stCompleted:'पूर्ण',stCancelled:'रद्द',stPendingPayment:'भुगतान लंबित'}};
+/* Booking status labels (badge()); Hindi when lang==='hi'. */
+const STATUS_HI={'New':'नया','Confirmed':'पुष्ट','Assigned':'पंडित नियुक्त','Started':'प्रारंभ','Completed':'पूर्ण','Cancelled':'रद्द','PendingPayment':'भुगतान लंबित','Open':'खुला','Resolved':'हल','Paid':'भुगतान','Pending':'लंबित','Delivered':'वितरित','Dispatched':'भेजा गया','Packed':'पैक','Processed':'प्रक्रिया','Initiated':'शुरू','verified':'सत्यापित','pending':'लंबित','rejected':'अस्वीकृत','Sent':'भेजा','Scheduled':'निर्धारित'};
+const CITY_HI={'Delhi NCR':'दिल्ली एनसीआर',Mumbai:'मुंबई',Bengaluru:'बेंगलुरु',Pune:'पुणे',Jaipur:'जयपुर',Lucknow:'लखनऊ',Varanasi:'वाराणसी',Ahmedabad:'अहमदाबाद',Chennai:'चेन्नई',Hyderabad:'हैदराबाद',Kolkata:'कोलकाता',Kochi:'कोच्चि'};
 let lang=store.get('dp_lang','en');const t=k=>(T[lang]||T.en)[k]||T.en[k]||k;
 
 const MODES=Pricing.MODES;

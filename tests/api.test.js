@@ -35,12 +35,21 @@ test('demo data: stats, accounts, mock bookings and full reset', async () => {
   const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const stats = (await call('GET', '/admin/demo/stats', { token: admin })).json;
   assert.equal(stats.demo, true);
-  assert.ok(stats.customers >= 5 && stats.pandits >= 5 && stats.kundalis >= 1);
+  assert.ok(stats.customers >= 10 && stats.pandits >= 5 && stats.kundalis >= 1);
 
   const acc = (await call('GET', '/admin/demo/accounts', { token: admin })).json;
-  assert.ok(acc.customers.length >= 5);
-  assert.ok(acc.pandits.length >= 1);
+  assert.ok(acc.customers.length >= 10, 'at least 10 demo customers');
+  assert.ok(acc.pandits.length >= 5, 'at least 5 pandit demo logins');
   assert.ok(acc.pandits.every((p) => /^98100000\d\d$/.test(p.mobile)));
+  assert.equal(acc.password, 'demo1234');
+
+  /* every demo customer has at least one booking */
+  const book = (await call('GET', '/admin/bookings-list', { token: admin }).catch(() => ({ json: null }))).json;
+  void book;
+  const allBookings = (await call('GET', '/state', { token: admin })).json.bookings;
+  for (const c of acc.customers) {
+    assert.ok(allBookings.some((b) => b.userId === c.id), c.id + ' has a booking');
+  }
 
   const before = (await call('GET', '/admin/demo/stats', { token: admin })).json.bookings;
   const mk = await call('POST', '/admin/demo/bookings', { token: admin, body: { count: 4 } });
@@ -58,12 +67,95 @@ test('demo data: stats, accounts, mock bookings and full reset', async () => {
   const rd = await call('POST', '/admin/demo/reset', { token: admin, body: { confirm: 'RESET' } });
   assert.equal(rd.status, 200);
   assert.ok(rd.json.ok);
-  assert.equal(rd.json.stats.customers >= 5, true);
+  assert.equal(rd.json.stats.customers >= 10, true);
   assert.ok(rd.json.token, 'reset returns a fresh admin token');
   const st2 = (await call('GET', '/state', { token: rd.json.token })).json;
   assert.equal(st2.session.role, 'admin');
   assert.ok(st2.catalog.pujas.length >= 16);
   assert.equal(st2.bookings.length, rd.json.stats.bookings);
+  /* RESET preserves the Hindi catalog (conditions, mapping reasons, puja benefits) */
+  const conds = await call('GET', '/kundali/conditions');
+  assert.ok(conds.json.conditions.length >= 9);
+  assert.ok(conds.json.conditions.every((c) => c.nameHi && /[\u0900-\u097F]/.test(c.nameHi)), 'Hindi dosh names survive RESET');
+  assert.ok(st2.catalog.pujas.filter((p) => p.benHi && /[\u0900-\u097F]/.test(p.benHi)).length >= 15, 'Hindi puja benefits survive RESET');
+});
+
+test('kundali: full place object and bilingual (Hindi) analysis', async () => {
+  const places = (await call('GET', '/kundali/places?q=delhi')).json;
+  assert.ok(places.places.length >= 1);
+  const p0 = places.places[0];
+  assert.ok(p0.state && p0.country && Number.isFinite(p0.lat) && Number.isFinite(p0.lon) && p0.tz, 'place search returns full details');
+
+  const gen = await call('POST', '/kundali/generate', { body: { name: 'Place Tester', dob: '1990-01-15', tob: '10:30', placeId: p0.id } });
+  assert.equal(gen.status, 201);
+  const place = gen.json.place;
+  assert.equal(place.city, p0.city);
+  assert.equal(place.state, p0.state);
+  assert.equal(place.country, p0.country);
+  assert.equal(place.lat, p0.lat);
+  assert.equal(place.lon, p0.lon);
+  assert.equal(place.tz, p0.tz);
+  assert.equal(place.utcOffset, 'UTC+05:30');
+  /* chart meta carries the resolved place for the result page */
+  assert.equal(gen.json.chart.meta.city, p0.city);
+  assert.equal(gen.json.chart.meta.state, p0.state);
+
+  /* GET /:id returns the same structured place */
+  const got = (await call('GET', '/kundali/' + gen.json.kundaliId)).json;
+  assert.equal(got.place.city, p0.city);
+  assert.equal(got.place.utcOffset, 'UTC+05:30');
+
+  /* Hindi generate: dosh names, evidence and remedies in Devanagari; English kept too */
+  const hi = await call('POST', '/kundali/generate', { body: { name: 'Hindi Tester', dob: '1990-01-15', tob: '10:30', placeId: p0.id } });
+  assert.equal(hi.status, 201);
+  const d = hi.json.analysis.doshas.find((x) => x.code === 'mangal_dosha');
+  assert.ok(d, 'mangal rule evaluated');
+  assert.equal(d.nameHi, 'मंगल दोष');
+  assert.ok(d.explanationHi && /[\u0900-\u097F]/.test(d.explanationHi));
+  assert.ok(Array.isArray(d.evidenceHi));
+  const cond = (await call('GET', '/kundali/conditions')).json.conditions.find((c) => c.code === 'mangal_dosha');
+  assert.ok(cond.remedyHi && /[\u0900-\u097F]/.test(cond.remedyHi), 'Hindi remedy');
+  /* recommendations carry Hindi reasons */
+  if (hi.json.recommendations.length) assert.ok(hi.json.recommendations.some((r) => r.reasonHi && /[\u0900-\u097F]/.test(r.reasonHi)));
+  /* disclaimer exists in both languages */
+  assert.ok(hi.json.disclaimer && hi.json.disclaimerHi);
+});
+
+test('customised puja request: public submit, admin queue, convert to puja', async () => {
+  assert.equal((await call('POST', '/custom-puja', { body: { name: 'X', mobile: '123' } })).status, 400);
+  const ok = await call('POST', '/custom-puja', { body: { name: 'Custom Devotee', mobile: '9876567890', purpose: 'Special griha shanti', deity: 'Shiva', city: 'Pune', budget: 6000, notes: 'Family tradition, north-Indian vidhi' } });
+  assert.equal(ok.status, 201);
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const list = (await call('GET', '/admin/custom-requests', { token: admin })).json.requests;
+  const req1 = list.find((r) => r.name === 'Custom Devotee');
+  assert.ok(req1 && req1.status === 'New');
+  assert.equal((await call('GET', '/admin/custom-requests', { token: await login('customer') })).status, 403);
+  assert.equal((await call('PATCH', '/admin/custom-requests/' + req1.id, { token: admin, body: { status: 'Contacted', adminNote: 'Called, confirmed details' } })).status, 200);
+  const conv = await call('POST', '/admin/custom-requests/' + req1.id + '/convert', { token: admin, body: { name: 'Special Griha Shanti', hindi: 'विशेष गृह शांति', price: 5500 } });
+  assert.equal(conv.status, 201);
+  assert.ok(conv.json.pujaId);
+  const st = (await call('GET', '/state', { token: admin })).json;
+  const created = st.catalog.pujas.find((p) => p.id === conv.json.pujaId);
+  assert.ok(created && created.hidden, 'converted puja exists and is hidden until priced');
+  const after = (await call('GET', '/admin/custom-requests', { token: admin })).json.requests.find((r) => r.id === req1.id);
+  assert.equal(after.status, 'Booked');
+});
+
+test('admin full puja editing: name, hindi, category, benefits, price, kit, visibility', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const st = (await call('GET', '/state', { token: admin })).json;
+  const p = st.catalog.pujas[0];
+  const r = await call('PATCH', '/admin/pujas/' + p.id, { token: admin, body: { name: 'Edited Puja', hindi: 'संपादित पूजा', cat: 'Prosperity', deity: 'Vishnu', ben: 'Edited benefits text', benHi: 'संपादित लाभ', dur: 100, price: 3333 } });
+  assert.equal(r.status, 200);
+  const after = (await call('GET', '/state', { token: admin })).json.catalog.pujas.find((x) => x.id === p.id);
+  assert.equal(after.n, 'Edited Puja');
+  assert.equal(after.h, 'संपादित पूजा');
+  assert.equal(after.benHi, 'संपादित लाभ');
+  assert.equal(after.price, 3333);
+  assert.equal(after.dur, 100);
+  /* validation still applies */
+  assert.equal((await call('PATCH', '/admin/pujas/' + p.id, { token: admin, body: { price: 5 } })).status, 400);
+  assert.equal((await call('PATCH', '/admin/pujas/' + p.id, { token: admin, body: { kit: 'nope' } })).status, 400);
 });
 
 test('anonymous state exposes catalogue but no private data', async () => {
@@ -95,8 +187,11 @@ test('email signup and login', async () => {
 
 test('server quote matches shared pricing and validates coupons', async () => {
   const t = await login('customer');
+  const st = (await call('GET', '/state', { token: t })).json;
+  const puja = st.catalog.pujas.find((p) => p.id === 'lakshmi');
+  const kit = st.catalog.kits.find((k) => k.id === 'k_lakshmi');
   const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DAIVIKPOOJA10' } });
-  const expected = P.quote('home', { puja: { price: 3100 }, pandit: { pf: 1.15 }, plus: false, kits: [{ price: 799 }], prasad: [], coupon: { active: true, type: 'pct', val: 10, max: 500, min: 1500 }, points: 0 });
+  const expected = P.quote('home', { puja: { price: puja.price }, pandit: { pf: 1.15 }, plus: false, kits: [{ price: kit.p }], prasad: [], coupon: { active: true, type: 'pct', val: 10, max: 500, min: 1500 }, points: 0 });
   assert.equal(r.json.q.total, expected.total);
   const bad = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', coupon: 'NOPE' } });
   assert.ok(bad.json.couponError);

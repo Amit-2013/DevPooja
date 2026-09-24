@@ -1,6 +1,8 @@
 /* Grahan Dosha: traditionally read when the Sun or Moon is conjunct Rahu or Ketu
    (an eclipse-like combination in the birth chart). */
 'use strict';
+const { DISPLAY_HI } = require('../kundaliEngine');
+const NODE_HI = { rahu: 'राहु', ketu: 'केतु' };
 
 function evaluate(view) {
   const hits = [];
@@ -22,7 +24,9 @@ function evaluate(view) {
     confidence: Math.max(0.5, 0.9 - minSep / 25),
     evidence: hits.map((h) =>
       h.luminary.charAt(0).toUpperCase() + h.luminary.slice(1) + ' is in the same sign as ' + h.node +
-      ' (about ' + h.separation + '° apart).')
+      ' (about ' + h.separation + '° apart).'),
+    evidenceHi: hits.map((h) =>
+      DISPLAY_HI[h.luminary] + ' ' + NODE_HI[h.node] + ' के साथ एक ही राशि में है (लगभग ' + h.separation + '° की दूरी पर)।')
   };
 }
 

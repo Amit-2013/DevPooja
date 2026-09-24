@@ -3,6 +3,7 @@
    treated as a milder condition. No full/partial detection means not detected. */
 'use strict';
 const { norm } = require('../ephemeris');
+const { DISPLAY_HI } = require('../kundaliEngine');
 
 const PLANETS7 = ['sun', 'moon', 'mars', 'mercury', 'jupiter', 'venus', 'saturn'];
 
@@ -42,6 +43,10 @@ function evaluate(view) {
       evidence: [
         'All seven classical planets lie on one side of the Rahu-Ketu axis.',
         nearNode ? 'A planet sits within a few degrees of a node, which strengthens the combination.' : 'No planet is close to the nodal degrees.'
+      ],
+      evidenceHi: [
+        'सभी सात ग्रह राहु-केतु अक्ष के एक ही तरफ स्थित हैं।',
+        nearNode ? 'एक ग्रह पात (नोड) के कुछ अंशों के निकट है, जो इस संयोग को और प्रबल करता है।' : 'कोई ग्रह नोड के अंशों के निकट नहीं है।'
       ]
     };
   }
@@ -55,6 +60,10 @@ function evaluate(view) {
       evidence: [
         'All planets except ' + p + ' lie on one side of the Rahu-Ketu axis (partial combination).',
         p + ' outside the axis is a classical softening factor.'
+      ],
+      evidenceHi: [
+        'सभी ग्रह ' + DISPLAY_HI[p] + ' को छोड़कर राहु-केतु अक्ष के एक तरफ स्थित हैं (आंशिक संयोग)।',
+        DISPLAY_HI[p] + ' का अक्ष से बाहर होना पारंपरिक रूप से शमन का कारक माना जाता है।'
       ]
     };
   }

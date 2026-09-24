@@ -11,7 +11,7 @@ function recommendationsFor(detectedConditions, { purpose } = {}) {
   const codes = detectedConditions.map((d) => d.code);
 
   const rows = db.prepare(`
-    SELECT r.condition_code AS code, r.weight, r.priority, r.reason,
+    SELECT r.condition_code AS code, r.weight, r.priority, r.reason, r.reason_hi AS reasonHi,
            p.id AS pujaId, p.name AS pujaName, p.icon, p.dur, p.price, p.hidden
     FROM condition_puja_rules r
     JOIN pujas p ON p.id = r.puja_id
@@ -26,7 +26,7 @@ function recommendationsFor(detectedConditions, { purpose } = {}) {
       byPuja.set(r.pujaId, {
         pujaId: r.pujaId, name: r.pujaName, icon: r.icon, duration: r.dur, price: r.price,
         priority: r.priority || 'secondary', weight: r.weight,
-        reason: r.reason || '', relatedDoshas: []
+        reason: r.reason || '', reasonHi: r.reasonHi || '', relatedDoshas: []
       });
     }
     const rec = byPuja.get(r.pujaId);

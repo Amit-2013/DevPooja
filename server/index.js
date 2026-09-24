@@ -51,6 +51,25 @@ app.use(express.json({ limit: '100kb' }));
 app.use('/api', authenticate);
 app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false, skip: () => process.env.NODE_ENV === 'test' }));
 
+/* Public POST /api/custom-puja: a guest-friendly Customized Puja request that lands
+   in the admin "Puja requests" queue (status New -> Contacted -> Quoted -> Booked). */
+app.post('/api/custom-puja', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, skip: () => process.env.NODE_ENV === 'test' }), (req, res) => {
+  const { v, bad, rid } = require('./lib/util');
+  const b = req.body || {};
+  if (!b.name || !String(b.name).trim()) throw bad('Name is required');
+  if (!b.mobile || !/^\d{10}$/.test(String(b.mobile).replace(/\D/g, '').slice(-10))) throw bad('Enter a valid 10-digit mobile');
+  db.prepare('INSERT INTO custom_requests(id,user_id,name,mobile,purpose,deity,preferred_date,city,budget,notes) VALUES(?,?,?,?,?,?,?,?,?,?)')
+    .run('CR' + rid(5), req.auth && req.auth.uid ? req.auth.uid : null,
+      v.str(b.name, 'Name', { max: 80 }), String(b.mobile).replace(/\D/g, '').slice(-10),
+      b.purpose ? v.str(b.purpose, 'Purpose', { max: 200 }) : '',
+      b.deity ? v.str(b.deity, 'Deity', { max: 60 }) : '',
+      b.preferredDate ? /^\d{4}-\d{2}-\d{2}$/.test(String(b.preferredDate)) ? String(b.preferredDate) : '' : '',
+      b.city ? v.str(b.city, 'City', { max: 80 }) : '',
+      b.budget ? v.int(b.budget, 'Budget', { min: 0, max: 10000000 }) : null,
+      b.notes ? v.str(b.notes, 'Notes', { max: 800 }) : '');
+  res.status(201).json({ ok: true });
+});
+
 /* public API */
 app.get('/api/health', (_q, r) => r.json({ ok: true }));
 app.get('/api/state', (req, res) => res.json(buildState(req.auth)));

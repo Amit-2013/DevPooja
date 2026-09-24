@@ -51,7 +51,9 @@ function seedDemo() {
     ['u5', 'Vikram Singh', '9811100005', 'vikram@example.com', 30, 0, { deity: 'Hanuman', lang: 'Hindi', wa: true, sms: true, em: false }, [{ id: 'a5', l: 'Home', line: '21 Civil Lines', city: 'Jaipur', pin: '302006' }], [], -40],
     ['u6', 'Sunita Rao', '9811100006', 'sunita@example.com', 120, 0, { deity: 'Ganesha', lang: 'English', wa: true, sms: true, em: true }, [{ id: 'a6', l: 'Home', line: '7 Rose Villa', city: 'Hyderabad', pin: '500081' }], [], -55],
     ['u7', 'Rahul Sharma', '9811100007', 'rahul@example.com', 60, 0, { deity: 'Shiva', lang: 'Hindi', wa: true, sms: false, em: true }, [{ id: 'a7', l: 'Home', line: '321 Sector 18', city: 'Noida', pin: '201301' }], [], -25],
-    ['u8', 'Anjali Patel', '9811100008', 'anjali@example.com', 310, 1, { deity: 'Lakshmi', lang: 'Gujarati', wa: true, sms: true, em: true }, [{ id: 'a8', l: 'Home', line: '56 Satellite Road', city: 'Ahmedabad', pin: '380015' }], [], -90]
+    ['u8', 'Anjali Patel', '9811100008', 'anjali@example.com', 310, 1, { deity: 'Lakshmi', lang: 'Gujarati', wa: true, sms: true, em: true }, [{ id: 'a8', l: 'Home', line: '56 Satellite Road', city: 'Ahmedabad', pin: '380015' }], [], -90],
+    ['u9', 'Neha Gupta', '9811100009', 'neha@example.com', 75, 0, { deity: 'Durga', lang: 'Hindi', wa: true, sms: true, em: false }, [{ id: 'a9', l: 'Home', line: '14 Ballygunge Circular Road', city: 'Kolkata', pin: '700019' }], [{ id: 'f3', n: 'Rohit Gupta', rel: 'Spouse', gotra: 'Bharadwaj' }], -60],
+    ['u10', 'Arjun Menon', '9811100010', 'arjun@example.com', 55, 0, { deity: 'Ganesha', lang: 'English', wa: true, sms: false, em: true }, [{ id: 'a10', l: 'Home', line: '3 Marine Drive, Fort Kochi', city: 'Kochi', pin: '682001' }], [], -35]
   ];
   U.forEach((u) => insU.run(u[0], u[1], u[2], u[3], hash, u[4], u[5], JSON.stringify(u[6]), JSON.stringify(u[7]), JSON.stringify(u[8]), addDays(u[9]), Date.now()));
 
@@ -99,6 +101,14 @@ function seedDemo() {
   mk('hanuman', 'home', 'p3', 9, '04:00 PM', 'Confirmed', 'u5');
   mk('lakshmi', 'home', 'p1', 12, '06:00 PM', 'Confirmed', 'u1', ['k_lakshmi'], ['pr2']);
   mk('vyapar', 'home', null, 14, '10:00 AM', 'New', 'u3');
+  /* u6-u10: every demo customer has at least one booking */
+  mk('lakshmi', 'home', 'p1', -5, '06:00 PM', 'Completed', 'u6', [], ['pr2'], { r: 5, t: 'Smooth booking and a peaceful puja.', by: 'Sunita Rao', on: addDays(-4) });
+  mk('hanuman', 'home', 'p3', 11, '04:00 PM', 'Confirmed', 'u7', ['k_havan']);
+  mk('ganesh', 'home', 'p4', -3, '12:00 PM', 'Completed', 'u8', [], [], { r: 5, t: 'Perfect for our new office. Pandit was on time.', by: 'Anjali Patel', on: addDays(-2) });
+  mk('durga', 'home', 'p7', -4, '10:00 AM', 'Completed', 'u9', ['k_nav'], [], { r: 5, t: 'Pandit ji explained every step in Hindi. Felt blessed.', by: 'Neha Gupta', on: addDays(-3) });
+  mk('satyanarayan', 'home', 'p1', 4, '10:00 AM', 'Confirmed', 'u9', ['k_satya']);
+  mk('ganesh', 'online', 'p6', -8, '12:00 PM', 'Completed', 'u10', [], [], { r: 4, t: 'Clear video call and a well-conducted puja.', by: 'Arjun Menon', on: addDays(-7) });
+  mk('navgraha', 'home', 'p5', 8, '08:00 AM', 'Confirmed', 'u10', ['k_nav']);
   const seq = db.prepare('SELECT COUNT(*) c FROM bookings').get().c;
   setSetting('booking_seq', 2400 + seq);
 
@@ -113,16 +123,18 @@ function seedDemo() {
      customers so /#/kundali/result?id= and the admin Kundali tab have history. */
   try {
     const astro = require('./services/astrology');
-    const places = db.prepare('SELECT * FROM place_index WHERE city IN (?, ?, ?) AND country=? ORDER BY population DESC').all('Delhi', 'Chennai', 'Mumbai', 'India');
+    const places = db.prepare('SELECT * FROM place_index WHERE city IN (?, ?, ?, ?, ?) AND country=? ORDER BY population DESC').all('Delhi', 'Chennai', 'Mumbai', 'Kolkata', 'Kochi', 'India');
     const byCity = Object.fromEntries(places.map((p) => [p.city, p]));
     const samples = [
       ['u1', 'Aarav Mehta', '1990-01-15', '10:30', 'exact', byCity.Delhi, 'Marriage'],
       ['u4', 'Meera Iyer', '1987-07-04', '06:45', 'exact', byCity.Chennai, 'Health & Wellness'],
-      ['u3', 'Karan Desai', '1995-11-02', '14:10', 'exact', byCity.Mumbai, 'Career']
+      ['u3', 'Karan Desai', '1995-11-02', '14:10', 'exact', byCity.Mumbai, 'Career'],
+      ['u9', 'Neha Gupta', '1992-03-21', '09:15', 'exact', byCity.Kolkata, 'Family'],
+      ['u10', 'Arjun Menon', '1988-09-09', '18:20', 'exact', byCity.Kochi, 'Business']
     ];
     for (const [uid, name, dob, tob, acc, place, purpose] of samples) {
       if (!place) continue;
-      const chart = astro.kundali.buildChart({ name, gender: dob === '1987-07-04' ? 'female' : 'male', dob, tob, birthTimeAccuracy: acc, lat: place.lat, lon: place.lon, tz: place.tz, place: [place.city, place.state, place.country].join(', ') });
+      const chart = astro.kundali.buildChart({ name, gender: dob === '1987-07-04' || dob === '1992-03-21' ? 'female' : 'male', dob, tob, birthTimeAccuracy: acc, lat: place.lat, lon: place.lon, tz: place.tz, place: [place.city, place.state, place.country].join(', '), city: place.city, state: place.state, country: place.country });
       const results = astro.dosh.analyze(chart);
       const detected = astro.dosh.detected(results);
       const recs = astro.recommend.recommendationsFor(detected, { purpose });
@@ -204,6 +216,7 @@ function resetAll() {
     'puja_kunds', 'puja_samagri', 'condition_puja_rules', 'temple_pujas',
     'coupons', 'banners', 'otps', 'settings',
     'kits', 'prasad', 'temples', 'festivals', 'havan_kunds', 'samagri_items', 'kundali_conditions',
+    'custom_requests',
     'pandits', 'pujas', 'users'
   ];
   tx(() => {
@@ -254,7 +267,28 @@ function replayMigrationSeeds() {
   }
 }
 
-function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); ensureAdmin(); if (demoOn()) seedDemo(); }
+/* Re-applies the Hindi catalog backfills (conditions, mapping reasons, puja benefits)
+   so the bilingual content is present even on databases where migrations 006/007 ran
+   long ago and seed rows were wiped by a demo RESET. Idempotent: guarded UPDATEs. */
+function backfillHindi() {
+  const fs = require('fs'), path = require('path');
+  for (const file of ['006_kundali_hindi_place.sql', '007_puja_management.sql']) {
+    const p = path.join(__dirname, 'migrations', file);
+    if (!fs.existsSync(p)) continue;
+    const noComments = fs.readFileSync(p, 'utf8').replace(/--[^\n]*/g, '');
+    for (const stmt of noComments.split(';')) {
+      const s = stmt.trim();
+      if (!/^UPDATE\b/i.test(s)) continue;
+      try { db.exec(s + ';'); } catch (e) { if (!process.env.QUIET) console.warn('[seed] hindi backfill skip (' + file + '):', e.message); }
+    }
+  }
+  /* Data-integrity fix that normally runs only at migration time (005): the legacy
+     shani_dasha condition is superseded by the shani_condition rule. A demo RESET
+     replays the 002 INSERT with active=1, so re-disable it on every boot. */
+  try { db.exec("UPDATE kundali_conditions SET active=0 WHERE code='shani_dasha' AND EXISTS(SELECT 1 FROM kundali_conditions WHERE code='shani_condition')"); } catch (e) { /* older database without the table */ }
+}
+
+function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo(); }
 
 module.exports = { bootstrap, seedCatalog, seedKundaliCatalog, seedDemo, ensureAdmin, resetAll, demoOn };
 

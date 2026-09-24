@@ -26,16 +26,33 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   for (const r of ['', 'pujas', 'pujas?q=peace', 'puja/lakshmi', 'pandits', 'pandit/p1', 'temples', 'samagri', 'prasad', 'festivals', 'astrology', 'kundali', 'corporate', 'about', 'contact', 'partner', 'register-pandit', 'rewards', 'plus', 'account', 'portal', 'admin']) await go('#/' + r);
 
-  // kundali: full generate -> result flow
+  // kundali: full generate -> result flow, with place verification before generate
   await go('#/kundali'); setv('kn', 'Kundali Tester'); setv('kd', '1990-08-15'); setv('kt', '10:30');
   const kpi = d.getElementById('kp'); kpi.value = 'Delhi'; kpi.dispatchEvent(new w.Event('input', { bubbles: true }));
   await sleep(600); // wait for the debounced place search
   const pick = d.querySelector('[data-act=kplace]'); if (pick) pick.click(); else errs.push('NO PLACE RESULTS');
   await sleep(200);
+  const vb = d.getElementById('kplacebox');
+  console.log('place verify box:', !!vb && /Selected\s*Place/.test(vb.textContent) && /28\.6139/.test(vb.textContent) && /UTC\+05:30/.test(vb.textContent));
+  console.log('place verify shows state/country:', !!vb && /Delhi, India/.test(vb.textContent));
   await click('[data-act=kgen]', 1500);
   console.log('kundali result:', /Your Kundali/.test(text()) && /Planetary overview/.test(text()));
   console.log('kundali dosh section:', /Kundali dosh & spiritual analysis|No traditional dosh/.test(text()));
+  console.log('coordinates on result:', /28\.6139° N/.test(text()) && /77\.2090° E/.test(text()));
   await go('#/kundali/result'); console.log('result persists on reload:', /Planetary overview/.test(text()));
+  // header language selector: English -> Hindi -> English without regenerating
+  const lsel = d.querySelector('.langsel');
+  console.log('language selector present:', !!lsel && /English/.test(lsel.textContent) && /हिंदी/.test(lsel.textContent));
+  await click('.langsel [data-v=hi]', 500);
+  console.log('hindi renders kundali:', /आपकी कुंडली/.test(text()) && /ग्रह स्थिति/.test(text()) && /[\u0900-\u097F]/.test(text()));
+  console.log('hindi coordinates intact:', /28\.6139° N/.test(text()));
+  await click('.langsel [data-v=en]', 500);
+  console.log('english restored:', /Your Kundali/.test(text()) && /Planetary overview/.test(text()));
+
+  // customised puja request page (public)
+  await go('#/custom-puja'); setv('cun', 'Request Tester'); setv('cum', '9876512345'); setv('cupu', 'Special family puja');
+  await click('[data-act=cpureq]', 600);
+  console.log('custom request sent:', /Request received/.test(d.getElementById('toast').textContent));
 
   // customer: login by OTP (new user)
   await click('[data-act=login]'); setv('ln', 'UI Tester'); setv('lm', '9123456789');

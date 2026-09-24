@@ -39,6 +39,16 @@ function evaluate(view) {
 
   const confidence = Math.min(0.95, 0.55 + 0.1 * hits.length + (cancellations.length ? -0.15 : 0.1));
 
+  const HOUSE_HI = { 1: 'प्रथम', 2: 'द्वितीय', 4: 'चतुर्थ', 7: 'सप्तम', 8: 'अष्टम', 12: 'द्वादश' };
+  const REF_HI = { lagna: 'लग्न', 'Moon (Chandra lagna)': 'चंद्र लग्न', Venus: 'शुक्र' };
+  const evidenceHi = [
+    'मंगल ' + REF_HI[primary.ref] + ' से ' + HOUSE_HI[primary.house] + ' भाव में स्थित है।',
+    ...hits.slice(1).map((h) => 'मंगल ' + (REF_HI[h.ref] || h.ref) + ' से ' + (HOUSE_HI[h.house] || h.house) + ' भाव में भी स्थित है।'),
+    ...cancellations.map((c) => c.includes('exalted') ? 'मंगल उच्च राशि में है — यह पारंपरिक रूप से दोष का शमन माना जाता है।'
+      : c.includes('own sign') ? 'मंगल अपनी राशि (स्वराशि) में है — यह पारंपरिक रूप से दोष का शमन माना जाता है।'
+        : 'गुरु उसी भाव में स्थित है या उस पर दृष्टि रखता है — यह पारंपरिक रूप से दोष का शमन माना जाता है।')
+  ];
+
   return {
     detected: true,
     severity,
@@ -47,7 +57,8 @@ function evaluate(view) {
       'Mars is in the ' + primary.house + ordinal(primary.house) + ' house from the ' + primary.ref + '.',
       ...hits.slice(1).map((h) => 'Mars is also in the ' + h.house + ordinal(h.house) + ' house from the ' + h.ref + '.'),
       ...cancellations
-    ]
+    ],
+    evidenceHi
   };
 }
 

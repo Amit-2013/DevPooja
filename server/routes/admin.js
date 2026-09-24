@@ -62,8 +62,17 @@ router.post('/pujas', (req, res) => {
 });
 router.patch('/pujas/:id', (req, res) => {
   const p = db.prepare('SELECT * FROM pujas WHERE id=?').get(req.params.id); if (!p) throw notFound();
-  if (req.body.price !== undefined) db.prepare('UPDATE pujas SET price=? WHERE id=?').run(v.int(req.body.price, 'Price', { min: 100, max: 1000000 }), p.id);
-  if (req.body.hidden !== undefined) db.prepare('UPDATE pujas SET hidden=? WHERE id=?').run(req.body.hidden ? 1 : 0, p.id);
+  const b = req.body || {};
+  if (b.name !== undefined) db.prepare('UPDATE pujas SET name=? WHERE id=?').run(v.str(b.name, 'Name', { max: 80 }), p.id);
+  if (b.hindi !== undefined) db.prepare('UPDATE pujas SET hindi=? WHERE id=?').run(v.str(b.hindi, 'Hindi name', { max: 80, optional: true }), p.id);
+  if (b.cat !== undefined) db.prepare('UPDATE pujas SET cat=? WHERE id=?').run(v.str(b.cat, 'Category', { max: 40 }), p.id);
+  if (b.deity !== undefined) db.prepare('UPDATE pujas SET deity=? WHERE id=?').run(v.str(b.deity, 'Deity', { max: 60, optional: true }), p.id);
+  if (b.ben !== undefined) db.prepare('UPDATE pujas SET ben=? WHERE id=?').run(v.str(b.ben, 'Benefits', { max: 500, optional: true }), p.id);
+  if (b.benHi !== undefined) db.prepare('UPDATE pujas SET ben_hi=? WHERE id=?').run(v.str(b.benHi, 'Hindi benefits', { max: 500, optional: true }), p.id);
+  if (b.dur !== undefined) db.prepare('UPDATE pujas SET dur=? WHERE id=?').run(v.int(b.dur, 'Duration', { min: 15, max: 720 }), p.id);
+  if (b.kit !== undefined) { if (!db.prepare('SELECT 1 FROM kits WHERE id=?').get(b.kit)) throw bad('Choose a samagri kit'); db.prepare('UPDATE pujas SET kit=? WHERE id=?').run(b.kit, p.id); }
+  if (b.price !== undefined) db.prepare('UPDATE pujas SET price=? WHERE id=?').run(v.int(b.price, 'Price', { min: 100, max: 1000000 }), p.id);
+  if (b.hidden !== undefined) db.prepare('UPDATE pujas SET hidden=? WHERE id=?').run(b.hidden ? 1 : 0, p.id);
   res.json({ ok: true });
 });
 router.post('/settings', (req, res) => { setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 })); res.json({ ok: true }); });
@@ -242,11 +251,46 @@ router.post('/demo/bookings', (req, res) => {
   res.status(201).json(Object.assign({ ok: true }, seedMod.mockBookings(req.body && req.body.count)));
 });
 
-/* Demo accounts list for the login modal picker. */
+/* Demo accounts list for the login modal picker and the admin Demo data tab:
+   10 demo customers + the 5 official pandit demo logins. */
 router.get('/demo/accounts', (req, res) => {
-  const customers = db.prepare("SELECT id, name, mobile, email, plus, pts FROM users WHERE role='customer' AND mobile LIKE '98111%' ORDER BY id LIMIT 8").all();
-  const pd = db.prepare("SELECT p.id, p.name, p.city, p.status, u.mobile FROM pandits p JOIN users u ON u.id=p.user_id WHERE p.mobile LIKE '98100000%' ORDER BY p.id LIMIT 3").all();
+  const customers = db.prepare("SELECT id, name, mobile, email, plus, pts FROM users WHERE role='customer' AND (mobile LIKE '9811100%' OR mobile='9876543210') ORDER BY id LIMIT 10").all();
+  const pd = db.prepare("SELECT p.id, p.name, p.city, p.status, u.mobile FROM pandits p JOIN users u ON u.id=p.user_id WHERE p.mobile LIKE '98100000%' ORDER BY p.id LIMIT 5").all();
   res.json({ customers: customers.map((u) => ({ id: u.id, name: u.name, mobile: u.mobile, email: u.email, plus: !!u.plus, pts: u.pts })), pandits: pd.map((p) => ({ id: p.id, name: p.name, city: p.city, mobile: p.mobile, status: p.status })), password: seedMod.DEMO_PASSWORD });
+});
+
+/* --- Customized Puja requests (from POST /api/custom-puja) ---------------- */
+router.get('/custom-requests', (req, res) => {
+  const rows = db.prepare('SELECT * FROM custom_requests ORDER BY created_at DESC, id DESC LIMIT 200').all();
+  res.json({ requests: rows.map((r) => ({ id: r.id, userId: r.user_id, name: r.name, mobile: r.mobile, purpose: r.purpose, deity: r.deity, preferredDate: r.preferred_date, city: r.city, budget: r.budget, notes: r.notes, status: r.status, adminNote: r.admin_note, pujaId: r.puja_id, createdAt: r.created_at })) });
+});
+
+router.patch('/custom-requests/:id', (req, res) => {
+  const r = db.prepare('SELECT * FROM custom_requests WHERE id=?').get(req.params.id); if (!r) throw notFound('Request not found');
+  const status = req.body.status !== undefined ? v.oneOf(req.body.status, ['New', 'Contacted', 'Quoted', 'Booked', 'Closed'], 'Status') : r.status;
+  const note = req.body.adminNote !== undefined ? v.str(req.body.adminNote, 'Note', { max: 500, optional: true }) : r.admin_note;
+  db.prepare('UPDATE custom_requests SET status=?, admin_note=?, updated_at=datetime(\'now\') WHERE id=?').run(status, note || '', r.id);
+  if (req.body.status === 'Booked' && r.user_id) notify(r.user_id, 'WhatsApp', `Your custom puja request ${r.id} is booked. Our team will confirm the details.`);
+  res.json({ ok: true });
+});
+
+/* Convert an accepted request into a real catalogue puja (hidden until priced). */
+router.post('/custom-requests/:id/convert', (req, res) => {
+  const r = db.prepare('SELECT * FROM custom_requests WHERE id=?').get(req.params.id); if (!r) throw notFound('Request not found');
+  const kit = db.prepare('SELECT id FROM kits WHERE active=1 ORDER BY id LIMIT 1').get();
+  if (!kit) throw bad('Create a samagri kit first');
+  const id = 'c' + rid(3);
+  db.prepare('INSERT INTO pujas(id,name,hindi,cat,icon,dur,price,deity,ben,kit,pop,tags,hidden) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,1)')
+    .run(id, v.str(req.body.name || (r.deity ? r.deity + ' Puja' : 'Custom Puja'), 'Name', { max: 80 }),
+      v.str(req.body.hindi || r.deity || req.body.name || 'विशेष पूजा', 'Hindi name', { max: 80 }),
+      'Life Event', '🕉️', v.int(req.body.dur || 90, 'Duration', { min: 15, max: 720 }),
+      v.int(req.body.price || 2500, 'Price', { min: 100, max: 1000000 }),
+      v.str(r.deity || 'Custom', 'Deity', { max: 60 }),
+      'Customised puja created from request ' + r.id + (r.purpose ? ': ' + r.purpose : '.') + '.', kit.id, String(req.body.name || r.name).toLowerCase());
+  db.prepare('UPDATE custom_requests SET status=\'Booked\', puja_id=?, admin_note=?, updated_at=datetime(\'now\') WHERE id=?')
+    .run(id, (r.admin_note ? r.admin_note + ' | ' : '') + 'Converted to puja ' + id + '.', r.id);
+  if (r.user_id) notify(r.user_id, 'WhatsApp', `Good news! Your custom puja request ${r.id} is now bookable on DaivikPooja.`);
+  res.status(201).json({ ok: true, pujaId: id });
 });
 
 router.post('/orders/:id/advance', (req, res) => {

@@ -16,7 +16,7 @@ const booking = (r) => {
     created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc
   };
 };
-const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [] });
+const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, benHi: r.ben_hi || '', kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [] });
 const kit = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, items: j(r.items, []), active: r.active === undefined ? 1 : r.active });
 const prasad = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, d: r.descr, stock: r.stock === undefined ? null : r.stock, active: r.active === undefined ? 1 : r.active });
 const temple = (r) => ({ id: r.id, n: r.name, city: r.city, deity: r.deity, ic: r.icon, pujas: j(r.pujas, []), off: r.offering, d: r.descr });
