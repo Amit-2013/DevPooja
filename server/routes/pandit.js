@@ -13,7 +13,7 @@ const list = (x) => (Array.isArray(x) ? x : String(x || '').split(',')).map((s) 
 const CITIES = ['Delhi NCR', 'Mumbai', 'Bengaluru', 'Pune', 'Jaipur', 'Lucknow', 'Varanasi', 'Ahmedabad', 'Chennai', 'Hyderabad'];
 
 /* Public: registration with KYC documents (multipart). The mobile number must be verified by OTP. */
-router.post('/register', upload.kyc.fields([{ name: 'idDoc', maxCount: 1 }, { name: 'cert', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), (req, res) => {
+router.post('/register', upload.kyc.fields([{ name: 'idDoc', maxCount: 1 }, { name: 'cert', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), upload.verifyMagic(), (req, res) => {
   const b = req.body, mobile = v.mobile(b.mobile);
   verifyOtp(mobile, b.otp);
   const name = v.str(b.name, 'Name', { max: 80 });
@@ -38,7 +38,7 @@ router.post('/bookings/:id/:action(accept|reject|start)', (req, res) => {
   if (p.status !== 'verified') throw bad('Your KYC is not verified yet');
   res.json({ booking: S.booking(B.panditAct(pid(req), req.params.id, req.params.action)) });
 });
-router.post('/bookings/:id/complete', upload.media.array('media', 8), (req, res) => {
+router.post('/bookings/:id/complete', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
   const urls = (req.files || []).map((f) => '/media/' + f.filename);
   res.json({ booking: S.booking(B.panditAct(pid(req), req.params.id, 'complete', urls)) });
 });

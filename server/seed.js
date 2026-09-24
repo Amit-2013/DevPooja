@@ -208,6 +208,10 @@ function resetAll() {
   /* Foreign keys are ON, so child tables must go before their parents. Ordered:
      kundali flow -> analytics/history -> transactional -> catalogue -> identity. */
   const order = [
+    /* IMPORTANT:
+       These tables are explicitly allowlisted for demo/reset deletion.
+       Do not expand this list without reviewing production data impact.
+       Order matters: children are deleted before the parents they reference. */
     'puja_recommendations', 'dosh_analysis', 'kundalis', 'kundali_recommendations',
     'kundali_analysis', 'kundali_profiles', 'kundali_activity',
     'booking_status_history', 'payments', 'reviews', 'payouts', 'ticket_messages',
@@ -217,6 +221,7 @@ function resetAll() {
     'coupons', 'banners', 'otps', 'settings',
     'kits', 'prasad', 'temples', 'festivals', 'havan_kunds', 'samagri_items', 'kundali_conditions',
     'custom_requests',
+    'family_members', 'export_logs', 'idempotency_keys',
     'pandits', 'pujas', 'users'
   ];
   tx(() => {
@@ -286,9 +291,17 @@ function backfillHindi() {
      shani_dasha condition is superseded by the shani_condition rule. A demo RESET
      replays the 002 INSERT with active=1, so re-disable it on every boot. */
   try { db.exec("UPDATE kundali_conditions SET active=0 WHERE code='shani_dasha' AND EXISTS(SELECT 1 FROM kundali_conditions WHERE code='shani_condition')"); } catch (e) { /* older database without the table */ }
+  /* RESET-safe defaults for the kundali commercial model and service toggles.
+     setSetting uses upsert, so an admin's saved prices survive: only a missing
+     setting is created. */
+  try { setSetting('kundali_pricing', getSetting2('kundali_pricing', { active: true, currency: 'INR', personalPrice: 0, familyPrice: 499, additionalPrice: 499, gstPct: 5, discountPct: 0, couponEligible: true, freeCounts: { customer: 1, plus: 2, premium: 5 } })); } catch (e) { /* older database */ }
+  try { setSetting('service_toggles', getSetting2('service_toggles', { home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true })); } catch (e) { /* older database */ }
 }
 
 function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo(); }
+
+/* getSetting without crashing when the settings table does not exist yet. */
+function getSetting2(k, d) { try { const r = db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r ? JSON.parse(r.value) : d; } catch (e) { return d; } }
 
 module.exports = { bootstrap, seedCatalog, seedKundaliCatalog, seedDemo, ensureAdmin, resetAll, demoOn };
 

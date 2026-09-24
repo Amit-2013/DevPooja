@@ -24,6 +24,7 @@ function buildState(auth) {
     },
     banners: db.prepare('SELECT * FROM banners WHERE enabled=1').all().map((b) => ({ id: b.id, t: b.text, on: true })),
     kundali: { enabled: true, purposes: ['General', 'Marriage', 'Career', 'Business', 'Health & Wellness', 'Finance', 'Education', 'Family', 'Child', 'Spiritual', 'Property', 'Other'] },
+    toggles: (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key='service_toggles'").get(); return Object.assign({ home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true }, r ? JSON.parse(r.value) : {}); } catch (e) { return {}; } })(),
     pandits: [], busy: [], reviews: [],
     me: null, users: [], bookings: [], orders: [], notifs: [], tickets: [], coupons: [], payouts: [], inv: {}, campaigns: [], leads: [], set: {}, hidden: []
   };
@@ -37,6 +38,14 @@ function buildState(auth) {
   if (role === 'customer') {
     const u = db.prepare('SELECT * FROM users WHERE id=?').get(auth.uid);
     st.me = S.user(u); st.users = [st.me];
+    /* Family members live in the family_members table (single source of truth);
+       `fam` keeps its legacy shape for the booking-wizard member picker. */
+    st.me.fam = db.prepare('SELECT * FROM family_members WHERE customer_id=? ORDER BY created_at').all(u.id)
+      .map((f) => ({ id: f.id, n: f.name, rel: f.relationship, gotra: f.gotra }));
+    st.family = db.prepare('SELECT * FROM family_members WHERE customer_id=? ORDER BY created_at').all(u.id)
+      .map((f) => ({ id: f.id, relationship: f.relationship, name: f.name, gender: f.gender, dob: f.dob, tob: f.tob, birthPlace: f.birth_place, city: f.city, state: f.state, country: f.country, lat: f.lat, lon: f.lon, tz: f.tz, gotra: f.gotra, notes: f.notes, createdAt: f.created_at }));
+    st.myKundalis = db.prepare('SELECT id,name,relationship,billing,price,gst,final_amount,payment_status,order_id,created_at FROM kundalis WHERE customer_id=? ORDER BY created_at DESC').all(u.id)
+      .map((k) => ({ kundaliId: k.id, name: k.name, relationship: k.relationship || 'Self', billing: k.billing, price: k.price, gst: k.gst, final: k.final_amount, paymentStatus: k.payment_status, orderId: k.order_id, createdAt: k.created_at }));
     st.bookings = db.prepare("SELECT * FROM bookings WHERE user_id=? AND status != 'PendingPayment' ORDER BY created DESC").all(u.id).map(S.booking);
     st.orders = db.prepare('SELECT * FROM orders WHERE user_id=? ORDER BY date DESC').all(u.id).map(S.order);
     st.notifs = db.prepare('SELECT * FROM notifs WHERE user_id=? ORDER BY ts DESC LIMIT 100').all(u.id).map((n) => ({ id: n.id, uid: n.user_id, ch: n.channel, m: n.message, ts: n.ts }));

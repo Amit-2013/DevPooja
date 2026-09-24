@@ -19,6 +19,9 @@ async function api(path,o){o=o||{};
  if(r.status===401&&token&&!o.quiet){setToken(null);session=null}
  if(!r.ok)throw Object.assign(new Error(j.error||'Something went wrong'),{status:r.status});return j}
 function applyState(s){db=s;session=s.session;
+ /* Kundali commercial layer: pricing (public) + family + my kundalis (logged in). */
+ api('/kundali/pricing').then(p=>{db.kundaliPricing=Object.assign({prices:p.prices,gstPct:p.gstPct,quota:p.quota},{});if(s.me&&db.kundaliPricing&&db.kundaliPricing.quota===null)db.kundaliPricing.quota=p.quota;render(true)}).catch(()=>{});
+ if(s.me){api('/kundali/mine').then(m=>{db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}).catch(()=>{});}
  [['pujas',PUJAS],['kits',KITS],['prasad',PRASAD],['temples',TEMPLES],['festivals',FEST]].forEach(([k,arr])=>{arr.length=0;arr.push(...s.catalog[k])})}
 async function sync(){applyState(await api('/state'))}
 /* run a mutation, refresh state, re-render. Returns the API result, or null after showing the error. */
@@ -53,7 +56,8 @@ function panditCard(p){return'<article class="card"><div class="row" style="flex
 function kitCard(k){return'<article class="card"><div class="row sp"><span style="font-size:2rem">'+k.ic+'</span><b>'+inr(k.p)+'</b></div><h3 class="mt">'+esc(k.n)+'</h3><ul class="sm mut" style="padding-left:18px;margin:8px 0">'+k.items.slice(0,4).map(i=>'<li>'+esc(i)+'</li>').join('')+'</ul><div class="sm mut">+'+(k.items.length-4>0?k.items.length-4:0)+' more items</div><div class="row mt"><button class="btn s" data-act="cadd" data-id="'+k.id+'">Add to cart</button><button class="btn s ghost" data-act="kit" data-id="'+k.id+'">Contents</button></div></article>'}
 
 function header(){
- const r=route(),u=me(),navs=[['pujas','pujas'],['pandits','pandits'],['temples','temples'],['samagri','samagri'],['prasad','prasad'],['festivals','festivals'],['kundali','kundali'],['astrology','astrology'],['corporate','corporate']];
+ const r=route(),u=me(),tg=(db&&db.toggles)||{};
+ const navs=[['pujas','pujas',tg.home!==false&&tg.online!==false&&tg.temple!==false&&tg.customized!==false],['pandits','pandits',tg.pandit!==false],['temples','temples',tg.templeDir!==false],['samagri','samagri',tg.samagri!==false],['prasad','prasad',tg.prasad!==false],['festivals','festivals',true],['kundali','kundali',tg.kundali!==false],['astrology','astrology',tg.astrology!==false],['corporate','corporate',true]].filter(n=>n[2]);
  let usr='<button class="btn s" data-act="login">'+t('login')+'</button>';
  if(u)usr='<a class="btn s sec" href="#/account">'+esc(u.n.split(' ')[0])+(u.plus?' Plus':'')+'</a>';
  if(session&&session.role==='pandit')usr='<a class="btn s sec" href="#/portal">Pandit portal</a>';

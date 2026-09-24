@@ -28,17 +28,73 @@ router.post('/me/addresses', (req, res) => {
   res.json({ ok: true });
 });
 router.delete('/me/addresses/:id', (req, res) => { const u = me(req); db.prepare('UPDATE users SET addr=? WHERE id=?').run(JSON.stringify(j(u.addr, []).filter((a) => a.id !== req.params.id)), u.id); res.json({ ok: true }); });
-router.post('/me/family', (req, res) => {
-  const u = me(req), f = j(u.fam, []);
-  if (f.length >= 20) throw bad('You can save up to 20 family members');
-  f.push({ id: 'f' + rid(3), n: v.str(req.body.n, 'Name', { max: 80 }), rel: v.str(req.body.rel || 'Family', 'Relation', { max: 30 }), gotra: v.str(req.body.gotra, 'Gotra', { optional: true, max: 40 }) });
-  db.prepare('UPDATE users SET fam=? WHERE id=?').run(JSON.stringify(f), u.id);
-  res.json({ ok: true });
-});
-router.delete('/me/family/:id', (req, res) => { const u = me(req); db.prepare('UPDATE users SET fam=? WHERE id=?').run(JSON.stringify(j(u.fam, []).filter((a) => a.id !== req.params.id)), u.id); res.json({ ok: true }); });
 router.post('/me/plus', (req, res) => {
   if (pay.mode() !== 'mock') throw new HttpError(501, 'Plus checkout needs the payment gateway wired for subscriptions. See README.');
   db.prepare('UPDATE users SET plus=? WHERE id=?').run(req.body.on ? 1 : 0, me(req).id);
+  res.json({ ok: true });
+});
+
+/* --- Family members (single source of truth: family_members table) ---------
+   Replaces the legacy JSON blob on users.fam (still serialized into state under
+   `fam` so the booking-wizard member picker keeps working). Family members are
+   the subjects of separately chargeable kundali requests. */
+const RELATIONSHIPS = ['Father', 'Mother', 'Spouse', 'Son', 'Daughter', 'Brother', 'Sister', 'Grandfather', 'Grandmother', 'Other'];
+
+router.get('/me/family', (req, res) => {
+  const rows = db.prepare('SELECT * FROM family_members WHERE customer_id=? ORDER BY created_at').all(me(req).id);
+  res.json({ family: rows.map((f) => ({ id: f.id, relationship: f.relationship, name: f.name, gender: f.gender, dob: f.dob, tob: f.tob, birthPlace: f.birth_place, city: f.city, state: f.state, country: f.country, lat: f.lat, lon: f.lon, tz: f.tz, gotra: f.gotra, notes: f.notes, createdAt: f.created_at })) });
+});
+
+router.post('/me/family', (req, res) => {
+  const b = req.body || {};
+  const rel = v.oneOf(b.relationship || b.rel || 'Other', RELATIONSHIPS, 'Relationship');
+  const name = v.str(b.name || b.n, 'Name', { max: 80 });
+  if (db.prepare('SELECT COUNT(*) n FROM family_members WHERE customer_id=?').get(me(req).id).n >= 20) throw bad('You can save up to 20 family members');
+  const id = 'fm' + rid(5);
+  db.prepare(`INSERT INTO family_members(id,customer_id,relationship,name,gender,dob,tob,birth_place,city,state,country,lat,lon,tz,gotra,notes)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, me(req).id, rel, name,
+      b.gender ? v.oneOf(b.gender, ['male', 'female', 'other'], 'Gender') : '',
+      b.dob ? v.date(b.dob, 'Date of birth') : '',
+      b.tob ? v.str(b.tob, 'Time of birth', { max: 8 }) : '',
+      b.birthPlace ? v.str(b.birthPlace, 'Birth place', { max: 120, optional: true }) : '',
+      b.city ? v.str(b.city, 'City', { max: 80, optional: true }) : '',
+      b.state ? v.str(b.state, 'State', { max: 80, optional: true }) : '',
+      b.country ? v.str(b.country, 'Country', { max: 80, optional: true }) : '',
+      Number.isFinite(+b.lat) ? +b.lat : null, Number.isFinite(+b.lon) ? +b.lon : null,
+      b.tz ? v.str(b.tz, 'Time zone', { max: 40, optional: true }) : '',
+      (b.gotra || b.g) ? v.str(b.gotra || b.g, 'Gotra', { max: 40, optional: true }) : '',
+      b.notes ? v.str(b.notes, 'Notes', { max: 400, optional: true }) : '');
+  res.status(201).json({ ok: true, id });
+});
+
+router.patch('/me/family/:id', (req, res) => {
+  const f = db.prepare('SELECT * FROM family_members WHERE id=? AND customer_id=?').get(req.params.id, me(req).id);
+  if (!f) throw notFound('Family member not found');
+  const b = req.body || {};
+  const rel = (b.relationship !== undefined || b.rel !== undefined) ? v.oneOf(b.relationship || b.rel, RELATIONSHIPS, 'Relationship') : f.relationship;
+  const name = (b.name !== undefined || b.n !== undefined) ? v.str(b.name || b.n, 'Name', { max: 80 }) : f.name;
+  db.prepare(`UPDATE family_members SET relationship=?, name=?, gender=?, dob=?, tob=?, birth_place=?, city=?, state=?, country=?, lat=?, lon=?, tz=?, gotra=?, notes=?, updated_at=datetime('now') WHERE id=?`)
+    .run(rel, name,
+      b.gender !== undefined ? (b.gender ? v.oneOf(b.gender, ['male', 'female', 'other'], 'Gender') : '') : f.gender,
+      b.dob !== undefined ? (b.dob ? v.date(b.dob, 'Date of birth') : '') : f.dob,
+      b.tob !== undefined ? (b.tob ? v.str(b.tob, 'Time of birth', { max: 8 }) : '') : f.tob,
+      b.birthPlace !== undefined ? v.str(b.birthPlace, 'Birth place', { max: 120, optional: true }) : f.birth_place,
+      b.city !== undefined ? v.str(b.city, 'City', { max: 80, optional: true }) : f.city,
+      b.state !== undefined ? v.str(b.state, 'State', { max: 80, optional: true }) : f.state,
+      b.country !== undefined ? v.str(b.country, 'Country', { max: 80, optional: true }) : f.country,
+      b.lat !== undefined ? (Number.isFinite(+b.lat) ? +b.lat : null) : f.lat,
+      b.lon !== undefined ? (Number.isFinite(+b.lon) ? +b.lon : null) : f.lon,
+      b.tz !== undefined ? v.str(b.tz, 'Time zone', { max: 40, optional: true }) : f.tz,
+      (b.gotra !== undefined || b.g !== undefined) ? v.str(b.gotra || b.g || '', 'Gotra', { max: 40, optional: true }) : f.gotra,
+      b.notes !== undefined ? v.str(b.notes, 'Notes', { max: 400, optional: true }) : f.notes, f.id);
+  res.json({ ok: true });
+});
+
+router.delete('/me/family/:id', (req, res) => {
+  if (!/^fm[a-z0-9]+$/.test(req.params.id)) throw notFound('Family member not found');
+  const r = db.prepare('DELETE FROM family_members WHERE id=? AND customer_id=?').run(req.params.id, me(req).id);
+  if (!r.changes) throw notFound('Family member not found');
   res.json({ ok: true });
 });
 

@@ -128,9 +128,12 @@ test('customised puja request: public submit, admin queue, convert to puja', asy
   const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const list = (await call('GET', '/admin/custom-requests', { token: admin })).json.requests;
   const req1 = list.find((r) => r.name === 'Custom Devotee');
-  assert.ok(req1 && req1.status === 'New');
+  assert.ok(req1 && req1.status === 'NEW');
   assert.equal((await call('GET', '/admin/custom-requests', { token: await login('customer') })).status, 403);
-  assert.equal((await call('PATCH', '/admin/custom-requests/' + req1.id, { token: admin, body: { status: 'Contacted', adminNote: 'Called, confirmed details' } })).status, 200);
+  assert.equal((await call('PATCH', '/admin/custom-requests/' + req1.id, { token: admin, body: { status: 'UNDER_REVIEW', adminNotes: 'Called, confirmed details' } })).status, 200);
+  /* status history is maintained */
+  const reviewed = (await call('GET', '/admin/custom-requests', { token: admin })).json.requests.find((r) => r.id === req1.id);
+  assert.ok(reviewed.history.some((h) => String(h[0]).includes('UNDER_REVIEW')), 'status history tracked');
   const conv = await call('POST', '/admin/custom-requests/' + req1.id + '/convert', { token: admin, body: { name: 'Special Griha Shanti', hindi: 'विशेष गृह शांति', price: 5500 } });
   assert.equal(conv.status, 201);
   assert.ok(conv.json.pujaId);
@@ -138,7 +141,7 @@ test('customised puja request: public submit, admin queue, convert to puja', asy
   const created = st.catalog.pujas.find((p) => p.id === conv.json.pujaId);
   assert.ok(created && created.hidden, 'converted puja exists and is hidden until priced');
   const after = (await call('GET', '/admin/custom-requests', { token: admin })).json.requests.find((r) => r.id === req1.id);
-  assert.equal(after.status, 'Booked');
+  assert.equal(after.status, 'SCHEDULED');
 });
 
 test('admin full puja editing: name, hindi, category, benefits, price, kit, visibility', async () => {
@@ -422,4 +425,108 @@ test('Razorpay mode: booking is held until the signature verifies; unpaid holds 
     await call('GET', '/state');
     assert.equal(db.prepare('SELECT status FROM bookings WHERE id=?').get(h.json.booking.id).status, 'Cancelled');
   } finally { global.fetch = realFetch; process.env.PAYMENT_MODE = 'mock'; }
+});
+
+/* ---------- Commercial Kundali model, security, exports (migration 008) ----- */
+
+test('kundali commercial model: quota, family pricing, billing states, idempotency', async () => {
+  await call('POST', '/auth/otp/send', { body: { mobile: '9811100501' } });
+  const tc = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100501', otp: '123456' } })).json.token;
+  const places = (await call('GET', '/kundali/places?q=delhi')).json;
+  const p0 = places.places[0];
+  const genBody = { name: 'Billing Tester', dob: '1992-03-10', tob: '09:15', placeId: p0.id, save: true };
+
+  /* 1. pricing endpoint reflects admin config and the customer's quota */
+  const pr = (await call('GET', '/kundali/pricing', { token: tc })).json;
+  assert.equal(pr.prices.family, 499);
+  assert.ok(pr.quota.included >= 1);
+
+  /* 2. first personal kundali is FREE (within quota) */
+  const k1 = await call('POST', '/kundali/generate', { token: tc, body: genBody });
+  assert.equal(k1.status, 201);
+  assert.equal(k1.json.billing.state, 'FREE');
+  assert.equal(k1.json.billing.final, 0);
+
+  /* 3. idempotency: same idemKey returns the same kundali, no duplicate row */
+  const k1b = await call('POST', '/kundali/generate', { token: tc, body: { ...genBody, idemKey: 'test-idem-1' } });
+  assert.equal(k1b.status, 201);
+  const k1c = await call('POST', '/kundali/generate', { token: tc, body: { ...genBody, idemKey: 'test-idem-1' } });
+  assert.equal(k1c.json.kundaliId, k1b.json.kundaliId, 'idempotent replay returns the original kundali');
+
+  /* 4. family member kundali is chargeable (mock gateway => PAID immediately with amount) */
+  const fm = await call('POST', '/me/family', { token: tc, body: { relationship: 'Mother', name: 'Sarla Devi', dob: '1965-07-04', tob: '05:30', gender: 'female', city: 'Delhi', state: 'Delhi', country: 'India', lat: 28.6139, lon: 77.209, tz: 'Asia/Kolkata' } });
+  assert.equal(fm.status, 201);
+  const quote = (await call('POST', '/kundali/quote', { token: tc, body: { relationship: 'Mother' } })).json.quote;
+  assert.equal(quote.base, 499);
+  assert.equal(quote.gst, Math.round(499 * 0.05));
+  assert.equal(quote.final, 499 + Math.round(499 * 0.05));
+  const k2 = await call('POST', '/kundali/generate', { token: tc, body: { familyMemberId: fm.json.id, placeId: p0.id } });
+  assert.equal(k2.status, 201);
+  assert.equal(k2.json.billing.state, 'PAID');
+  assert.equal(k2.json.billing.final, quote.final);
+  assert.equal(k2.json.chart.meta.name, 'Sarla Devi', 'family member details feed the chart');
+
+  /* 5. /mine lists both with billing info */
+  const mine = (await call('GET', '/kundali/mine', { token: tc })).json;
+  assert.ok(mine.kundalis.length >= 2);
+  assert.ok(mine.kundalis.some((k) => k.relationship === 'Self' && k.billing === 'FREE'));
+  assert.ok(mine.kundalis.some((k) => k.relationship === 'Mother' && k.billing === 'PAID' && k.final > 0));
+
+  /* 6. ownership: another customer cannot open the family kundali */
+  await call('POST', '/auth/otp/send', { body: { mobile: '9811100502' } });
+  const other = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100502', otp: '123456' } })).json.token;
+  assert.ok(other, 'other customer logged in');
+  assert.equal((await call('GET', '/kundali/' + k2.json.kundaliId, { token: other })).status, 404);
+  assert.equal((await call('GET', '/kundali/' + k2.json.kundaliId, { token: tc })).status, 200);
+
+  /* 7. admin sees the kundali list with billing columns */
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const kl = (await call('GET', '/admin/kundalis?kind=family', { token: admin })).json.kundalis;
+  assert.ok(kl.some((k) => k.kundaliId === k2.json.kundaliId && k.billing === 'PAID' && k.final > 0));
+});
+
+test('kundali pricing is admin-controlled and RESET-safe; toggles gate services', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const put = await call('PUT', '/admin/kundali/pricing', { token: admin, body: { familyPrice: 750, gstPct: 5, freeCounts: { customer: 1, plus: 2, premium: 5 } } });
+  assert.equal(put.status, 200);
+  assert.equal(put.json.pricing.familyPrice, 750);
+  await call('POST', '/auth/otp/send', { body: { mobile: '9811100503' } });
+  const tc = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100503', otp: '123456' } })).json.token;
+  const q = (await call('POST', '/kundali/quote', { token: tc, body: { relationship: 'Father' } })).json.quote;
+  assert.equal(q.base, 750, 'new family price applies immediately');
+  /* customer cannot change pricing */
+  assert.equal((await call('PUT', '/admin/kundali/pricing', { token: tc, body: { familyPrice: 1 } })).status, 403);
+
+  /* toggles: hide customized + astrology from state */
+  assert.equal((await call('PUT', '/admin/service-toggles', { token: admin, body: { customized: false, astrology: false } })).status, 200);
+  const st = (await call('GET', '/state')).json;
+  assert.equal(st.toggles.customized, false);
+  assert.equal(st.toggles.astrology, false);
+  await call('PUT', '/admin/service-toggles', { token: admin, body: { customized: true, astrology: true } });
+});
+
+test('excel exports: all rows, filters, sensitive fields excluded, audit logged', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  await call('POST', '/auth/otp/send', { body: { mobile: '9811100504' } });
+  const tc = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100504', otp: '123456' } })).json.token;
+  assert.ok([401, 403].includes((await call('GET', '/admin/export/bookings.xlsx', { token: tc })).status), 'customers cannot export');
+  const get = async (rep, qs = '') => {
+    const r = await fetch(base + '/api/admin/export/' + rep + '.xlsx' + qs, { headers: { Authorization: 'Bearer ' + admin } });
+    assert.equal(r.status, 200, rep + ' exports');
+    const buf = Buffer.from(await r.arrayBuffer());
+    assert.ok(buf.length > 500 && buf.slice(0, 2).toString() === 'PK', rep + ' is a real xlsx (zip) file');
+    return buf;
+  };
+  const reports = ['customers', 'pandits', 'temples', 'pujas', 'bookings', 'payments', 'orders', 'kundalis', 'kundali-payments', 'family-members', 'custom-requests', 'samagri', 'prasad', 'coupons', 'campaigns', 'payouts', 'revenue', 'puja-performance', 'commission'];
+  for (const rep of reports) await get(rep);
+  /* filtered export differs from unfiltered */
+  await call('PUT', '/admin/kundali/pricing', { token: admin, body: { familyPrice: 499 } });
+  const places = (await call('GET', '/kundali/places?q=delhi')).json;
+  const fm = (await call('POST', '/me/family', { token: tc, body: { relationship: 'Father', name: 'Export Father', dob: '1960-01-01' } })).json.id;
+  await call('POST', '/kundali/generate', { token: tc, body: { familyMemberId: fm, placeId: places.places[0].id } });
+  await get('kundalis', '?kind=family');
+  /* export audit trail */
+  const logs = (await call('GET', '/admin/export-logs', { token: admin })).json.logs;
+  assert.ok(logs.length >= reports.length);
+  assert.ok(logs.every((l) => l.admin && l.report && typeof l.rows === 'number'));
 });

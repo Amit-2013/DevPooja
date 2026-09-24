@@ -21,6 +21,7 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   const click = async (sel, ms = 250) => { const e = d.querySelector(sel); if (!e) { errs.push('MISSING ' + sel); return; } e.click(); await sleep(ms); };
   const setv = (id, v) => { const e = d.getElementById(id); if (!e) errs.push('NOID ' + id); else e.value = v; };
   const text = () => d.getElementById('view').textContent;
+  const sync2 = async () => { await w.eval('sync()'); await sleep(400); };
   for (let i = 0; i < 40 && !d.querySelector('#view h1'); i++) await sleep(100);
   console.log('home rendered:', /DaivikPooja|puja/i.test(text()));
 
@@ -69,7 +70,13 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   setv('cpn', 'DAIVIKPOOJA10'); await click('[data-act=wz-coupon]', 500); console.log('coupon msg:', /Coupon applied/.test(text()));
   await click('[data-act=wz-next]'); await click('[data-act=wz-pay]', 700);
   console.log('booking confirmed:', /Booking confirmed/.test(text()));
-  for (const t of ['bookings', 'orders', 'notifs', 'profile', 'addresses', 'family', 'rewards', 'support']) await go('#/account/' + t);
+  for (const t of ['bookings', 'kundalis', 'orders', 'notifs', 'profile', 'addresses', 'family', 'rewards', 'support']) await go('#/account/' + t);
+  // family members (table-backed) + family-kundali pricing + my kundalis
+  await go('#/account/family'); setv('frel', 'Mother'); setv('fn', 'Smoke Devi'); setv('fdob', '1968-02-11'); await click('[data-act=fadd]', 700);
+  console.log('family member added:', /Smoke Devi/.test(text()));
+  console.log('family kundali price shown:', /Generate Kundali/.test(text()));
+  await go('#/account/kundalis');
+  console.log('my kundalis tab renders:', /No kundalis yet|Included|Paid|included/i.test(text()));
   await go('#/account/bookings'); console.log('has booking card:', d.querySelectorAll('article.card').length);
   await click('[data-act=bres]'); await click('[data-act=close]'); await click('[data-act=binv]'); await click('[data-act=close]');
   await click('[data-act=bcan]'); await click('[data-act=bcanok]', 500); console.log('cancelled:', /Cancelled/.test(text()));
@@ -91,7 +98,16 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
-  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'demo']) await go('#/admin/' + t);
+  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'demo']) await go('#/admin/' + t);
+  // admin reports tab + kundali pricing panel + service toggles
+  await go('#/admin/reports');
+  console.log('reports tab renders:', /Download Excel|Download \.xlsx/i.test(text()));
+  await go('#/admin/kundali');
+  console.log('kundali pricing panel:', /Kundali pricing/.test(text()));
+  await go('#/admin/reports'); await click('[data-act=atoggle][data-id=astrology]', 600);
+  await go('#/'); await sync2();
+  console.log('toggle hides astrology nav:', !d.querySelector('#links a[href="#/astrology"]'));
+  await go('#/admin/reports'); await click('[data-act=atoggle][data-id=astrology]', 600); await sync2();
   await go('#/admin/bookings'); await click('[data-act=aman]'); setv('mn', 'Manual Cust'); setv('mm', '9000055555'); await click('[data-act=amanok]', 600);
   await go('#/admin/pandits'); await click('[data-act=akyc]', 500); await go('#/admin/finance'); await click('[data-act=acm]', 400);
   await go('#/admin/pujas'); setv('npn', 'Test Puja'); await click('[data-act=anp]', 500);

@@ -259,22 +259,45 @@ router.get('/demo/accounts', (req, res) => {
   res.json({ customers: customers.map((u) => ({ id: u.id, name: u.name, mobile: u.mobile, email: u.email, plus: !!u.plus, pts: u.pts })), pandits: pd.map((p) => ({ id: p.id, name: p.name, city: p.city, mobile: p.mobile, status: p.status })), password: seedMod.DEMO_PASSWORD });
 });
 
-/* --- Customized Puja requests (from POST /api/custom-puja) ---------------- */
+/* --- Customized Puja requests (from POST /api/custom-puja) ----------------
+   Full workflow (migration 008): NEW -> UNDER_REVIEW -> PANDIT_CONSULTATION ->
+   QUOTE_PREPARED -> CUSTOMER_APPROVAL_PENDING -> APPROVED -> PAYMENT_PENDING ->
+   PAID -> PANDIT_ASSIGNED -> TEMPLE_ASSIGNED -> SCHEDULED -> IN_PROGRESS ->
+   COMPLETED | REJECTED | CANCELLED | EXPIRED | REFUNDED. History is tracked. */
+const CR_STATUSES = ['NEW', 'UNDER_REVIEW', 'PANDIT_CONSULTATION', 'QUOTE_PREPARED', 'CUSTOMER_APPROVAL_PENDING', 'APPROVED', 'PAYMENT_PENDING', 'PAID', 'PANDIT_ASSIGNED', 'TEMPLE_ASSIGNED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'REFUNDED'];
+const crOut = (r) => ({ id: r.id, userId: r.user_id, name: r.name, mobile: r.mobile, language: r.language, requirement: r.requirement, purpose: r.purpose, deity: r.deity, occasion: r.occasion, preferredDate: r.preferred_date, preferredTime: r.preferred_time, location: r.location, city: r.city, state: r.state, country: r.country, participants: r.participants, budget: r.budget, kundaliId: r.kundali_id, doshCondition: r.dosh_condition, remedy: r.remedy, sankalp: r.sankalp, samagriReq: r.samagri_req, notes: r.notes, attachments: j(r.attachments, []), status: r.status, adminNotes: r.admin_notes, panditNotes: r.pandit_notes, quoteAmount: r.quote_amount, finalPrice: r.final_price, paymentStatus: r.payment_status, assignedPanditId: r.assigned_pandit_id, assignedTempleId: r.assigned_temple_id, bookingId: r.booking_id, pujaId: r.puja_id, history: j(r.history, []), createdAt: r.created_at, updatedAt: r.updated_at });
+const crHistory = (r, entry) => JSON.stringify([...j(r.history, []), [entry, new Date().toISOString().slice(0, 16).replace('T', ' ')]]);
+
 router.get('/custom-requests', (req, res) => {
-  const rows = db.prepare('SELECT * FROM custom_requests ORDER BY created_at DESC, id DESC LIMIT 200').all();
-  res.json({ requests: rows.map((r) => ({ id: r.id, userId: r.user_id, name: r.name, mobile: r.mobile, purpose: r.purpose, deity: r.deity, preferredDate: r.preferred_date, city: r.city, budget: r.budget, notes: r.notes, status: r.status, adminNote: r.admin_note, pujaId: r.puja_id, createdAt: r.created_at })) });
+  const f = [];
+  let sql = 'SELECT * FROM custom_requests';
+  if (req.query.status) { f.push(String(req.query.status)); sql += ' WHERE status=?'; }
+  sql += ' ORDER BY created_at DESC, id DESC LIMIT 500';
+  const rows = f.length ? db.prepare(sql).all(...f) : db.prepare(sql).all();
+  res.json({ requests: rows.map(crOut) });
 });
 
 router.patch('/custom-requests/:id', (req, res) => {
   const r = db.prepare('SELECT * FROM custom_requests WHERE id=?').get(req.params.id); if (!r) throw notFound('Request not found');
-  const status = req.body.status !== undefined ? v.oneOf(req.body.status, ['New', 'Contacted', 'Quoted', 'Booked', 'Closed'], 'Status') : r.status;
-  const note = req.body.adminNote !== undefined ? v.str(req.body.adminNote, 'Note', { max: 500, optional: true }) : r.admin_note;
-  db.prepare('UPDATE custom_requests SET status=?, admin_note=?, updated_at=datetime(\'now\') WHERE id=?').run(status, note || '', r.id);
-  if (req.body.status === 'Booked' && r.user_id) notify(r.user_id, 'WhatsApp', `Your custom puja request ${r.id} is booked. Our team will confirm the details.`);
+  const b = req.body || {};
+  const status = b.status !== undefined ? v.oneOf(b.status, CR_STATUSES, 'Status') : r.status;
+  const sets = { status, admin_notes: b.adminNotes !== undefined ? v.str(b.adminNotes, 'Note', { max: 800, optional: true }) : r.admin_notes,
+    pandit_notes: b.panditNotes !== undefined ? v.str(b.panditNotes, 'Pandit note', { max: 800, optional: true }) : r.pandit_notes,
+    quote_amount: b.quoteAmount !== undefined ? v.int(b.quoteAmount, 'Quote', { min: 0, max: 10000000 }) : r.quote_amount,
+    final_price: b.finalPrice !== undefined ? v.int(b.finalPrice, 'Final price', { min: 0, max: 10000000 }) : r.final_price,
+    payment_status: b.paymentStatus !== undefined ? v.oneOf(b.paymentStatus, ['Unpaid', 'Paid', 'Refunded'], 'Payment status') : r.payment_status,
+    assigned_pandit_id: b.assignedPanditId !== undefined ? String(b.assignedPanditId || '').slice(0, 20) || null : r.assigned_pandit_id,
+    assigned_temple_id: b.assignedTempleId !== undefined ? String(b.assignedTempleId || '').slice(0, 20) || null : r.assigned_temple_id };
+  if (sets.assigned_pandit_id && !db.prepare('SELECT 1 FROM pandits WHERE id=?').get(sets.assigned_pandit_id)) throw bad('Unknown pandit');
+  if (sets.assigned_temple_id && !db.prepare('SELECT 1 FROM temples WHERE id=?').get(sets.assigned_temple_id)) throw bad('Unknown temple');
+  const hist = status !== r.status ? crHistory(r, 'Status: ' + r.status + ' -> ' + status + ' (admin)') : null;
+  db.prepare(`UPDATE custom_requests SET status=?, admin_notes=?, pandit_notes=?, quote_amount=?, final_price=?, payment_status=?, assigned_pandit_id=?, assigned_temple_id=?, history=?, updated_at=datetime('now') WHERE id=?`)
+    .run(sets.status, sets.admin_notes || '', sets.pandit_notes || '', sets.quote_amount, sets.final_price, sets.payment_status || '', sets.assigned_pandit_id, sets.assigned_temple_id, hist || r.history, r.id);
+  if (status !== r.status && r.user_id) notify(r.user_id, 'WhatsApp', `Update on your custom puja request ${r.id}: ${status.replaceAll('_', ' ').toLowerCase()}.`);
   res.json({ ok: true });
 });
 
-/* Convert an accepted request into a real catalogue puja (hidden until priced). */
+/* Convert an approved request into a real catalogue puja (hidden until priced). */
 router.post('/custom-requests/:id/convert', (req, res) => {
   const r = db.prepare('SELECT * FROM custom_requests WHERE id=?').get(req.params.id); if (!r) throw notFound('Request not found');
   const kit = db.prepare('SELECT id FROM kits WHERE active=1 ORDER BY id LIMIT 1').get();
@@ -284,13 +307,185 @@ router.post('/custom-requests/:id/convert', (req, res) => {
     .run(id, v.str(req.body.name || (r.deity ? r.deity + ' Puja' : 'Custom Puja'), 'Name', { max: 80 }),
       v.str(req.body.hindi || r.deity || req.body.name || 'विशेष पूजा', 'Hindi name', { max: 80 }),
       'Life Event', '🕉️', v.int(req.body.dur || 90, 'Duration', { min: 15, max: 720 }),
-      v.int(req.body.price || 2500, 'Price', { min: 100, max: 1000000 }),
+      v.int(req.body.price || r.quote_amount || 2500, 'Price', { min: 100, max: 1000000 }),
       v.str(r.deity || 'Custom', 'Deity', { max: 60 }),
       'Customised puja created from request ' + r.id + (r.purpose ? ': ' + r.purpose : '.') + '.', kit.id, String(req.body.name || r.name).toLowerCase());
-  db.prepare('UPDATE custom_requests SET status=\'Booked\', puja_id=?, admin_note=?, updated_at=datetime(\'now\') WHERE id=?')
-    .run(id, (r.admin_note ? r.admin_note + ' | ' : '') + 'Converted to puja ' + id + '.', r.id);
+  db.prepare(`UPDATE custom_requests SET status='SCHEDULED', puja_id=?, history=?, admin_notes=?, updated_at=datetime('now') WHERE id=?`)
+    .run(id, crHistory(r, 'Converted to puja ' + id + ' (admin)'), (r.admin_notes ? r.admin_notes + ' | ' : '') + 'Converted to puja ' + id + '.', r.id);
   if (r.user_id) notify(r.user_id, 'WhatsApp', `Good news! Your custom puja request ${r.id} is now bookable on DaivikPooja.`);
   res.status(201).json({ ok: true, pujaId: id });
+});
+
+/* --- Kundali management: pricing, toggles, list --------------------------- */
+const KB = require('../services/kundaliBilling');
+const TOGGLE_KEYS = ['home', 'online', 'temple', 'customized', 'kundali', 'pandit', 'templeDir', 'prasad', 'samagri', 'astrology'];
+
+router.get('/kundali/pricing', (req, res) => res.json({ pricing: KB.pricing() }));
+router.put('/kundali/pricing', (req, res) => {
+  const b = req.body || {};
+  const p = KB.pricing();
+  const next = {
+    active: b.active !== undefined ? !!b.active : p.active,
+    currency: b.currency !== undefined ? v.oneOf(b.currency, ['INR', 'USD'], 'Currency') : p.currency,
+    personalPrice: b.personalPrice !== undefined ? v.int(b.personalPrice, 'Personal price', { min: 0, max: 1000000 }) : p.personalPrice,
+    familyPrice: b.familyPrice !== undefined ? v.int(b.familyPrice, 'Family price', { min: 0, max: 1000000 }) : p.familyPrice,
+    additionalPrice: b.additionalPrice !== undefined ? v.int(b.additionalPrice, 'Additional price', { min: 0, max: 1000000 }) : p.additionalPrice,
+    gstPct: b.gstPct !== undefined ? v.int(b.gstPct, 'GST %', { min: 0, max: 28 }) : p.gstPct,
+    discountPct: b.discountPct !== undefined ? v.int(b.discountPct, 'Discount %', { min: 0, max: 90 }) : p.discountPct,
+    couponEligible: b.couponEligible !== undefined ? !!b.couponEligible : p.couponEligible,
+    freeCounts: {
+      customer: b.freeCounts && b.freeCounts.customer !== undefined ? v.int(b.freeCounts.customer, 'Free count (customer)', { min: 0, max: 100 }) : p.freeCounts.customer,
+      plus: b.freeCounts && b.freeCounts.plus !== undefined ? v.int(b.freeCounts.plus, 'Free count (plus)', { min: 0, max: 100 }) : p.freeCounts.plus,
+      premium: b.freeCounts && b.freeCounts.premium !== undefined ? v.int(b.freeCounts.premium, 'Free count (premium)', { min: 0, max: 100 }) : p.freeCounts.premium
+    }
+  };
+  setSetting('kundali_pricing', next);
+  res.json({ ok: true, pricing: next });
+});
+
+router.get('/service-toggles', (req, res) => res.json({ toggles: getSettingToggles() }));
+router.put('/service-toggles', (req, res) => {
+  const cur = getSettingToggles();
+  for (const k of TOGGLE_KEYS) if (req.body[k] !== undefined) cur[k] = !!req.body[k];
+  setSetting('service_toggles', cur);
+  res.json({ ok: true, toggles: cur });
+});
+
+function getSettingToggles() {
+  const r = db.prepare("SELECT value FROM settings WHERE key='service_toggles'").get();
+  const def = Object.fromEntries(TOGGLE_KEYS.map((k) => [k, true]));
+  try { return Object.assign(def, r ? JSON.parse(r.value) : {}); } catch (e) { return def; }
+}
+
+/* Admin kundali list with filters (matches the Reports export source). */
+router.get('/kundalis', (req, res) => {
+  const w = [], a = [];
+  let sql = 'SELECT k.*, u.name AS customer_name, u.mobile AS customer_mobile FROM kundalis k LEFT JOIN users u ON u.id=k.customer_id';
+  if (req.query.billing) { w.push('k.billing=?'); a.push(String(req.query.billing)); }
+  if (req.query.kind === 'family') w.push("k.relationship != ''");
+  if (req.query.kind === 'personal') w.push("(k.relationship = '' OR k.relationship IS NULL)");
+  if (req.query.q) { w.push('(k.name LIKE ? OR k.id LIKE ? OR u.name LIKE ? OR u.mobile LIKE ? OR k.order_id LIKE ?)'); const like = '%' + String(req.query.q).replace(/[%_]/g, '') + '%'; a.push(like, like, like, like, like); }
+  if (w.length) sql += ' WHERE ' + w.join(' AND ');
+  sql += ' ORDER BY k.created_at DESC LIMIT 500';
+  const rows = db.prepare(sql).all(...a);
+  res.json({ kundalis: rows.map((k) => ({ kundaliId: k.id, name: k.name, customer: k.customer_name || '', mobile: k.customer_mobile || '', relationship: k.relationship || 'Self', billing: k.billing, price: k.price, discount: k.discount, gst: k.gst, final: k.final_amount, currency: k.currency, paymentStatus: k.payment_status, orderId: k.order_id, paymentId: k.payment_id, createdAt: k.created_at })) });
+});
+
+/* --- Reports: Excel (.xlsx) exports -----------------------------------------
+   One route, many report ids. Each report is a function returning {columns, rows}
+   built from the SAME queries the admin pages use (single source of truth), with
+   sensitive fields (password hashes, OTPs, tokens, KYC) excluded by design.
+   Filters come from the query string and are applied inside the report functions.
+   Every export is written to export_logs (admin, report, filters, row count). */
+const REPORTS = {
+  customers: (f) => select('SELECT id, name, mobile, email, plus, pts, joined FROM users WHERE role=\'customer\' ORDER BY id', [],
+    ['ID', 'Name', 'Mobile', 'Email', 'Plus member', 'Points', 'Joined']),
+  pandits: (f) => select('SELECT p.id, p.name, p.city, p.exp, p.rating, p.rev, p.status, p.featured, u.mobile FROM pandits p LEFT JOIN users u ON u.id=p.user_id ORDER BY p.id', [],
+    ['ID', 'Name', 'City', 'Experience (yrs)', 'Rating', 'Reviews', 'KYC status', 'Featured', 'Mobile']),
+  temples: (f) => select('SELECT id, name, city, deity, offering, descr FROM temples ORDER BY id', [],
+    ['ID', 'Name', 'City', 'Deity', 'Offering (Rs)', 'Description']),
+  pujas: (f) => select('SELECT id, name, hindi, cat, price, dur, deity, hidden, pop FROM pujas ORDER BY id', [],
+    ['ID', 'Name', 'Hindi name', 'Category', 'Price (Rs)', 'Duration (min)', 'Deity', 'Hidden', 'Popularity']),
+  bookings: (f) => {
+    const { where, args } = bookingFilter(f);
+    return select('SELECT b.id, b.user_id, u.name AS customer, u.mobile, b.puja_id, b.mode, b.date, b.slot, b.status, json_extract(b.q,\'$.total\') AS total, b.coupon FROM bookings b LEFT JOIN users u ON u.id=b.user_id' + where + ' ORDER BY b.created DESC', args,
+      ['Booking ID', 'Customer', 'Mobile', 'Puja', 'Mode', 'Date', 'Slot', 'Status', 'Total (Rs)', 'Coupon']);
+  },
+  payments: (f) => {
+    const { where, args } = bookingFilter(f);
+    const w2 = where + (where ? ' AND ' : ' WHERE ') + "json_extract(b.pay,'$.paid')=1";
+    return select("SELECT b.id, u.name AS customer, b.puja_id, b.date, json_extract(b.pay,'$.method') AS method, json_extract(b.pay,'$.ref') AS ref, json_extract(b.q,'$.total') AS total, b.status FROM bookings b LEFT JOIN users u ON u.id=b.user_id" + w2 + ' ORDER BY b.created DESC', args,
+      ['Booking ID', 'Customer', 'Puja', 'Date', 'Method', 'Reference', 'Amount (Rs)', 'Booking status']);
+  },
+  orders: (f) => select('SELECT o.id, u.name AS customer, o.total, o.date, o.status, o.city FROM orders o LEFT JOIN users u ON u.id=o.user_id ORDER BY o.date DESC', [],
+    ['Order ID', 'Customer', 'Total (Rs)', 'Date', 'Status', 'City']),
+  kundalis: (f) => {
+    const { where, args } = kundaliFilter(f);
+    return select('SELECT k.id, k.name, u.name AS customer, u.mobile, k.relationship, k.billing, k.price, k.discount, k.gst, k.final_amount, k.currency, k.payment_status, k.order_id, k.created_at FROM kundalis k LEFT JOIN users u ON u.id=k.customer_id' + where + ' ORDER BY k.created_at DESC', args,
+      ['Kundali ID', 'Name', 'Customer', 'Mobile', 'Relationship', 'Billing', 'Price (Rs)', 'Discount (Rs)', 'GST (Rs)', 'Final (Rs)', 'Currency', 'Payment status', 'Order ID', 'Created']);
+  },
+  'kundali-payments': (f) => {
+    const { where, args } = kundaliFilter(f);
+    return select("SELECT k.id, u.name AS customer, k.final_amount, k.currency, k.payment_status, k.order_id, k.payment_id, k.created_at FROM kundalis k LEFT JOIN users u ON u.id=k.customer_id" + where + (where ? ' AND ' : ' WHERE ') + "k.billing IN ('PAID','PENDING_PAYMENT','REFUNDED') ORDER BY k.created_at DESC", args,
+      ['Kundali ID', 'Customer', 'Amount (Rs)', 'Currency', 'Payment status', 'Order ID', 'Payment ID', 'Created']);
+  },
+  'family-members': (f) => select('SELECT f.id, u.name AS customer, f.relationship, f.name, f.gender, f.dob, f.tob, f.city, f.state, f.country FROM family_members f LEFT JOIN users u ON u.id=f.customer_id ORDER BY f.created_at', [],
+    ['Member ID', 'Customer', 'Relationship', 'Name', 'Gender', 'DOB', 'TOB', 'City', 'State', 'Country']),
+  'custom-requests': (f) => {
+    const w = [], a = [];
+    let sql = 'SELECT c.id, c.name, c.mobile, c.purpose, c.deity, c.occasion, c.preferred_date, c.city, c.budget, c.kundali_id, c.dosh_condition, c.assigned_pandit_id, c.quote_amount, c.final_price, c.payment_status, c.status, c.created_at, c.updated_at FROM custom_requests c';
+    if (f.status) { w.push('c.status=?'); a.push(String(f.status)); }
+    if (f.q) { w.push('(c.name LIKE ? OR c.mobile LIKE ? OR c.id LIKE ?)'); const like = '%' + String(f.q).replace(/[%_]/g, '') + '%'; a.push(like, like, like); }
+    if (w.length) sql += ' WHERE ' + w.join(' AND ');
+    sql += ' ORDER BY c.created_at DESC';
+    return select(sql, a,
+      ['Request ID', 'Name', 'Mobile', 'Purpose', 'Deity', 'Occasion', 'Preferred date', 'City', 'Budget (Rs)', 'Kundali ID', 'Dosh', 'Assigned pandit', 'Quote (Rs)', 'Final price (Rs)', 'Payment status', 'Status', 'Created', 'Updated']);
+  },
+  samagri: (f) => select('SELECT id, name, price, stock, active FROM kits ORDER BY id', [],
+    ['Kit ID', 'Name', 'Price (Rs)', 'Stock', 'Active']),
+  prasad: (f) => select('SELECT id, name, price, stock, active FROM prasad ORDER BY id', [],
+    ['ID', 'Name', 'Price (Rs)', 'Stock', 'Active']),
+  coupons: (f) => select('SELECT code, type, val, max, min, active, used FROM coupons ORDER BY code', [],
+    ['Code', 'Type', 'Value', 'Max (Rs)', 'Min order (Rs)', 'Active', 'Times used']),
+  campaigns: (f) => select('SELECT id, name, channel, audience, status, sent FROM campaigns ORDER BY id', [],
+    ['ID', 'Name', 'Channel', 'Audience', 'Status', 'Sent']),
+  payouts: (f) => select('SELECT po.id, p.name AS pandit, po.amount, po.date, po.status, po.booking_id FROM payouts po LEFT JOIN pandits p ON p.id=po.pandit_id ORDER BY po.date DESC', [],
+    ['Payout ID', 'Pandit', 'Amount (Rs)', 'Date', 'Status', 'Booking ID']),
+  revenue: (f) => {
+    const rows = db.prepare("SELECT substr(b.date,1,7) ym, COUNT(*) n, SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)) amt FROM bookings b WHERE json_extract(b.pay,'$.paid')=1 GROUP BY ym ORDER BY ym DESC").all();
+    return { columns: ['Month', 'Paid bookings', 'Revenue (Rs)'], rows: rows.map((r) => [r.ym, r.n, r.amt || 0]) };
+  },
+  'puja-performance': (f) => {
+    const rows = db.prepare("SELECT p.name, b.mode, COUNT(*) n, SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)) amt FROM bookings b JOIN pujas p ON p.id=b.puja_id WHERE b.status != 'Cancelled' GROUP BY b.puja_id, b.mode ORDER BY amt DESC").all();
+    return { columns: ['Puja', 'Mode', 'Bookings', 'Value (Rs)'], rows: rows.map((r) => [r.name, r.mode, r.n, r.amt || 0]) };
+  },
+  commission: (f) => {
+    const comm = db.prepare("SELECT value FROM settings WHERE key='commission'").get();
+    const pct = comm ? JSON.parse(comm.value) : 20;
+    const rows = db.prepare("SELECT substr(b.date,1,7) ym, SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)) amt FROM bookings b WHERE json_extract(b.pay,'$.paid')=1 AND b.status != 'Cancelled' GROUP BY ym ORDER BY ym DESC").all();
+    return { columns: ['Month', 'Platform commission (Rs)'], rows: rows.map((r) => [r.ym, Math.round((r.amt || 0) * pct / 100)]) };
+  }
+};
+
+function select(sql, args, columns) {
+  return { columns, rows: db.prepare(sql).all(...args).map((r) => Object.values(r)) };
+}
+function bookingFilter(f) {
+  const w = ["b.status != 'PendingPayment'"], a = [];
+  if (f.status) { w.push('b.status=?'); a.push(String(f.status)); }
+  if (f.from) { w.push('b.date>=?'); a.push(String(f.from)); }
+  if (f.to) { w.push('b.date<=?'); a.push(String(f.to)); }
+  if (f.mode) { w.push('b.mode=?'); a.push(String(f.mode)); }
+  return { where: w.length ? ' WHERE ' + w.join(' AND ') : '', args: a };
+}
+function kundaliFilter(f) {
+  const w = [], a = [];
+  if (f.billing) { w.push('k.billing=?'); a.push(String(f.billing)); }
+  if (f.from) { w.push("substr(k.created_at,1,10)>=?"); a.push(String(f.from)); }
+  if (f.to) { w.push("substr(k.created_at,1,10)<=?"); a.push(String(f.to)); }
+  return { where: w.length ? ' WHERE ' + w.join(' AND ') : '', args: a };
+}
+
+/* GET /admin/export/:report.xlsx?status=&from=&to=&mode=&billing= */
+router.get('/export/:report.xlsx', async (req, res) => {
+  const rep = REPORTS[req.params.report];
+  if (!rep) throw notFound('Unknown report');
+  const data = rep(req.query);
+  const wb = new (require('exceljs').Workbook)();
+  const ws = wb.addWorksheet(req.params.report.slice(0, 30));
+  ws.columns = data.columns.map((h) => ({ header: h, key: h }));
+  ws.getRow(1).font = { bold: true };
+  for (const row of data.rows) ws.addRow(row);
+  db.prepare('INSERT INTO export_logs(admin_id,report,filters,rows,ts) VALUES(?,?,?,?,?)')
+    .run(req.auth.uid, req.params.report, JSON.stringify(req.query), data.rows.length, Date.now());
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="daivikpooja-' + req.params.report + '-' + new Date().toISOString().slice(0, 10) + '.xlsx"');
+  res.send(Buffer.from(await wb.xlsx.writeBuffer()));
+});
+
+router.get('/export-logs', (req, res) => {
+  const rows = db.prepare('SELECT e.*, u.name AS admin FROM export_logs e LEFT JOIN users u ON u.id=e.admin_id ORDER BY e.ts DESC LIMIT 100').all();
+  res.json({ logs: rows.map((r) => ({ id: r.id, admin: r.admin || r.admin_id, report: r.report, filters: r.filters, rows: r.rows, ts: r.ts })) });
 });
 
 router.post('/orders/:id/advance', (req, res) => {

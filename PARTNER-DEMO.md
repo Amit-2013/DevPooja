@@ -89,3 +89,11 @@ full RESET with automatic session renewal).
 - **Admin control**: every puja, condition→puja mapping, price, commission, coupon —
   editable without code.
 - **Customised puja**: public request form → admin queue → convert to a bookable puja.
+
+## New in this build (show these!)
+
+1. **My Kundalis with pricing** — log in as any customer → Account → *My Kundalis*: their plan quota ("1 included kundali left") and a priced **Add Family Member Kundali** panel (₹499 + GST, admin-controlled).
+2. **Paid family kundali** — Account → *My Family* → add a member with birth details → *Generate Kundali* → the form shows the price banner → confirm → generated **and charged** through the real engine. It appears in *My Kundalis* as Paid, in the admin Kundali list, and in the Excel report.
+3. **Excel reports** — Admin → *Reports*: 19 one-click .xlsx exports (bookings, kundalis, customized requests, revenue, commission…) plus the export audit log.
+4. **Service toggles** — Admin → Reports → right card: switch any service (e.g. Astrology) off and watch it vanish from the customer navigation.
+5. **Kundali pricing is admin-editable** — Admin → Kundali settings → change the family price → the customer quote updates immediately.

@@ -7,7 +7,10 @@ const secret = () => {
   if (!s && process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET must be set in production');
   return s || 'dev-only-secret-change-me';
 };
-const sign = (user, pid) => jwt.sign({ uid: user.id, role: user.role, pid: pid || null }, secret(), { expiresIn: '7d' });
+/* 48h access tokens: short enough to shrink replay windows, long enough that the
+   re-login friction stays low. The DB re-check in authenticate() still revokes
+   deleted/downgraded users instantly regardless of token age. */
+const sign = (user, pid) => jwt.sign({ uid: user.id, role: user.role, pid: pid || null }, secret(), { expiresIn: '48h' });
 
 /* Reads Authorization: Bearer <token>. Always re-checks the user in the DB, so role changes and deletions take effect immediately. */
 function authenticate(req, _res, next) {

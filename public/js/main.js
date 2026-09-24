@@ -48,13 +48,20 @@ const ACT={
  hsearch(){location.hash='#/pujas?q='+encodeURIComponent(val('hq'))},
  /* kundali flow */
  async kgen(){const f=PAGE.kf=PAGE.kf||{};const Lg=lang==='hi';
-  if(!chk(val('kn')))return toast(Lg?'अपना पूरा नाम भरें':'Enter your full name');
-  if(!val('kd'))return toast(Lg?'जन्म तिथि भरें':'Enter your date of birth');
-  if(!f.placeId)return toast(Lg?'सूची से जन्म स्थान चुनें':'Choose your birth place from the list');
-  const acc=val('ka');
-  if(acc==='exact'&&!val('kt'))return toast(Lg?'जन्म समय भरें, या शुद्धता बदलें':'Enter the time of birth, or change accuracy to approximate/unknown');
-  const body={name:val('kn'),gender:val('kg')||undefined,dob:val('kd'),tob:val('kt')||undefined,birthTimeAccuracy:acc,placeId:f.placeId,purpose:val('ku'),email:val('ke')||undefined,mobile:val('km')||undefined,gotra:val('kgot')||undefined,save:$('#ksave').checked};
-  const prev=$('#view').innerHTML;$('#view').innerHTML=kLoading(val('kn'));
+  const fam=route().q.family; /* family member kundali: /#/kundali?family=fmXXX */
+  if(!fam){
+   if(!chk(val('kn')))return toast(Lg?'अपना पूरा नाम भरें':'Enter your full name');
+   if(!val('kd'))return toast(Lg?'जन्म तिथि भरें':'Enter your date of birth');
+   if(!f.placeId)return toast(Lg?'सूची से जन्म स्थान चुनें':'Choose your birth place from the list');
+   const acc=val('ka');
+   if(acc==='exact'&&!val('kt'))return toast(Lg?'जन्म समय भरें, या शुद्धता बदलें':'Enter the time of birth, or change accuracy to approximate/unknown');
+  }
+  const body={name:val('kn'),gender:val('kg')||undefined,dob:val('kd'),tob:val('kt')||undefined,birthTimeAccuracy:val('ka'),placeId:f.placeId||undefined,purpose:val('ku'),email:val('ke')||undefined,mobile:val('km')||undefined,gotra:val('kgot')||undefined,save:$('#ksave')?$('#ksave').checked:true,idemKey:'ui-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)};
+  if(fam){body.familyMemberId=fam;delete body.name;delete body.dob;delete body.tob;delete body.gender;body.placeId=f.placeId||undefined;
+   const q=await api('/kundali/quote',{body:{relationship:'Family'}}).catch(()=>null);
+   if(q&&!confirm('Family Member Kundali\nPrice: '+inr(q.quote.final)+' ('+q.quote.currency+')\n\nContinue to generation?'))return;
+  }
+  const prev=$('#view').innerHTML;$('#view').innerHTML=kLoading('...');
   try{const r=await api('/kundali/generate',{body});
    r.catalogConditions=await api('/kundali/conditions').then(x=>x.conditions).catch(()=>[]);
    PAGE.k=r;
@@ -99,7 +106,7 @@ const ACT={
  psave(){run(()=>api('/me',{method:'PATCH',body:{name:val('pn'),email:val('pe'),pref:{deity:val('pdv'),lang:val('pl2'),wa:$('#pwa').checked,sms:$('#psm').checked,em:$('#pem').checked}}}),'Profile saved')},
  aadd(){run(()=>api('/me/addresses',{body:{l:val('al'),line:val('ai'),city:val('ac'),pin:val('ap')}}),'Address saved')},
  adel(d){run(()=>api('/me/addresses/'+d.id,{method:'DELETE'}))},
- fadd(){run(()=>api('/me/family',{body:{n:val('fn'),rel:val('fr'),gotra:val('fg')}}),'Member saved')},
+ async fadd(){try{await api('/me/family',{body:{relationship:val('frel')||undefined,name:val('fn'),gender:val('fgen')||undefined,dob:val('fdob')||undefined,tob:val('ftob')||undefined,gotra:val('fg')||undefined,city:val('fcity')||undefined}});await sync();toast('Family member saved');render(true)}catch(e){toast(e.message)}},
  fdel(d){run(()=>api('/me/family/'+d.id,{method:'DELETE'}))},
  tadd(){run(()=>api('/tickets',{body:{b:val('tb'),t:val('tt')}}),'Ticket raised')},
  plus(d){if(!me()){afterLogin=()=>render(true);loginModal();return}run(()=>api('/me/plus',{body:{on:true}}),'Welcome to DaivikPooja Plus')},
@@ -141,6 +148,9 @@ const ACT={
  async apueditok(d){await closeAnd(run(()=>api('/admin/pujas/'+d.id,{method:'PATCH',body:{name:val('pen'),hindi:val('peh'),cat:val('pec'),deity:val('ped'),ben:val('peb'),benHi:val('pebh'),dur:val('pedu'),price:val('pep'),kit:val('pek'),hidden:!$('#pev').checked}}),'Puja saved'))},
  acopy(d){try{navigator.clipboard.writeText(d.id||'');toast('Copied: '+(d.id||''))}catch(e){toast(d.id||'')}},
  acrstatus(d,el){run(()=>api('/admin/custom-requests/'+d.id,{method:'PATCH',body:{status:el.value}}),'Request updated')},
+ aexport(d){window.open('/api/admin/export/'+d.id+'.xlsx','_blank');toast('Export started — check downloads');setTimeout(()=>{api('/admin/export-logs').then(x=>{PAGE.expLogs=x.logs;render(true)}).catch(()=>{})},1200)},
+ async akprice(){try{await api('/admin/kundali/pricing',{method:'PUT',body:{familyPrice:+val('kpf'),additionalPrice:+val('kpa'),gstPct:+val('kpg'),discountPct:+val('kpd'),couponEligible:val('kpce')==='1',active:val('kpac')==='1',freeCounts:{customer:+val('kpfc'),plus:+val('kpfp'),premium:+val('kpfm')}}});PAGE.kprice=null;await sync();toast('Kundali pricing saved')}catch(e){toast(e.message)}},
+ async atoggle(d,el){try{const b={};b[d.id]=el.checked;await api('/admin/service-toggles',{method:'PUT',body:b});await sync();toast('Service '+(el.checked?'enabled':'hidden'))}catch(e){toast(e.message);el.checked=!el.checked}},
  acconvert(d){const q=(PAGE.creq||[]).find(x=>x.id===d.id);if(!q)return;
   modal('<h2>Convert request '+esc(q.id)+' into a puja</h2><p class="sm mut mt">From '+esc(q.name)+(q.city?', '+esc(q.city):'')+' — '+esc(q.purpose||'custom request')+'</p><div class="frm mt"><label class="f">Puja name<input id="cvn" value="'+esc(q.deity?q.deity+' Puja':'Custom Puja')+'"></label><label class="f">Hindi name<input id="cvh" value="'+esc(q.deity||'विशेष पूजा')+'"></label><div class="row mt"><label class="f" style="flex:1">Duration (min)<input id="cvd" type="number" value="90"></label><label class="f" style="flex:1">Price<input id="cvp" type="number" value="'+(q.budget||2500)+'"></label></div></div><button class="btn mt" data-act="acconvertok" data-id="'+esc(q.id)+'">Create puja</button>')},
  async acconvertok(d){await closeAnd(run(()=>api('/admin/custom-requests/'+d.id+'/convert',{body:{name:val('cvn'),hindi:val('cvh'),dur:val('cvd'),price:val('cvp')}}),'Request converted into a puja'));PAGE.creq=null;},
