@@ -128,13 +128,19 @@ app.post('/api/custom-puja', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, sk
    The authenticated variant allows admins/pandits through the download endpoint. */
 const MEDIA_PUB = require('./services/pujaMedia');
 app.get('/api/pujas/:id/photos', (req, res) => {
-  try { res.json({ photos: MEDIA_PUB.publicForPuja(req.params.id) }); }
-  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  try {
+    const page = Math.max(1, parseInt(req.query.page || 1, 10) || 1);
+    const limit = Math.max(1, Math.min(48, parseInt(req.query.limit || 12, 10) || 12));
+    const r = MEDIA_PUB.publicForPuja(req.params.id, { limit, offset: (page - 1) * limit, category: req.query.category });
+    res.set('Cache-Control', 'public, max-age=60'); // short TTL: approvals surface within a minute
+    res.json(r);
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 app.get('/api/media/:id/download', (req, res) => {
   try {
     const f = MEDIA_PUB.fileFor(req.params.id, req.auth);
     res.setHeader('Content-Type', f.mime);
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable'); // media ids are immutable
     res.setHeader('Content-Disposition', 'inline; filename="' + (f.name || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_') + '"');
     res.sendFile(f.file);
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }

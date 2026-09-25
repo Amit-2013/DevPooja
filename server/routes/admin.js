@@ -707,14 +707,10 @@ router.get('/audit', (req, res) => {
 const MEDIA = require('../services/pujaMedia');
 /* Moderation queue: all media (pending first), with the puja + pandit names. */
 router.get('/media', (req, res) => {
-  const status = req.query.status && ['PENDING_ADMIN_REVIEW', 'APPROVED', 'REJECTED'].includes(String(req.query.status)) ? String(req.query.status) : null;
-  const rows = db.prepare(`SELECT m.*, p.name puja_name, pd.name pandit_name FROM puja_media m
-    LEFT JOIN pujas p ON p.id=m.puja_id LEFT JOIN pandits pd ON pd.id=m.pandit_id
-    ${status ? 'WHERE m.status=?' : ''} ORDER BY CASE m.status WHEN 'PENDING_ADMIN_REVIEW' THEN 0 ELSE 1 END, m.created_at DESC LIMIT 300`).all(...(status ? [status] : []));
-  res.json({ media: rows.map(MEDIA.out) });
+  res.json({ media: MEDIA.adminList({ status: req.query.status, source: req.query.source, limit: req.query.limit }) });
 });
 router.post('/pujas/:id/media', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
-  res.status(201).json({ media: MEDIA.adminUpload({ uid: req.auth.uid, pujaId: req.params.id, files: req.files, makePrimary: !!req.body.primary }) });
+  res.status(201).json({ media: MEDIA.adminUpload({ uid: req.auth.uid, pujaId: req.params.id, files: req.files, makePrimary: !!req.body.primary, altText: req.body.altText, category: req.body.category, published: req.body.published === undefined ? true : !!req.body.published }) });
 });
 router.get('/pujas/:id/media', (req, res) => res.json({ media: MEDIA.allForPuja(req.params.id) }));
 router.patch('/media/:id', (req, res) => {
@@ -722,6 +718,13 @@ router.patch('/media/:id', (req, res) => {
   res.json({ media: MEDIA.moderate({ uid: req.auth.uid, id: req.params.id, status: b.status, published: b.published, primary: !!b.primary }) });
 });
 router.post('/media/reorder', (req, res) => res.json({ media: MEDIA.reorder(req.auth.uid, req.body.ids) }));
+/* Bulk moderation: { ids: [...], op: approve|reject|publish|unpublish|delete } */
+router.post('/media/bulk', (req, res) => {
+  const op = v.oneOf(req.body.op, ['approve', 'reject', 'publish', 'unpublish', 'delete'], 'Operation');
+  res.json(MEDIA.bulk(req.auth.uid, req.body.ids, op));
+});
+/* Full attribution list for the Credits view (admin-only: includes unpublished). */
+router.get('/media/credits', (req, res) => res.json({ credits: MEDIA.creditsList() }));
 router.delete('/media/:id', (req, res) => res.json(MEDIA.remove({ uid: req.auth.uid, role: 'admin', pid: null, id: req.params.id })));
 router.get('/media/:id/download', (req, res) => {
   const f = MEDIA.fileFor(req.params.id, req.auth);

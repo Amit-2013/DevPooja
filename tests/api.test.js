@@ -613,7 +613,7 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c626001000000ffff03000006000557bfabd40000000049454e44ae426082', 'hex');
   const fake = Buffer.from('this is definitely not an image', 'utf8');
-  const form = (buf, name, bookingId) => { const fd = new FormData(); fd.append('media', new Blob([buf], { type: 'image/png' }), name || 'photo.png'); if (bookingId) fd.append('bookingId', bookingId); return fd; };
+  const form = (buf, name, bookingId) => { const fd = new FormData(); fd.append('media', new Blob([buf], { type: 'image/png' }), name || 'photo.png'); if (bookingId) fd.append('bookingId', bookingId); fd.append('altText', 'Test photo of the puja ritual'); return fd; };
 
   /* pandit: upload for own assigned booking (u1/p1 has a seeded booking) */
   const pandit = await login('pandit');
@@ -679,6 +679,79 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   const rep = await fetch(base + '/api/admin/export/media.xlsx', { headers: { Authorization: 'Bearer ' + admin } });
   assert.equal(rep.status, 200);
   assert.equal(Buffer.from(await rep.arrayBuffer()).subarray(0, 2).toString(), 'PK');
+});
+
+test('photo metadata + credits + pagination + bulk + caching (migration 010)', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const H = { Authorization: 'Bearer ' + admin };
+
+  /* seeded photos carry full attribution (credits.json -> puja_media) */
+  const seedQ = (await call('GET', '/admin/media?source=seeded', { token: admin })).json.media;
+  assert.ok(seedQ.length >= 15, 'seed photos present: ' + seedQ.length);
+  assert.ok(seedQ.every((m) => m.source === 'seeded'));
+  assert.ok(seedQ.every((m) => m.license && /CC|Public domain|CC0/i.test(m.license)), 'every seeded photo has a license');
+  assert.ok(seedQ.every((m) => m.creator && m.credit), 'creator + credit line present');
+  assert.ok(seedQ.every((m) => m.creditUrl && /commons\.wikimedia/.test(m.creditUrl)), 'source page recorded');
+  assert.ok(seedQ.some((m) => m.category === 'ritual') && seedQ.some((m) => m.category === 'puja'));
+
+  /* credits endpoint mirrors the same records */
+  const credits = (await call('GET', '/admin/media/credits', { token: admin })).json.credits;
+  assert.equal(credits.length, seedQ.length + 2); // + 2 pandit uploads from the previous test
+  assert.ok(credits.every((c) => c.pujaName));
+  assert.equal((await call('GET', '/admin/media/credits', { token: await login('customer') })).status, 403);
+
+  /* public endpoint: pagination shape + thumbnail + cache header */
+  const pid = seedQ[0].pujaId;
+  const pg = (await call('GET', '/pujas/' + pid + '/photos?limit=1&page=1')).json;
+  assert.equal(pg.limit, 1);
+  assert.ok(pg.total >= 1);
+  const p0 = pg.photos[0];
+  assert.ok(p0.thumb, 'thumbnail url present');
+  assert.ok(p0.altText, 'alt text present');
+  const t = await fetch(base + p0.thumb);
+  assert.equal(t.status, 200);
+  assert.ok(t.headers.get('content-type').startsWith('image/'));
+  const small = Buffer.from(await t.arrayBuffer());
+  const full = await (await fetch(base + '/api/media/' + p0.id + '/download')).arrayBuffer();
+  assert.ok(small.length <= full.byteLength, 'thumbnail is not larger than the original');
+
+  /* category filter */
+  const ritual = (await call('GET', '/pujas/' + pid + '/photos?category=ritual')).json;
+  const cat = (await call('GET', '/pujas/' + pid + '/photos?category=puja')).json;
+  assert.ok(ritual.total + cat.total >= 1);
+
+  /* cache headers: listing short-TTL, media immutable */
+  const listRes = await fetch(base + '/api/pujas/' + pid + '/photos');
+  assert.match(listRes.headers.get('cache-control') || '', /max-age=60/);
+  const dlRes = await fetch(base + '/api/media/' + p0.id + '/download');
+  assert.match(dlRes.headers.get('cache-control') || '', /max-age=86400/);
+
+  /* pandit upload requires alt text */
+  const pandit = await login('pandit');
+  const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c626001000000ffff03000006000557bfabd40000000049454e44ae426082', 'hex');
+  const fdNoAlt = new FormData(); fdNoAlt.append('media', new Blob([png], { type: 'image/png' }), 'x.png'); fdNoAlt.append('bookingId', mine[0].id);
+  const noAlt = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fdNoAlt });
+  assert.equal(noAlt.status, 400, 'alt text is required for pandit uploads');
+  const fdAlt = new FormData(); fdAlt.append('media', new Blob([png], { type: 'image/png' }), 'x.png'); fdAlt.append('bookingId', mine[0].id); fdAlt.append('altText', 'Rudrabhishek performed at a home shrine');
+  const withAlt = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fdAlt });
+  assert.equal(withAlt.status, 201);
+  const pm = (await withAlt.json()).media[0];
+  assert.equal(pm.source, 'pandit');
+  assert.equal(pm.category, 'seva');
+  assert.equal(pm.altText, 'Rudrabhishek performed at a home shrine');
+
+  /* bulk: approve + publish the pandit upload, then delete it in one call */
+  const bulk1 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'approve' } });
+  assert.equal(bulk1.json.changed, 1);
+  const bulk2 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'publish' } });
+  assert.equal(bulk2.json.changed, 1);
+  assert.equal((await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos.some((p) => p.id === pm.id), true, 'published after bulk publish');
+  const bulk3 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'delete' } });
+  assert.equal(bulk3.json.changed, 1);
+  assert.equal((await call('GET', '/admin/media?source=pandit', { token: admin })).json.media.some((m) => m.id === pm.id), false, 'bulk delete removes the row');
+  const badOp = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [], op: 'explode' } });
+  assert.equal(badOp.status, 400);
 });
 
 test('excel upgrade: new report ids exist, filters are honoured, professional headers present', async () => {

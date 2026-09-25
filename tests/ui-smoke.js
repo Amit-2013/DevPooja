@@ -116,10 +116,13 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   await go('#/admin/pandits'); await click('[data-act=akyc]', 500); await go('#/admin/finance'); await click('[data-act=acm]', 400);
   await go('#/admin/pujas'); setv('npn', 'Test Puja'); await click('[data-act=anp]', 500);
   console.log('admin puja added:', /Test Puja/.test(text()));
-  // photos manager opens from the pujas tab (migration 009)
+  // photos manager opens from the pujas tab (migration 009/010): tabs + credits
   await click('[data-act=amedia]', 600);
   console.log('photo manager opens:', !!d.querySelector('#amgrid') && /Photos —/.test(d.querySelector('#modal').textContent));
-  await click('[data-act=close]', 300);
+  console.log('manager tabs + bulk:', /Seeded/.test(d.getElementById('modal').textContent) && /Publish/.test(d.getElementById('modal').textContent));
+  await click('[data-act=amcredits]', 600);
+  console.log('credits view:', /attribution/i.test(d.getElementById('modal').textContent) && /Commons page/.test(d.getElementById('modal').textContent));
+  if (d.querySelector('[data-act=close]')) await click('[data-act=close]', 300);
   // demo data tab: mock booking generation, then a full reset that keeps the admin session
   await go('#/admin/demo'); await click('[data-act=amock]', 800);
   console.log('mock bookings generated:', /Mock bookings created/.test(d.getElementById('toast').textContent));

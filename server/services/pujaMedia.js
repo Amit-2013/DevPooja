@@ -22,24 +22,80 @@ const out = (r) => ({
   id: r.id, pujaId: r.puja_id, bookingId: r.booking_id || null, panditId: r.pandit_id || null,
   uploadedBy: r.uploaded_by || null, origName: r.orig_name || '', mime: r.mime, size: r.size,
   status: r.status, isPrimary: !!r.is_primary, isPublished: !!r.is_published,
-  displayOrder: r.display_order, url: '/media/' + encodeURIComponent(r.filename), createdAt: r.created_at
+  displayOrder: r.display_order, url: '/media/' + encodeURIComponent(r.filename), createdAt: r.created_at,
+  /* metadata (migration 010 / PHOTO-MEDIA-SPEC.md) */
+  source: r.source || (r.pandit_id ? 'pandit' : (String(r.filename || '').startsWith('seed-') ? 'seeded' : 'admin')),
+  license: r.license || '', credit: r.credit || '', creator: r.creator || '', creditUrl: r.credit_url || '',
+  altText: r.alt_text || '', category: r.category || 'puja',
+  thumb: r.thumb ? '/media/' + encodeURIComponent(r.thumb) : ''
 });
 
-/* Public catalogue photos: approved AND published only, primary first. */
-function publicForPuja(pujaId) {
-  return db.prepare("SELECT * FROM puja_media WHERE puja_id=? AND status='APPROVED' AND is_published=1 ORDER BY is_primary DESC, display_order, created_at").all(pujaId).map(out);
+/* Public catalogue photos: approved AND published only, primary first.
+   Pagination + optional category filter; returns shaped rows plus a page cursor. */
+function publicForPuja(pujaId, { limit, offset, category } = {}) {
+  const lim = Math.max(1, Math.min(48, parseInt(limit || 12, 10) || 12));
+  const off = Math.max(0, parseInt(offset || 0, 10) || 0);
+  const w = ["puja_id=?", "status='APPROVED'", "is_published=1"];
+  const a = [pujaId];
+  if (category && ['puja', 'ritual', 'temple', 'seva'].includes(String(category))) { w.push('category=?'); a.push(String(category)); }
+  const rows = db.prepare(`SELECT * FROM puja_media WHERE ${w.join(' AND ')} ORDER BY is_primary DESC, display_order, created_at LIMIT ? OFFSET ?`).all(...a, lim + 1, off);
+  const total = db.prepare(`SELECT COUNT(*) c FROM puja_media WHERE ${w.join(' AND ')}`).get(...a).c;
+  return { photos: rows.slice(0, lim).map(out), total, limit: lim, offset: off, nextOffset: off + lim < total ? off + lim : null };
 }
 
-/* Admin list for one puja (everything). */
-const allForPuja = (pujaId) => db.prepare('SELECT * FROM puja_media WHERE puja_id=? ORDER BY is_primary DESC, display_order, created_at').all(pujaId).map(out);
+/* Admin list for one puja (everything) with optional status filter. */
+const allForPuja = (pujaId, status) => {
+  const rows = status && ['PENDING_ADMIN_REVIEW', 'APPROVED', 'REJECTED'].includes(String(status))
+    ? db.prepare('SELECT * FROM puja_media WHERE puja_id=? AND status=? ORDER BY is_primary DESC, display_order, created_at').all(pujaId, status)
+    : db.prepare('SELECT * FROM puja_media WHERE puja_id=? ORDER BY is_primary DESC, display_order, created_at').all(pujaId);
+  return rows.map(out);
+};
 /* Pandit list: their own uploads (all states) + the approved/published set of their pujas. */
 function mineForPandit(pid) {
   return db.prepare('SELECT * FROM puja_media WHERE pandit_id=? ORDER BY created_at DESC LIMIT 200').all(pid).map(out);
 }
 
+/* Admin moderation queue across all pujas, filterable by status and source. */
+function adminList({ status, source, limit } = {}) {
+  const w = [], a = [];
+  if (status && ['PENDING_ADMIN_REVIEW', 'APPROVED', 'REJECTED'].includes(String(status))) { w.push('m.status=?'); a.push(String(status)); }
+  if (source && ['seeded', 'admin', 'pandit'].includes(String(source))) { w.push('m.source=?'); a.push(String(source)); }
+  const lim = Math.max(1, Math.min(500, parseInt(limit || 300, 10) || 300));
+  const rows = db.prepare(`SELECT m.*, p.name puja_name, pd.name pandit_name FROM puja_media m
+    LEFT JOIN pujas p ON p.id=m.puja_id LEFT JOIN pandits pd ON pd.id=m.pandit_id
+    ${w.length ? 'WHERE ' + w.join(' AND ') : ''}
+    ORDER BY CASE m.status WHEN 'PENDING_ADMIN_REVIEW' THEN 0 ELSE 1 END, m.created_at DESC LIMIT ?`).all(...a, lim);
+  return rows.map((r) => Object.assign(out(r), { pujaName: r.puja_name || '', panditName: r.pandit_name || '' }));
+}
+
+/* Bulk moderation for the admin UI. Returns per-id results. */
+function bulk(uid, ids, op) {
+  const results = [];
+  for (const id of Array.isArray(ids) ? ids.slice(0, 200) : []) {
+    try {
+      if (op === 'delete') { results.push({ id, ok: remove({ uid, role: 'admin', pid: null, id }).ok }); continue; }
+      const patch = op === 'approve' ? { status: 'APPROVED' }
+        : op === 'reject' ? { status: 'REJECTED' }
+        : op === 'publish' ? { published: true, status: 'APPROVED' }
+        : op === 'unpublish' ? { published: false } : null;
+      if (!patch) throw bad('Unknown bulk operation');
+      moderate({ uid, id, status: patch.status, published: patch.published });
+      results.push({ id, ok: true });
+    } catch (e) { results.push({ id, ok: false, error: e.message }); }
+  }
+  return { results, changed: results.filter((r) => r.ok).length };
+}
+
+/* Full attribution list for the admin Credits view (and the credits report). */
+function creditsList() {
+  return db.prepare('SELECT m.*, p.name puja_name FROM puja_media m LEFT JOIN pujas p ON p.id=m.puja_id ORDER BY p.name, m.created_at').all()
+    .map((r) => Object.assign(out(r), { pujaName: r.puja_name || '' }));
+}
+
 /* Pandit upload: booking must exist, belong to THIS pandit, and be a real assignment.
-   Status is forced to PENDING_ADMIN_REVIEW — pandit uploads never publish directly. */
-function panditUpload({ pid, uid, bookingId, files }) {
+   Status is forced to PENDING_ADMIN_REVIEW — pandit uploads never publish directly.
+   Alt text is required (spec); category defaults to 'seva'. */
+function panditUpload({ pid, uid, bookingId, files, altText }) {
   const b = db.prepare('SELECT * FROM bookings WHERE id=?').get(String(bookingId || ''));
   if (!b) throw notFound('Booking not found');
   if (b.pandit_id !== pid) throw forbidden('You can only upload photos for your own assigned bookings');
@@ -52,9 +108,11 @@ function panditUpload({ pid, uid, bookingId, files }) {
       continue;
     }
     const id = 'pm' + rid(5);
-    db.prepare(`INSERT INTO puja_media(id,puja_id,booking_id,pandit_id,uploaded_by,orig_name,filename,mime,size,status,is_primary,is_published,display_order,created_at)
-                VALUES(?,?,?,?,?,?,?,?,?, 'PENDING_ADMIN_REVIEW',0,0,0,?)`)
-      .run(id, b.puja_id, b.id, pid, uid || null, String(f.originalname || '').slice(0, 120), f.filename, f.mimetype, f.size, Date.now());
+    const alt = String(altText || f.originalname || 'Puja photo').slice(0, 160);
+    db.prepare(`INSERT INTO puja_media(id,puja_id,booking_id,pandit_id,uploaded_by,orig_name,filename,mime,size,status,is_primary,is_published,display_order,created_at,
+                source,alt_text,category)
+                VALUES(?,?,?,?,?,?,?,?,?, 'PENDING_ADMIN_REVIEW',0,0,0,?, 'pandit',?, 'seva')`)
+      .run(id, b.puja_id, b.id, pid, uid || null, String(f.originalname || '').slice(0, 120), f.filename, f.mimetype, f.size, Date.now(), alt);
     inserted.push(row(id));
   }
   if (!inserted.length) throw bad('Photo limit reached for this puja');
@@ -62,8 +120,9 @@ function panditUpload({ pid, uid, bookingId, files }) {
   return inserted.map(out);
 }
 
-/* Admin upload (direct to the catalogue). Admin media is trusted: APPROVED + PUBLISHED. */
-function adminUpload({ uid, pujaId, files, makePrimary }) {
+/* Admin upload (direct to the catalogue). Admin media is trusted: APPROVED; published
+   by default with an optional alt text and gallery category per the spec. */
+function adminUpload({ uid, pujaId, files, makePrimary, altText, category, published = true }) {
   const puja = db.prepare('SELECT * FROM pujas WHERE id=?').get(String(pujaId || ''));
   if (!puja) throw notFound('Puja not found');
   const first = db.prepare('SELECT COUNT(*) c FROM puja_media WHERE puja_id=?').get(pujaId).c === 0;
@@ -75,9 +134,12 @@ function adminUpload({ uid, pujaId, files, makePrimary }) {
     }
     const id = 'pm' + rid(5);
     const primary = (makePrimary && inserted.length === 0) || (first && inserted.length === 0);
-    db.prepare(`INSERT INTO puja_media(id,puja_id,uploaded_by,orig_name,filename,mime,size,status,is_primary,is_published,display_order,created_at)
-                VALUES(?,?,?,?,?,?,?, 'APPROVED',?,?,0,?)`)
-      .run(id, pujaId, uid || null, String(f.originalname || '').slice(0, 120), f.filename, f.mimetype, f.size, primary ? 1 : 0, 1, Date.now());
+    const alt = String(altText || f.originalname || 'Puja photo').slice(0, 160);
+    const cat = ['puja', 'ritual', 'temple', 'seva'].includes(String(category)) ? String(category) : 'puja';
+    db.prepare(`INSERT INTO puja_media(id,puja_id,uploaded_by,orig_name,filename,mime,size,status,is_primary,is_published,display_order,created_at,
+                source,alt_text,category)
+                VALUES(?,?,?,?,?,?,?, 'APPROVED',?,?,0,?, 'admin',?,?)`)
+      .run(id, pujaId, uid || null, String(f.originalname || '').slice(0, 120), f.filename, f.mimetype, f.size, primary ? 1 : 0, published ? 1 : 0, Date.now(), alt, cat);
     if (primary) db.prepare('UPDATE puja_media SET is_primary=0 WHERE puja_id=? AND id!=?').run(pujaId, id);
     inserted.push(row(id));
   }
@@ -138,6 +200,7 @@ function remove({ uid, role, pid, id }) {
     throw forbidden('Not allowed');
   }
   try { fs.unlinkSync(path.join(mediaDir, path.basename(r.filename))); } catch (e) { /* file may already be gone */ }
+  if (r.thumb) { try { fs.unlinkSync(path.join(mediaDir, path.basename(r.thumb))); } catch (e) { /* optional */ } }
   db.prepare('DELETE FROM puja_media WHERE id=?').run(id);
   auditMod.audit(uid, 'media.delete', 'puja_media', id, { pujaId: r.puja_id, by: role });
   return { ok: true };
@@ -157,4 +220,4 @@ function fileFor(id, auth) {
   return { file, mime: r.mime, name: r.orig_name || r.filename };
 }
 
-module.exports = { row, out, publicForPuja, allForPuja, mineForPandit, panditUpload, adminUpload, moderate, reorder, remove, fileFor, MAX_PHOTOS_PER_PUJA };
+module.exports = { row, out, publicForPuja, allForPuja, mineForPandit, adminList, bulk, creditsList, panditUpload, adminUpload, moderate, reorder, remove, fileFor, MAX_PHOTOS_PER_PUJA };

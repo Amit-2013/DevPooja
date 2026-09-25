@@ -67,7 +67,8 @@ router.post('/feature', (req, res) => {
 const M = require('../services/pujaMedia');
 router.post('/media', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
   if (!req.files || !req.files.length) throw bad('Attach at least one photo');
-  res.status(201).json({ media: M.panditUpload({ pid: pid(req), uid: req.auth.uid, bookingId: req.body.bookingId, files: req.files }) });
+  if (!String(req.body.altText || '').trim()) throw bad('Describe the photo (alt text is required)');
+  res.status(201).json({ media: M.panditUpload({ pid: pid(req), uid: req.auth.uid, bookingId: req.body.bookingId, files: req.files, altText: req.body.altText }) });
 });
 router.get('/media', (req, res) => res.json({ media: M.mineForPandit(pid(req)) }));
 router.delete('/media/:id', (req, res) => res.json(M.remove({ uid: req.auth.uid, role: 'pandit', pid: pid(req), id: req.params.id })));
