@@ -1,5 +1,7 @@
 # DaivikPooja – Sanatan Seva Platform
 
+[![CI](https://github.com/Amit-2013/DevPooja/actions/workflows/ci.yml/badge.svg)](https://github.com/Amit-2013/DevPooja/actions/workflows/ci.yml)
+
 Full-stack puja booking platform: customer site, pandit partner portal and admin panel, backed by a REST API and a SQLite database.
 
 - **Backend:** Node.js, Express, SQLite (better-sqlite3), JWT auth, bcrypt, multer uploads, helmet, rate limiting
