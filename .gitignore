@@ -16,3 +16,6 @@ backend-python/data/
 backend-python/uploads/
 backend-python/**/__pycache__/
 backend-python/.pytest_cache/
+
+# migration test artifacts
+backend-python/tests/*.db
