@@ -35,10 +35,17 @@ async function ensureVariants(row) {
     const webpPath = path.join(MEDIA_DIR, webpName);
     if (!exists(webpPath) && exists(origPath)) await sharp(origPath).webp({ quality: 82 }).toFile(webpPath);
     if (exists(webpPath)) updates.webp = webpName;
-    /* thumb WebP: same base as the JPEG thumb with a .webp extension (never doubled) */
-    const thumbWebpName = baseName(thumbName) + THUMB_WEBP_SUFFIX;
+    /* thumb WebP: same name as the JPEG thumb with .webp extension (normalized:
+       legacy rows may carry a doubled .t320.t320.webp name — rename on repair) */
+    let thumbWebpName = thumbName.replace(/\.t320\.jpg$/i, THUMB_WEBP_SUFFIX);
+    if (!/\.webp$/i.test(thumbWebpName)) thumbWebpName = baseName(thumbName) + THUMB_WEBP_SUFFIX;
+    const legacyName = baseName(thumbName) + THUMB_WEBP_SUFFIX;
+    const legacyPath = legacyName !== thumbWebpName ? path.join(MEDIA_DIR, legacyName) : null;
     const tPath = path.join(MEDIA_DIR, thumbWebpName);
-    if (!exists(tPath) && exists(thumbPath)) await sharp(thumbPath).webp({ quality: 80 }).toFile(tPath);
+    if (!exists(tPath)) {
+      if (legacyPath && exists(legacyPath)) fs.renameSync(legacyPath, tPath);           // normalize old doubled name
+      else if (exists(thumbPath)) await sharp(thumbPath).webp({ quality: 80 }).toFile(tPath);
+    }
     if (exists(tPath)) updates.thumb_webp = thumbWebpName;
     const sets = [], args = [];
     if (updates.webp && row.webp !== updates.webp) { sets.push('webp=?'); args.push(updates.webp); }
