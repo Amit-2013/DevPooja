@@ -809,3 +809,39 @@ test('excel upgrade: new report ids exist, filters are honoured, professional he
   const nf = await fetch(base + '/api/admin/export/nope.xlsx', { headers: { Authorization: 'Bearer ' + admin } });
   assert.equal(nf.status, 404);
 });
+
+test('media delete removes every stored artifact: original + thumb + webp + thumb_webp', async () => {
+  const pandit = await login('pandit');
+  const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
+  const jpeg = fs.readFileSync(path.join(__dirname, '..', 'shared', 'seed-photos', 'durga.jpg')); // real decodable image for sharp
+  const dbh = require('../server/db').db;
+  const V = require('../server/services/mediaVariants');
+  const updir = path.join(process.env.UPLOAD_DIR, 'media');
+  const gone = (n) => assert.equal(fs.existsSync(path.join(updir, n)), false, 'artifact removed on delete: ' + n);
+
+  /* case A — pandit upload: original + full WebP (no JPEG thumb is made for uploads) */
+  const fd = new FormData(); fd.append('media', new Blob([jpeg], { type: 'image/jpeg' }), 'cleanup.jpg'); fd.append('bookingId', mine[0].id); fd.append('altText', 'Deletion completeness check photo');
+  const up = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fd });
+  assert.equal(up.status, 201);
+  const pm = (await up.json()).media[0];
+  const rowA = await V.ensureVariants(dbh.prepare('SELECT * FROM puja_media WHERE id=?').get(pm.id));
+  assert.ok(rowA.webp, 'full WebP generated for the upload');
+  for (const n of [rowA.filename, rowA.webp]) assert.ok(fs.existsSync(path.join(updir, n)), 'artifact exists before delete: ' + n);
+  /* stale-column safety net: empty webp column must still delete the derived .webp */
+  await dbh.prepare("UPDATE puja_media SET webp='' WHERE id=?").run(pm.id);
+  const delA = await call('DELETE', '/pandit/media/' + pm.id, { token: pandit });
+  assert.equal(delA.status, 200);
+  for (const n of [rowA.filename, rowA.webp]) gone(n);
+  assert.equal(dbh.prepare('SELECT COUNT(*) c FROM puja_media WHERE id=?').get(pm.id).c, 0, 'row removed');
+
+  /* case B — seeded photo: all four artifacts (original + thumb + webp + thumb_webp) */
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const seedRow = dbh.prepare("SELECT * FROM puja_media WHERE source='seeded' AND thumb!='' AND webp!='' AND thumb_webp!='' LIMIT 1").get();
+  assert.ok(seedRow, 'a fully-variant seeded photo exists');
+  const namesB = [seedRow.filename, seedRow.thumb, seedRow.webp, seedRow.thumb_webp];
+  for (const n of namesB) assert.ok(fs.existsSync(path.join(updir, n)), 'seed artifact exists before delete: ' + n);
+  const delB = await call('DELETE', '/admin/media/' + seedRow.id, { token: admin });
+  assert.equal(delB.status, 200);
+  for (const n of namesB) gone(n);
+  assert.equal(dbh.prepare('SELECT COUNT(*) c FROM puja_media WHERE id=?').get(seedRow.id).c, 0, 'seed row removed');
+});

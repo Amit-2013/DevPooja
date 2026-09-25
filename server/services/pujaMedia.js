@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { db } = require('../db');
 const upload = require('../lib/upload');
+const variants = require('./mediaVariants');
 const auditMod = require('../lib/audit');
 const { bad, notFound, forbidden, rid } = require('../lib/util');
 
@@ -198,7 +199,12 @@ function reorder(uid, ids) {
   return allForPuja(first.puja_id);
 }
 
-/* Delete (file + row). Pandits may delete ONLY their own PENDING uploads. */
+/* Delete (file + row). Pandits may delete ONLY their own PENDING uploads.
+   Every stored artifact is removed: original + JPEG thumb + full WebP + thumb
+   WebP (migration 011). A clean DB row with orphaned variant files would slowly
+   fill the Render disk — delete means delete. Variant names are taken from the
+   row's columns; when a column is stale/empty (e.g. a crash mid-repair) the
+   variant filename is derived from the stored original/thumb name instead. */
 function remove({ uid, role, pid, id }) {
   const r = row(id);
   if (!r) throw notFound('Photo not found');
@@ -208,10 +214,19 @@ function remove({ uid, role, pid, id }) {
   } else if (role !== 'admin') {
     throw forbidden('Not allowed');
   }
-  try { fs.unlinkSync(path.join(mediaDir, path.basename(r.filename))); } catch (e) { /* file may already be gone */ }
-  if (r.thumb) { try { fs.unlinkSync(path.join(mediaDir, path.basename(r.thumb))); } catch (e) { /* optional */ } }
+  const files = new Set();
+  if (r.filename) files.add(path.basename(r.filename));
+  if (r.thumb) files.add(path.basename(r.thumb));
+  if (r.webp) files.add(path.basename(r.webp));
+  if (r.thumb_webp) files.add(path.basename(r.thumb_webp));
+  const base = path.basename(r.filename || '');
+  if (base) {
+    if (!r.webp) files.add(base.replace(/\.[a-z0-9]+$/i, '') + variants.WEBP_SUFFIX);
+    if (!r.thumb_webp && r.thumb) files.add(path.basename(r.thumb).replace(/\.t320\.jpg$/i, '') + variants.THUMB_WEBP_SUFFIX);
+  }
+  for (const name of files) { try { fs.unlinkSync(path.join(mediaDir, name)); } catch (e) { /* already gone */ } }
   db.prepare('DELETE FROM puja_media WHERE id=?').run(id);
-  auditMod.audit(uid, 'media.delete', 'puja_media', id, { pujaId: r.puja_id, by: role });
+  auditMod.audit(uid, 'media.delete', 'puja_media', id, { pujaId: r.puja_id, by: role, files: files.size });
   return { ok: true };
 }
 
