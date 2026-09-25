@@ -168,8 +168,9 @@ const customerPaths = ['/me', '/bookings', '/payments', '/orders', '/tickets'];
 app.use('/api', (req, res, next) => (customerPaths.some((p) => req.path === p || req.path.startsWith(p + '/')) ? customer(req, res, next) : next()));
 app.use('/api', (_q, _r, next) => next(new HttpError(404, 'Not found')));
 
-/* puja photos and videos: random file names, served read-only. KYC files are never served here. */
-app.use('/media', express.static(upload.dirs.media, { index: false, dotfiles: 'deny', setHeaders: (r) => r.setHeader('Content-Disposition', 'inline') }));
+/* puja photos and videos: random file names, served read-only. KYC files are never served here.
+   Filenames are server-generated and unique per upload, so browsers can cache them hard. */
+app.use('/media', express.static(upload.dirs.media, { index: false, dotfiles: 'deny', maxAge: '30d', setHeaders: (r) => r.setHeader('Content-Disposition', 'inline') }));
 app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 
