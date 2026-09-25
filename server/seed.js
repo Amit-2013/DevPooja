@@ -299,7 +299,10 @@ function backfillHindi() {
   try { setSetting('service_toggles', getSetting2('service_toggles', { home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true })); } catch (e) { /* older database */ }
 }
 
-function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo(); }
+function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo();
+  /* Bundled puja photos (freely licensed, see shared/seed-photos/CREDITS.md): copied
+     into puja_media once per puja. Pujas that already have media are never touched. */
+  try { const { seedPujaPhotos } = require('./services/photoSeed'); const r = seedPujaPhotos(); if (r.seeded && !process.env.QUIET) console.log('[photoSeed] ' + r.seeded + ' seeded, ' + r.skipped + ' already had photos'); } catch (e) { console.error('[photoSeed]', e.message); } }
 
 /* getSetting without crashing when the settings table does not exist yet. */
 function getSetting2(k, d) { try { const r = db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r ? JSON.parse(r.value) : d; } catch (e) { return d; } }

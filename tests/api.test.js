@@ -619,6 +619,8 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   const pandit = await login('pandit');
   const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
   assert.ok(mine.length, 'pandit has assigned bookings');
+  const photosOf = async (id) => (await call('GET', '/pujas/' + id + '/photos')).json.photos || [];
+  const baseline = (await photosOf(mine[0].pujaId)).length; // seed photos may exist
   const upRes = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: form(png, 'photo.png', mine[0].id) });
   const up = await upRes.json().catch(() => ({}));
   assert.equal(upRes.status, 201, 'pandit upload accepted: ' + JSON.stringify(up).slice(0, 200));
@@ -632,7 +634,7 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   assert.equal(bad.status, 400, 'fake image content is rejected');
 
   /* hidden from the public catalogue while pending */
-  assert.equal(((await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos || []).length, 0);
+  assert.equal((await photosOf(mine[0].pujaId)).length, baseline);
 
   /* pandit cannot moderate or touch admin media endpoints */
   assert.equal((await call('PATCH', '/admin/media/' + m.id, { token: pandit, body: { status: 'APPROVED' } })).status, 403);
@@ -645,8 +647,8 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   const ap = await call('PATCH', '/admin/media/' + m.id, { token: admin, body: { status: 'APPROVED', published: true } });
   assert.equal(ap.status, 200);
   const pub = (await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos;
-  assert.equal(pub.length, 1);
-  assert.equal(pub[0].id, m.id);
+  assert.equal(pub.length, baseline + 1);
+  assert.ok(pub.some((p) => p.id === m.id));
 
   /* secure download by id; anonymous can fetch published, pending is 404, traversal-proof */
   const dl = await fetch(base + '/api/media/' + m.id + '/download');
@@ -661,15 +663,17 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   await call('PATCH', '/admin/media/' + m.id, { token: admin, body: { status: 'REJECTED' } });
   const rej = await fetch(base + '/api/media/' + m.id + '/download');
   assert.equal(rej.status, 404, 'rejected media is not downloadable anonymously');
-  assert.equal(((await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos || []).length, 0);
+  assert.equal((await photosOf(mine[0].pujaId)).length, baseline);
 
-  /* admin upload to a puja: instantly approved + published, primary on first */
-  const aup = await fetch(base + '/api/admin/pujas/ganesh/media', { method: 'POST', headers: { Authorization: 'Bearer ' + admin }, body: form(png, 'hero.png') });
+  /* admin upload to a puja: instantly approved + published, primary when asked */
+  const gBefore = (await photosOf('ganesh')).length; // seed photo present
+  const gform = form(png, 'hero.png'); gform.append('primary', '1');
+  const aup = await fetch(base + '/api/admin/pujas/ganesh/media', { method: 'POST', headers: { Authorization: 'Bearer ' + admin }, body: gform });
   assert.equal(aup.status, 201);
   const am = (await aup.json()).media[0];
   assert.equal(am.status, 'APPROVED');
   assert.equal(am.isPrimary, true);
-  assert.equal(((await call('GET', '/pujas/ganesh/photos')).json.photos || []).length, 1);
+  assert.equal((await photosOf('ganesh')).length, gBefore + 1);
 
   /* media report + audit */
   const rep = await fetch(base + '/api/admin/export/media.xlsx', { headers: { Authorization: 'Bearer ' + admin } });
