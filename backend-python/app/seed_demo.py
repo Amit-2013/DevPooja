@@ -32,12 +32,32 @@ async def seed_demo(db: AsyncSession) -> None:
                 email="ramesh@example.com", pass_hash=hash_password("demo1234"),
                 created_at=now))
     db.add(Pandit(id="p1", user_id="up1", name="Pandit Ramesh", city="Delhi NCR",
-                  exp=12, langs='["Hindi","English"]', spec='["satyanarayan","rudra"]',
-                  rating=4.8, rev=64, done=120, status="verified", mobile="9810000001"))
-    db.add(Puja(id="satyanarayan", name="Satyanarayan Katha", cat="gruh",
-                price=2100, deity="Vishnu", dur=120,
-                ben="Prosperity, harmony and gratitude through the Satyanarayan katha.",
-                ben_hi="सत्यनारायण भगवान की कथा और पूजा — समृद्धि, संतान और सुख के लिए पारंपरिक सेवा।"))
+                  exp=12, langs='["Hindi","English"]',
+                  spec='["lakshmi","griha","satyanarayan","vastu","vyapar"]',
+                  rating=4.9, rev=412, done=1260, pf=1.15, status="verified",
+                  featured=1, mobile="9810000001"))
+    # Node seed parity: more verified pandits so auto-assignment has a pool
+    # (p2..p6 mirror server/seed.js names, cities and pf multipliers).
+    roster = [
+        ("p2", "up2", "Acharya Suresh Iyer", "Chennai", 1.2, '["rudra","navgraha","vivah","namkaran","mrityunjaya"]'),
+        ("p3", "up3", "Pt. Vinod Mishra", "Lucknow", 1.0, '["satyanarayan","hanuman","durga","pitru"]'),
+        ("p4", "up4", "Pt. Harish Joshi", "Jaipur", 0.95, '["ganesh","lakshmi","vyapar","saraswati"]'),
+        ("p5", "up5", "Pt. Anand Bhatt", "Ahmedabad", 1.1, '["griha","vastu","kaalsarp","navgraha"]'),
+        ("p6", "up6", "Pt. Dinesh Pandey", "Pune", 0.9, '["ganesh","satyanarayan","namkaran","griha"]'),
+    ]
+    for i, (pid, uid, name, city, pf, spec) in enumerate(roster, start=2):
+        db.add(User(id=uid, role="pandit", name=name, mobile="98100000" + str(i).zfill(2),
+                    created_at=now))
+        db.add(Pandit(id=pid, user_id=uid, name=name, city=city, exp=10 + i,
+                      langs='["Hindi","English"]', spec=spec, pf=pf,
+                      status="verified", avail=1, mobile="98100000" + str(i).zfill(2)))
+    if not await db.get(Puja, "satyanarayan"):
+        # The full catalogue comes from seed_catalog; this fallback only runs
+        # when the demo seeder is used standalone (no catalog seed).
+        db.add(Puja(id="satyanarayan", name="Satyanarayan Katha", cat="gruh",
+                    price=2100, deity="Vishnu", dur=120,
+                    ben="Prosperity, harmony and gratitude through the Satyanarayan katha.",
+                    ben_hi="सत्यनारायण भगवान की कथा और पूजा — समृद्धि, संतान और सुख के लिए पारंपरिक सेवा।"))
     await db.flush()
 
     # one seeded photo with provenance + thumb, variants filled by ensure_variants

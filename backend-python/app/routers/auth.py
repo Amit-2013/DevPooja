@@ -123,13 +123,50 @@ async def change_password(body: ChangePwBody, request: Request,
 
 
 @router.post("/otp/send")
-async def otp_send():
-    raise http_error(501, "Mobile OTP arrives with the notify-service port")
+async def otp_send(body: dict, db: AsyncSession = Depends(get_db)):
+    """Issue an OTP. Demo mode fixes the code at 123456 (Node parity); the
+    response carries devOtp outside production so local flows keep working."""
+    from ..services.otp import issue
+    return await issue(db, (body or {}).get("mobile"))
 
 
 @router.post("/otp/verify")
-async def otp_verify():
-    raise http_error(501, "Mobile OTP arrives with the notify-service port")
+async def otp_verify(body: dict, request: Request, db: AsyncSession = Depends(get_db)):
+    """Verify the OTP; creates the customer on first login (Node parity).
+    as='pandit' signs into the pandit account bound to that mobile."""
+    from ..models import Pandit
+    from ..services.otp import verify
+    b = body or {}
+    mobile = await verify(db, b.get("mobile"), b.get("otp"))
+    ip = request.client.host if request.client else ""
+    if b.get("as") == "pandit":
+        p = (await db.execute(select(Pandit).where(Pandit.mobile == mobile))).scalar_one_or_none()
+        if not p:
+            raise http_error(404, "No pandit account for this number. Register first.")
+        u = await db.get(User, p.user_id)
+        if not u:
+            raise http_error(404, "No pandit account for this number. Register first.")
+        refuse_inactive(u)
+        meta = await login_ok(db, u, "mobile-otp", ip)
+        return {"token": sign_token(u.id, "pandit", p.id), "role": "pandit",
+                "mustChangePassword": meta["mustChangePassword"]}
+    u = (await db.execute(
+        select(User).where(User.mobile == mobile, User.role == "customer"))).scalar_one_or_none()
+    if not u:
+        if (await db.execute(select(User).where(User.mobile == mobile).limit(1))).scalar_one_or_none():
+            raise bad("This number belongs to a partner account")
+        uid = _new_uid()
+        u = User(id=uid, role="customer",
+                 name=v_str(b.get("name"), "Name", optional=True, max_len=80) or "Devotee",
+                 mobile=mobile, pts=50,
+                 pref='{"deity":"","lang":"English","wa":true,"sms":true,"em":true}',
+                 joined=time.strftime("%Y-%m-%d"), created_at=int(time.time() * 1000))
+        db.add(u)
+        await db.flush()
+    refuse_inactive(u)
+    meta = await login_ok(db, u, "mobile-otp", ip)
+    return {"token": sign_token(u.id, u.role), "role": "customer",
+            "mustChangePassword": meta["mustChangePassword"]}
 
 
 @router.post("/demo")

@@ -74,6 +74,49 @@ class Puja(Base):
     hidden: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class Kit(Base):
+    __tablename__ = "kits"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    price: Mapped[int | None] = mapped_column(Integer)
+    icon: Mapped[str | None] = mapped_column(String(20))
+    items: Mapped[str] = mapped_column(Text, default="[]")
+    stock: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[int] = mapped_column(Integer, default=1)   # db.js column-add loop parity
+
+
+class Prasad(Base):
+    __tablename__ = "prasad"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    price: Mapped[int | None] = mapped_column(Integer)
+    icon: Mapped[str | None] = mapped_column(String(20))
+    descr: Mapped[str | None] = mapped_column(Text)
+    stock: Mapped[int | None] = mapped_column(Integer)        # NULL = unlimited
+    active: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class Temple(Base):
+    __tablename__ = "temples"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    city: Mapped[str | None] = mapped_column(String(80))
+    deity: Mapped[str | None] = mapped_column(String(80))
+    icon: Mapped[str | None] = mapped_column(String(20))
+    pujas: Mapped[str] = mapped_column(Text, default="[]")
+    offering: Mapped[int | None] = mapped_column(Integer)
+    descr: Mapped[str | None] = mapped_column(Text)
+
+
+class Festival(Base):
+    __tablename__ = "festivals"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    date: Mapped[str | None] = mapped_column(String(10))
+    pujas: Mapped[str] = mapped_column(Text, default="[]")
+    note: Mapped[str | None] = mapped_column(Text)
+
+
 class PujaMedia(Base):
     __tablename__ = "puja_media"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
@@ -176,4 +219,106 @@ class PasswordReset(Base):
     expires: Mapped[int] = mapped_column(MS)
     used: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[int] = mapped_column(MS)
+
+
+class Notif(Base):
+    __tablename__ = "notifs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(40))
+    channel: Mapped[str | None] = mapped_column(String(20))
+    message: Mapped[str | None] = mapped_column(Text)
+    ts: Mapped[int | None] = mapped_column(MS)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(40))
+    items: Mapped[str | None] = mapped_column(Text)
+    total: Mapped[int | None] = mapped_column(Integer)
+    date: Mapped[str | None] = mapped_column(String(10))
+    status: Mapped[str | None] = mapped_column(String(30))
+    city: Mapped[str | None] = mapped_column(String(80))
+    address: Mapped[str | None] = mapped_column(Text)
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(40))
+    booking_id: Mapped[str | None] = mapped_column(String(40))
+    text: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(String(20))
+    prio: Mapped[str | None] = mapped_column(String(10))
+
+
+class Campaign(Base):
+    __tablename__ = "campaigns"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    channel: Mapped[str | None] = mapped_column(String(20))
+    audience: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str | None] = mapped_column(String(20))
+    sent: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    type: Mapped[str | None] = mapped_column(String(20))
+    name: Mapped[str | None] = mapped_column(String(120))
+    details: Mapped[str | None] = mapped_column(Text)
+    date: Mapped[str | None] = mapped_column(String(10))
+
+
+class Payout(Base):
+    __tablename__ = "payouts"
+    id: Mapped[str] = mapped_column(String(60), primary_key=True)
+    pandit_id: Mapped[str | None] = mapped_column(String(40))
+    amount: Mapped[int | None] = mapped_column(Integer)
+    date: Mapped[str | None] = mapped_column(String(10))
+    status: Mapped[str | None] = mapped_column(String(20))
+    booking_id: Mapped[str | None] = mapped_column(String(40))
+
+
+class Coupon(Base):
+    __tablename__ = "coupons"
+    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    type: Mapped[str | None] = mapped_column(String(10))          # pct | flat
+    val: Mapped[int | None] = mapped_column(Integer)
+    max: Mapped[int | None] = mapped_column(Integer)
+    min: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    used: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Banner(Base):
+    __tablename__ = "banners"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    text: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+
+
+class Otp(Base):
+    __tablename__ = "otps"
+    mobile: Mapped[str] = mapped_column(String(15), primary_key=True)
+    code_hash: Mapped[str | None] = mapped_column(String(64))
+    expires: Mapped[int | None] = mapped_column(MS)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class IdempotencyKey(Base):
+    """Webhook replay protection (migration 008 parity): the same Razorpay event
+    id is acknowledged exactly once — replays never double-mark a payment."""
+    __tablename__ = "idempotency_keys"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(40))
+    result: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(MS)

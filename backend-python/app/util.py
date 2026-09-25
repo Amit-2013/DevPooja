@@ -1,13 +1,14 @@
-"""Shared helpers: validation, error types, media artifact naming.
+"""Shared helpers: validation, error types, JSON-text parsing, media artifact
+naming, magic-byte sniffing.
 
 The magic-byte sniffer is the Python twin of server/lib/upload.js: the
 client-controlled Content-Type is only the first filter — the file's actual
 leading bytes must match. Fake .jpg files containing HTML/script die here,
 exactly as they do in the Node backend."""
 import hashlib
+import json
 import re
 import secrets
-from pathlib import Path
 
 from fastapi import HTTPException
 from PIL import Image
@@ -35,7 +36,24 @@ def not_found(message: str = "Not found") -> HTTPException:
     return http_error(404, message)
 
 
-# --- validators (port of server/lib/util.js `v`) ----------------------------
+def conflict(message: str) -> HTTPException:
+    return http_error(409, message)
+
+
+# --- JSON-text helper (port of lib/util.js j()) ------------------------------
+def j(text, default=None):
+    """Parse a JSON TEXT column; on any failure return the default."""
+    if text is None:
+        return default
+    if isinstance(text, (dict, list)):
+        return text
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return default
+
+
+# --- validators (port of server/lib/util.js `v`) -----------------------------
 def v_str(x, name: str, *, min_len: int = 1, max_len: int = 500, optional: bool = False) -> str:
     if x is None or x == "":
         if optional:
@@ -85,6 +103,14 @@ def v_one_of(x, allowed, name: str):
     return x
 
 
+def v_arr(x, name: str, max_items: int = 20) -> list:
+    if x is None:
+        return []
+    if not isinstance(x, list) or len(x) > max_items:
+        raise bad(f"{name} is invalid")
+    return x
+
+
 # --- media helpers -----------------------------------------------------------
 def sniff_image(head: bytes) -> str | None:
     """Real content type from leading bytes: JPEG (FF D8 FF), PNG (89 50 4E 47),
@@ -118,8 +144,7 @@ def base_name(filename: str) -> str:
 
 
 def variant_names(filename: str, thumb: str | None) -> dict:
-    """Server-generated artifact names for one upload (Node mediaVariants convention):
-    original (unchanged), full WebP, and — when a JPEG thumb exists — its WebP twin."""
+    """Server-generated artifact names for one upload (Node mediaVariants convention)."""
     base = base_name(filename)
     names = {"webp": base + WEBP_SUFFIX}
     if thumb:
