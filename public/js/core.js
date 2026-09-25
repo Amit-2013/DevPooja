@@ -19,9 +19,14 @@ async function api(path,o){o=o||{};
  if(r.status===401&&token&&!o.quiet){setToken(null);session=null}
  if(!r.ok)throw Object.assign(new Error(j.error||'Something went wrong'),{status:r.status});return j}
 function applyState(s){db=s;session=s.session;
- /* Kundali commercial layer: pricing (public) + family + my kundalis (logged in). */
- api('/kundali/pricing').then(p=>{db.kundaliPricing=Object.assign({prices:p.prices,gstPct:p.gstPct,quota:p.quota},{});if(s.me&&db.kundaliPricing&&db.kundaliPricing.quota===null)db.kundaliPricing.quota=p.quota;render(true)}).catch(()=>{});
- if(s.me){api('/kundali/mine').then(m=>{db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}).catch(()=>{});}
+ /* Kundali commercial layer: pricing (public) + family + my kundalis (logged in).
+    These fetches resolve AFTER sync() returns; re-rendering unconditionally here
+    used to clobber whatever the caller rendered next (e.g. the booking
+    confirmation replaced by a fresh wizard). Only re-render when the current
+    page actually consumes this data. */
+ const consumes=()=>location.hash.startsWith('#/kundali')||location.hash.startsWith('#/account');
+ api('/kundali/pricing').then(p=>{db.kundaliPricing=Object.assign({prices:p.prices,gstPct:p.gstPct,quota:p.quota},{});if(s.me&&db.kundaliPricing&&db.kundaliPricing.quota===null)db.kundaliPricing.quota=p.quota;if(consumes())render(true)}).catch(()=>{});
+ if(s.me){api('/kundali/mine').then(m=>{db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;if(consumes())render(true)}).catch(()=>{});}
  [['pujas',PUJAS],['kits',KITS],['prasad',PRASAD],['temples',TEMPLES],['festivals',FEST]].forEach(([k,arr])=>{arr.length=0;arr.push(...s.catalog[k])})}
 async function sync(){applyState(await api('/state'))}
 /* run a mutation, refresh state, re-render. Returns the API result, or null after showing the error. */
