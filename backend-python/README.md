@@ -65,6 +65,37 @@ demo accounts. Admin: `admin@daivikpuja.in` / `admin123`.
 
 No code changes — the same models run on both engines.
 
+## One-time data migration: SQLite → Postgres
+
+`tools/migrate_sqlite_to_postgres.py` copies the entire Node/SQLite database
+into Postgres **with every id preserved** (users, bookings, payments,
+kundalis, puja_media photo metadata, audit trails — all 48 tables), so the
+FastAPI backend can take over production data without breaking references.
+
+```bash
+# 1. Plan only — prints the translated DDL + per-table row counts, writes nothing
+cd backend-python
+.venv/Scripts/python tools/migrate_sqlite_to_postgres.py --dry-run
+
+# 2. Cutover — target is the Supabase pooler URI (Project Settings → Database)
+.venv/Scripts/python tools/migrate_sqlite_to_postgres.py \
+    --source ../data/daivikpooja.db \
+    --target postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:6543/postgres
+```
+
+What it does: WAL-checkpoints the source, introspects schema + FK graph,
+translates DDL (rowid-alias `INTEGER PRIMARY KEY` → `BIGINT IDENTITY`, literal
+defaults kept, sqlite-only expressions dropped, the partial unique
+`idx_pandit_slot` recreated verbatim), copies rows in chunks with deterministic
+type coercion (empty strings in numeric columns → NULL), recreates indexes,
+resyncs identity sequences with `setval(MAX(id))`, and **verifies every table**
+(row count + max id must match the source; non-zero exit otherwise).
+
+Options: `--tables users,bookings` (subset), `--truncate` (empty target first;
+otherwise non-empty targets refuse), `--dry-run`. The source file is only ever
+opened read-only. The pytest suite runs the full pipeline against the real
+production file as a dress rehearsal (`test_dress_rehearsal_real_database`).
+
 ## Razorpay webhook
 
 Set the same secret in the Razorpay dashboard and the environment:
