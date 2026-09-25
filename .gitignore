@@ -9,3 +9,10 @@ uploads/*
 backups/
 .freebuff/
 /daivikpuja-*.zip
+
+# Python backend
+backend-python/.venv/
+backend-python/data/
+backend-python/uploads/
+backend-python/**/__pycache__/
+backend-python/.pytest_cache/
