@@ -122,3 +122,15 @@ details{border-bottom:1px solid var(--line);padding:14px 0}summary{cursor:pointe
 .dosh summary,.reco summary{cursor:pointer;color:var(--pri)}
 .reco{border-top:3px solid var(--gold)}
 .kcta{background:linear-gradient(135deg,rgba(242,169,0,.10),rgba(12,75,73,.06));border:1px solid var(--gold)}
+
+/* ---------- gallery lightbox ---------- */
+#lightbox{position:fixed;inset:0;z-index:1000;background:rgba(8,12,11,.94);display:flex;align-items:center;justify-content:center;padding:48px 16px 96px}
+#lightbox .glfig{margin:0;max-width:min(1100px,92vw);max-height:calc(100vh - 160px);display:flex;align-items:center;justify-content:center}
+#lightbox .glfig img{max-width:100%;max-height:calc(100vh - 160px);object-fit:contain;border-radius:10px;box-shadow:0 12px 48px rgba(0,0,0,.5);background:#111}
+#lightbox .glx{position:fixed;top:14px;right:18px;background:none;border:0;color:#fff;font-size:2.2rem;line-height:1;cursor:pointer;padding:8px}
+#lightbox .gln{position:fixed;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.08);border:0;color:#fff;font-size:2.6rem;width:52px;height:64px;cursor:pointer;border-radius:10px}
+#lightbox .gln.prev{left:12px}#lightbox .gln.next{right:12px}
+#lightbox .gln:hover,#lightbox .glx:hover{background:rgba(255,255,255,.2)}
+#lightbox .glbar{position:fixed;left:0;right:0;bottom:0;padding:12px 16px 18px;color:#e8efe9;background:linear-gradient(transparent,rgba(0,0,0,.75));text-align:center}
+#lightbox .glbar a{color:#ffd27a}
+@media(max-width:640px){#lightbox .gln{top:auto;bottom:86px;transform:none;width:44px;height:52px}#lightbox{padding:44px 8px 130px}#lightbox .glfig img{max-height:calc(100vh - 210px)}}

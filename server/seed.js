@@ -302,7 +302,12 @@ function backfillHindi() {
 function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo();
   /* Bundled puja photos (freely licensed, see shared/seed-photos/CREDITS.md): copied
      into puja_media once per puja. Pujas that already have media are never touched. */
-  try { const { seedPujaPhotos } = require('./services/photoSeed'); const r = seedPujaPhotos(); if (r.seeded && !process.env.QUIET) console.log('[photoSeed] ' + r.seeded + ' seeded, ' + r.skipped + ' already had photos'); } catch (e) { console.error('[photoSeed]', e.message); } }
+  try {
+    const { seedPujaPhotos } = require('./services/photoSeed');
+    Promise.resolve(seedPujaPhotos()).then((r) => { if ((r.seeded || r.variants) && !process.env.QUIET) console.log('[photoSeed] ' + r.seeded + ' seeded, ' + r.skipped + ' already had photos, ' + (r.variants || 0) + ' variants'); }).catch(() => {});
+  } catch (e) { console.error('[photoSeed]', e.message); }
+  /* WebP variant repair for any rows missing them (no-op when everything exists). */
+  try { require('./services/mediaVariants').repairAll().then((r) => { if (r.processed && !process.env.QUIET) console.log('[mediaVariants] repaired ' + r.generated + '/' + r.processed); }).catch(() => {}); } catch (e) { /* optional */ } }
 
 /* getSetting without crashing when the settings table does not exist yet. */
 function getSetting2(k, d) { try { const r = db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r ? JSON.parse(r.value) : d; } catch (e) { return d; } }

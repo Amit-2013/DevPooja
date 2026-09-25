@@ -27,7 +27,11 @@ const out = (r) => ({
   source: r.source || (r.pandit_id ? 'pandit' : (String(r.filename || '').startsWith('seed-') ? 'seeded' : 'admin')),
   license: r.license || '', credit: r.credit || '', creator: r.creator || '', creditUrl: r.credit_url || '',
   altText: r.alt_text || '', category: r.category || 'puja',
-  thumb: r.thumb ? '/media/' + encodeURIComponent(r.thumb) : ''
+  thumb: r.thumb ? '/media/' + encodeURIComponent(r.thumb) : '',
+  /* WebP variants (migration 011); empty when not generated yet */
+  webp: r.webp ? '/media/' + encodeURIComponent(r.webp) : '',
+  thumbWebp: r.thumb_webp ? '/media/' + encodeURIComponent(r.thumb_webp) : '',
+  rejectReason: r.reject_reason || ''
 });
 
 /* Public catalogue photos: approved AND published only, primary first.
@@ -148,8 +152,9 @@ function adminUpload({ uid, pujaId, files, makePrimary, altText, category, publi
   return inserted.map(out);
 }
 
-/* Moderation. Admin-only: approve/reject/publish/unpublish/primary/delete. */
-function moderate({ uid, id, status, published, primary }) {
+/* Moderation. Admin-only: approve/reject/publish/unpublish/primary/delete.
+   reject_reason (migration 011) is stored when rejecting so pandits see why. */
+function moderate({ uid, id, status, published, primary, rejectReason }) {
   const r = row(id);
   if (!r) throw notFound('Photo not found');
   const sets = [], args = [];
@@ -157,11 +162,15 @@ function moderate({ uid, id, status, published, primary }) {
     const s = String(status);
     if (!['PENDING_ADMIN_REVIEW', 'APPROVED', 'REJECTED'].includes(s)) throw bad('Unknown status');
     sets.push('status=?'); args.push(s);
-    if (s === 'REJECTED') { sets.push('is_published=0'); } // rejected photos are never public
-    if (s !== 'APPROVED' && published === undefined) { sets.push('is_published=0'); }
+    if (s === 'REJECTED') {
+      sets.push('is_published=0'); // rejected photos are never public
+      sets.push('reject_reason=?'); args.push(String(rejectReason || 'Does not meet the photo guidelines').slice(0, 200));
+    }
+    if (s === 'APPROVED') { sets.push('reject_reason=\'\''); }
   }
   if (published !== undefined) {
     if (published && r.status !== 'APPROVED' && (status || r.status) !== 'APPROVED') throw bad('Only approved photos can be published');
+    if (published && r.reject_reason) { sets.push("reject_reason=''"); }
     sets.push('is_published=?'); args.push(published ? 1 : 0);
   }
   if (primary) {

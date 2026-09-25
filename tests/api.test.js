@@ -752,6 +752,43 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   assert.equal((await call('GET', '/admin/media?source=pandit', { token: admin })).json.media.some((m) => m.id === pm.id), false, 'bulk delete removes the row');
   const badOp = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [], op: 'explode' } });
   assert.equal(badOp.status, 400);
+
+  /* ---- migration 011: WebP variants + rejection reason ---- */
+  /* boot variant repair has generated WebP for seeded photos (sharp available in CI) */
+  const seeded = (await call('GET', '/admin/media?source=seeded', { token: admin })).json.media;
+  const withWebp = seeded.filter((m) => m.webp && m.thumbWebp);
+  assert.ok(withWebp.length >= 15, 'WebP variants generated for seeded photos: ' + withWebp.length);
+  const wv = withWebp[0];
+  const wf = await fetch(base + wv.webp);
+  assert.equal(wf.status, 200);
+  assert.equal(wf.headers.get('content-type'), 'image/webp');
+  const tw = await fetch(base + wv.thumbWebp);
+  assert.equal(tw.headers.get('content-type'), 'image/webp');
+  const webpBytes = (await wf.arrayBuffer()).byteLength;
+  assert.ok(webpBytes > 1000 && webpBytes < 5 * 1024 * 1024);
+  /* thumbnail WebP should not be larger than the full WebP */
+  assert.ok((await tw.arrayBuffer()).byteLength <= webpBytes, 'thumb webp <= full webp');
+  /* idempotence: the columns store paths (no regeneration churn); restarts reuse them */
+  const again = (await call('GET', '/admin/media?source=seeded', { token: admin })).json.media.find((m) => m.id === wv.id);
+  assert.equal(again.webp, wv.webp, 'variant path is stable across boot repairs');
+
+  /* rejection reason: written on reject, cleared on approve, visible to the pandit */
+  const fdR = new FormData(); fdR.append('media', new Blob([png], { type: 'image/png' }), 'r.png'); fdR.append('bookingId', mine[0].id); fdR.append('altText', 'Second seva photo for moderation');
+  const upR = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fdR });
+  const pm2 = (await upR.json()).media[0];
+  const rej = await call('PATCH', '/admin/media/' + pm2.id, { token: admin, body: { status: 'REJECTED', rejectReason: 'Blurry photo, retake in daylight' } });
+  assert.equal(rej.status, 200);
+  assert.equal(rej.json.media.rejectReason, 'Blurry photo, retake in daylight');
+  const mineList = (await call('GET', '/pandit/media', { token: pandit })).json.media;
+  assert.equal(mineList.find((m) => m.id === pm2.id).rejectReason, 'Blurry photo, retake in daylight', 'pandit sees the rejection reason');
+  const ap2 = await call('PATCH', '/admin/media/' + pm2.id, { token: admin, body: { status: 'APPROVED' } });
+  assert.equal(ap2.json.media.rejectReason, '', 'reason cleared on approval');
+  await call('PATCH', '/admin/media/' + pm2.id, { token: admin, body: { published: 1 } }); // separate publish step
+
+  /* public payload never includes moderation internals (reason is admin/pandit only) */
+  const pub = (await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos.find((p) => p.id === pm2.id);
+  assert.ok(pub, 'approved photo is public');
+  assert.equal(pub.rejectReason, '', 'no rejection reason on public payload');
 });
 
 test('excel upgrade: new report ids exist, filters are honoured, professional headers present', async () => {

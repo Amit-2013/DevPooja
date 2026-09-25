@@ -711,11 +711,13 @@ router.get('/media', (req, res) => {
 });
 router.post('/pujas/:id/media', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
   res.status(201).json({ media: MEDIA.adminUpload({ uid: req.auth.uid, pujaId: req.params.id, files: req.files, makePrimary: !!req.body.primary, altText: req.body.altText, category: req.body.category, published: req.body.published === undefined ? true : !!req.body.published }) });
+  /* WebP variants for the new files (async; boot repair is the safety net). */
+  require('../services/mediaVariants').repairAll(20).catch(() => {});
 });
 router.get('/pujas/:id/media', (req, res) => res.json({ media: MEDIA.allForPuja(req.params.id) }));
 router.patch('/media/:id', (req, res) => {
   const b = req.body || {};
-  res.json({ media: MEDIA.moderate({ uid: req.auth.uid, id: req.params.id, status: b.status, published: b.published, primary: !!b.primary }) });
+  res.json({ media: MEDIA.moderate({ uid: req.auth.uid, id: req.params.id, status: b.status, published: b.published, primary: !!b.primary, rejectReason: b.rejectReason }) });
 });
 router.post('/media/reorder', (req, res) => res.json({ media: MEDIA.reorder(req.auth.uid, req.body.ids) }));
 /* Bulk moderation: { ids: [...], op: approve|reject|publish|unpublish|delete } */

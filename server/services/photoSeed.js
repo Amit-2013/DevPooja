@@ -17,6 +17,7 @@ const SRC = path.join(__dirname, '..', '..', 'shared', 'seed-photos');
 const THUMBS = path.join(SRC, 'thumbs');
 const MEDIA_DIR = require('../lib/upload').dirs.media;
 const THUMB_SUFFIX = '.t320.jpg';
+const VARIANTS = require('./mediaVariants');
 
 function loadCredits() {
   try { return JSON.parse(fs.readFileSync(path.join(SRC, 'credits.json'), 'utf8')).photos || {}; }
@@ -39,6 +40,7 @@ function seedPujaPhotos() {
   const credits = loadCredits();
   const files = fs.readdirSync(SRC).filter((f) => /\.(jpe?g|png)$/i.test(f));
   let seeded = 0, skipped = 0;
+  const jobs = [];
   for (const f of files) {
     const pujaId = f.replace(/\.(jpe?g|png)$/i, '');
     if (!db.prepare('SELECT 1 FROM pujas WHERE id=?').get(pujaId)) continue;       // unknown puja id
@@ -57,9 +59,14 @@ function seedPujaPhotos() {
       .run(id, pujaId, 'admin1', meta.title || f, filename, mime, buf.length, Date.now(),
         meta.license || 'See shared/seed-photos/CREDITS.md', meta.attribution || '', meta.creator || 'Unknown',
         meta.creditUrl || '', alt, meta.category || 'puja', thumb);
+    jobs.push(db.prepare('SELECT * FROM puja_media WHERE id=?').get(id));
     seeded++;
   }
-  return { seeded, skipped };
+  /* WebP variants for the freshly seeded rows (idempotent; sharp optional). */
+  let variants = 0;
+  return Promise.all(jobs.map((j) => VARIANTS.ensureVariants(j).then(() => { variants++; })))
+    .then(() => ({ seeded, skipped, variants }))
+    .catch(() => ({ seeded, skipped, variants }));
 }
 
 module.exports = { seedPujaPhotos };

@@ -123,6 +123,14 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   await click('[data-act=amcredits]', 600);
   console.log('credits view:', /attribution/i.test(d.getElementById('modal').textContent) && /Commons page/.test(d.getElementById('modal').textContent));
   if (d.querySelector('[data-act=close]')) await click('[data-act=close]', 300);
+  // customer gallery + lightbox: open, counter, Esc to close
+  await go('#/'); await go('#/puja/ganesh'); await sleep(900);
+  console.log('gallery renders:', !!d.getElementById('galgrid'));
+  if (d.querySelector('[data-act=galopen]')) {
+    await click('[data-act=galopen]', 500);
+    console.log('lightbox opens with counter:', !!d.querySelector('#lightbox .glfig img') && /1 \/ 1/.test(d.getElementById('lightbox').textContent));
+    await click('[data-act=glclose]', 300);
+  }
   // demo data tab: mock booking generation, then a full reset that keeps the admin session
   await go('#/admin/demo'); await click('[data-act=amock]', 800);
   console.log('mock bookings generated:', /Mock bookings created/.test(d.getElementById('toast').textContent));
