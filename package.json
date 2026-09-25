@@ -24,7 +24,8 @@
     "test:ui": "node tests/ui-smoke.js",
     "build:pages": "node tools/build-pages.js",
     "build:netlify": "node tools/build-netlify.js",
-    "preview:pages": "node tools/serve-pages.js"
+    "preview:pages": "node tools/serve-pages.js",
+    "backup": "node tools/backup.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

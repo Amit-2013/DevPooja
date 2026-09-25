@@ -444,6 +444,68 @@ const REPORTS = {
     const pct = comm ? JSON.parse(comm.value) : 20;
     const rows = db.prepare("SELECT substr(b.date,1,7) ym, SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)) amt FROM bookings b WHERE json_extract(b.pay,'$.paid')=1 AND b.status != 'Cancelled' GROUP BY ym ORDER BY ym DESC").all();
     return { columns: ['Month', 'Platform commission (Rs)'], rows: rows.map((r) => [r.ym, Math.round((r.amt || 0) * pct / 100)]) };
+  },
+  /* --- account management, media and audit reports (migration 009) --- */
+  'customer-accounts': () => select(`SELECT u.id, u.name, COALESCE(u.mobile,'') mobile, COALESCE(u.email,'') email,
+    CASE WHEN u.email IS NOT NULL AND u.email != '' THEN u.email ELSE COALESCE(u.mobile,'') END loginId,
+    CASE WHEN u.email IS NOT NULL AND u.email != '' THEN 'email' ELSE 'mobile' END loginMethod,
+    COALESCE(u.status,'active') status, COALESCE(u.joined,'') joined,
+    CASE WHEN u.last_login_at THEN datetime(u.last_login_at/1000,'unixepoch') ELSE '' END lastLogin,
+    COALESCE(u.last_login_method,'') lastMethod,
+    (SELECT COUNT(*) FROM bookings b WHERE b.user_id=u.id) bookings,
+    (SELECT COUNT(*) FROM kundalis k WHERE k.customer_id=u.id) kundalis,
+    (SELECT COUNT(*) FROM family_members f WHERE f.customer_id=u.id) family
+    FROM users u WHERE u.role='customer' ORDER BY u.created_at DESC`, [],
+    ['ID', 'Name', 'Mobile', 'Email', 'Login ID', 'Login method', 'Status', 'Joined', 'Last login', 'Last method', 'Bookings', 'Kundalis', 'Family members']),
+  'pandit-accounts': () => select(`SELECT p.id, p.name, COALESCE(NULLIF(p.mobile,''), COALESCE(u.mobile,'')) mobile, COALESCE(u.email,'') email,
+    CASE WHEN p.status='verified' THEN 'Yes' ELSE 'No' END kycVerified, COALESCE(u.status,'active') status, COALESCE(u.joined,'') joined,
+    CASE WHEN u.last_login_at THEN datetime(u.last_login_at/1000,'unixepoch') ELSE '' END lastLogin,
+    (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id) assigned,
+    (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id AND b.status='Completed') completed
+    FROM pandits p LEFT JOIN users u ON u.id=p.user_id ORDER BY p.id`, [],
+    ['Pandit ID', 'Name', 'Mobile (login ID)', 'Email', 'KYC verified', 'Account status', 'Joined', 'Last login', 'Assigned bookings', 'Completed']),
+  'refunds': (f) => {
+    const { where, args } = bookingFilter(f);
+    return select("SELECT b.id, u.name AS customer, b.puja_id, b.date, json_extract(b.refund,'$.amt') AS amt, json_extract(b.refund,'$.state') AS state, json_extract(b.refund,'$.reason') AS reason FROM bookings b LEFT JOIN users u ON u.id=b.user_id" + where + (where ? ' AND ' : ' WHERE ') + 'b.refund IS NOT NULL ORDER BY b.created DESC', args,
+      ['Booking', 'Customer', 'Puja', 'Date', 'Amount (Rs)', 'State', 'Reason']);
+  },
+  'pandit-performance': () => select(`SELECT p.name, p.city, p.rating,
+    (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id) assigned,
+    (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id AND b.status='Completed') completed,
+    (SELECT COALESCE(SUM(CAST(json_extract(b.q,'$.svc') AS INTEGER)),0) FROM bookings b WHERE b.pandit_id=p.id AND b.status='Completed') serviceValue
+    FROM pandits p ORDER BY p.name`, [],
+    ['Pandit', 'City', 'Rating', 'Assigned', 'Completed', 'Service value (Rs)']),
+  'customer-activity': () => select(`SELECT u.id, u.name, COALESCE(u.mobile,'') mobile,
+    (SELECT COUNT(*) FROM bookings b WHERE b.user_id=u.id) bookings,
+    (SELECT COALESCE(SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)),0) FROM bookings b WHERE b.user_id=u.id) spent,
+    (SELECT COALESCE(MAX(b.date),'') FROM bookings b WHERE b.user_id=u.id) lastBooking,
+    (SELECT COUNT(*) FROM kundalis k WHERE k.customer_id=u.id) kundalis
+    FROM users u WHERE u.role='customer' ORDER BY 5 DESC`, [],
+    ['Customer ID', 'Name', 'Mobile', 'Bookings', 'Total spent (Rs)', 'Last booking', 'Kundalis']),
+  'login-activity': (f) => {
+    const w = [], a = [];
+    if (f.status === 'failed') w.push('l.ok=0');
+    if (f.status === 'success') w.push('l.ok=1');
+    if (f.from) { w.push("datetime(l.ts/1000,'unixepoch')>=?"); a.push(String(f.from) + ' 00:00:00'); }
+    if (f.to) { w.push("datetime(l.ts/1000,'unixepoch')<=?"); a.push(String(f.to) + ' 23:59:59'); }
+    return select("SELECT u.name, u.role, l.method, CASE WHEN l.ok=1 THEN 'Success' ELSE 'Failed' END outcome, l.reason, l.ip, datetime(l.ts/1000,'unixepoch') ts FROM login_activity l LEFT JOIN users u ON u.id=l.user_id" + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY l.ts DESC LIMIT 2000', a,
+      ['User', 'Role', 'Method', 'Outcome', 'Reason', 'IP', 'When']);
+  },
+  'audit-logs': (f) => {
+    const w = [], a = [];
+    if (f.action) { w.push('a.action=?'); a.push(String(f.action)); }
+    if (f.from) { w.push("datetime(a.created_at/1000,'unixepoch')>=?"); a.push(String(f.from) + ' 00:00:00'); }
+    if (f.to) { w.push("datetime(a.created_at/1000,'unixepoch')<=?"); a.push(String(f.to) + ' 23:59:59'); }
+    return select("SELECT datetime(a.created_at/1000,'unixepoch') ts, COALESCE(u.name, a.actor_user_id) actor, a.actor_role, a.action, a.entity, a.entity_id, a.detail FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id" + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY a.id DESC LIMIT 2000', a,
+      ['When', 'Actor', 'Role', 'Action', 'Entity', 'Entity ID', 'Detail']);
+  },
+  media: (f) => {
+    const w = [], a = [];
+    let sql = 'SELECT m.id, p.name AS puja, m.booking_id, pd.name AS pandit, m.orig_name, m.mime, m.size, m.status, CASE WHEN m.is_primary=1 THEN 1 ELSE 0 END AS is_primary, CASE WHEN m.is_published=1 THEN 1 ELSE 0 END AS is_published, datetime(m.created_at/1000,\'unixepoch\') AS uploaded FROM puja_media m LEFT JOIN pujas p ON p.id=m.puja_id LEFT JOIN pandits pd ON pd.id=m.pandit_id';
+    if (f.status) { w.push('m.status=?'); a.push(String(f.status)); }
+    if (w.length) sql += ' WHERE ' + w.join(' AND ');
+    sql += ' ORDER BY m.created_at DESC';
+    return select(sql, a, ['Media ID', 'Puja', 'Booking', 'Pandit', 'Original name', 'MIME', 'Size (bytes)', 'Status', 'Primary', 'Published', 'Uploaded']);
   }
 };
 
@@ -466,22 +528,85 @@ function kundaliFilter(f) {
   return { where: w.length ? ' WHERE ' + w.join(' AND ') : '', args: a };
 }
 
-/* GET /admin/export/:report.xlsx?status=&from=&to=&mode=&billing= */
-router.get('/export/:report.xlsx', async (req, res) => {
+/* Friendly titles for the export header row. */
+const REPORT_TITLES = {
+  customers: 'Customer', 'customer-accounts': 'Customer Login / Account', 'pandit-accounts': 'Pandit Login / Account',
+  pandits: 'Pandit', temples: 'Temple', pujas: 'Puja', bookings: 'Puja Booking', 'custom-requests': 'Customized Puja Request',
+  kundalis: 'Kundali', 'kundali-payments': 'Kundali Payment', 'family-members': 'Family Member', samagri: 'Samagri Kit',
+  prasad: 'Prasad', orders: 'Order', payments: 'Payment', refunds: 'Refund', coupons: 'Coupon', campaigns: 'Campaign',
+  payouts: 'Pandit Payout', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
+  'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
+  'audit-logs': 'Audit Log', media: 'Puja Media'
+};
+
+/* GET /admin/export/:report.xlsx — professional format: report title, generated-on
+   (IST), applied filters, frozen + filterable header row, auto column widths,
+   Indian-currency number formats, a totals row where useful — and an export_logs
+   audit entry (admin, report, filters, row count). Sensitive fields stay excluded
+   by design: the REPORTS queries never select password hashes, tokens or OTPs. */
+/* wrap() catches async failures: a thrown error here would otherwise hang the
+   request, because Express 4 does not catch rejected async handlers. */
+const { wrap } = require('../lib/util');
+router.get('/export/:report.xlsx', wrap(async (req, res) => {
   const rep = REPORTS[req.params.report];
   if (!rep) throw notFound('Unknown report');
   const data = rep(req.query);
   const wb = new (require('exceljs').Workbook)();
-  const ws = wb.addWorksheet(req.params.report.slice(0, 30));
-  ws.columns = data.columns.map((h) => ({ header: h, key: h }));
-  ws.getRow(1).font = { bold: true };
-  for (const row of data.rows) ws.addRow(row);
+  const ws = wb.addWorksheet(String(req.params.report).slice(0, 28), { views: [{ state: 'frozen', ySplit: 4 }] });
+  const ncols = Math.max(data.columns.length, 1);
+  const filters = Object.entries(req.query).filter(([, v]) => v).map(([k, v]) => k + ': ' + v).join('; ') || 'None';
+
+  ws.mergeCells(1, 1, 1, ncols);
+  const t1 = ws.getCell(1, 1);
+  t1.value = 'DaivikPooja \u2014 ' + (REPORT_TITLES[req.params.report] || req.params.report) + ' Report';
+  t1.font = { bold: true, size: 14, color: { argb: 'FF0C4B49' } };
+  ws.mergeCells(2, 1, 2, ncols);
+  const t2 = ws.getCell(2, 1);
+  t2.value = 'Generated on: ' + new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true }) + ' IST    |    Rows: ' + data.rows.length;
+  t2.font = { size: 10, color: { argb: 'FF6B7280' } };
+  ws.mergeCells(3, 1, 3, ncols);
+  const t3 = ws.getCell(3, 1);
+  t3.value = 'Filters: ' + filters;
+  t3.font = { size: 10, italic: true, color: { argb: 'FF6B7280' } };
+
+  const hr = ws.getRow(4);
+  hr.values = data.columns;
+  hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0C4B49' } };
+  hr.alignment = { vertical: 'middle', wrapText: true };
+  hr.height = 20;
+
+  const money = /rs|amount|price|total|gst|spent|value|revenue|commission|earning|payout|refund|budget|quote|offering/i;
+  const isNum = data.columns.map((h) => money.test(h));
+  for (const r of data.rows) {
+    const row = ws.addRow(r);
+    r.forEach((cell, i) => { if (isNum[i] && typeof cell === 'number') row.getCell(i + 1).numFmt = '#,##0'; });
+  }
+
+  if (data.rows.length > 2) {
+    const totals = data.columns.map((h, i) => {
+      if (!isNum[i]) return i === 0 ? 'Total' : '';
+      return data.rows.reduce((a, r) => a + (typeof r[i] === 'number' ? r[i] : 0), 0) || '';
+    });
+    const tr = ws.addRow(totals);
+    tr.font = { bold: true };
+    tr.eachCell((c, cn) => { if (isNum[cn - 1] && typeof c.value === 'number') c.numFmt = '#,##0'; });
+  }
+
+  data.columns.forEach((h, i) => {
+    let w = String(h || '').length + 2;
+    for (const r of data.rows) w = Math.max(w, String(r[i] == null ? '' : r[i]).length + 2);
+    ws.getColumn(i + 1).width = Math.min(42, Math.max(10, w));
+  });
+
+  if (ncols > 1 && data.rows.length) ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: ncols } };
+
   db.prepare('INSERT INTO export_logs(admin_id,report,filters,rows,ts) VALUES(?,?,?,?,?)')
     .run(req.auth.uid, req.params.report, JSON.stringify(req.query), data.rows.length, Date.now());
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename="daivikpooja-' + req.params.report + '-' + new Date().toISOString().slice(0, 10) + '.xlsx"');
   res.send(Buffer.from(await wb.xlsx.writeBuffer()));
-});
+}));
 
 router.get('/export-logs', (req, res) => {
   const rows = db.prepare('SELECT e.*, u.name AS admin FROM export_logs e LEFT JOIN users u ON u.id=e.admin_id ORDER BY e.ts DESC LIMIT 100').all();
@@ -496,4 +621,113 @@ router.post('/orders/:id/advance', (req, res) => {
   res.json({ ok: true });
 });
 router.post('/tickets/:id/resolve', (req, res) => { const r = db.prepare("UPDATE tickets SET status='Resolved' WHERE id=?").run(req.params.id); if (!r.changes) throw notFound(); res.json({ ok: true }); });
+
+/* --- Account management: customers & pandits (login id, status, passwords) --- */
+const AUDIT = require('../lib/audit');
+const AUTH = require('./auth');
+const bcrypt = require('bcryptjs');
+const ACCOUNT_STATUSES = ['active', 'suspended', 'disabled'];
+
+/* Customer/pandit account rows with login id, method, verification and counts. */
+router.get('/accounts/:role', (req, res) => {
+  const role = v.oneOf(req.params.role, ['customer', 'pandit'], 'Role');
+  const q = String(req.query.q || '').trim().toLowerCase();
+  let rows;
+  if (role === 'customer') {
+    rows = db.prepare(`SELECT u.*, (SELECT COUNT(*) FROM bookings b WHERE b.user_id=u.id) nBookings,
+      (SELECT COUNT(*) FROM kundalis k WHERE k.customer_id=u.id) nKundalis,
+      (SELECT COUNT(*) FROM family_members f WHERE f.customer_id=u.id) nFamily
+      FROM users u WHERE u.role='customer' ORDER BY u.created_at DESC`).all();
+    rows = rows.map((u) => ({ id: u.id, name: u.name, loginId: u.email || u.mobile || u.id, loginMethod: u.email ? 'email' : 'mobile', mobile: u.mobile || '', email: u.email || '',
+      status: u.status || 'active', joined: u.joined, createdAt: u.created_at, lastLoginAt: u.last_login_at, lastLoginMethod: u.last_login_method || '',
+      verified: !!u.pass_hash || !!u.mobile, forceChange: !!u.force_change, demo: /^9811100\d{3}$/.test(u.mobile || '') || u.mobile === '9876543210',
+      bookings: u.nBookings, kundalis: u.nKundalis, family: u.nFamily }));
+  } else {
+    rows = db.prepare(`SELECT u.*, p.id pid, p.name pname, p.city, p.status kyc, p.mobile pmobile,
+      (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id) nAssigned,
+      (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id AND b.status='Completed') nDone
+      FROM pandits p JOIN users u ON u.id=p.user_id ORDER BY p.id`).all();
+    rows = rows.map((u) => ({ id: u.id, panditId: u.pid, name: u.pname, city: u.city, loginId: u.pmobile || u.mobile || u.id, loginMethod: 'mobile', mobile: u.pmobile || u.mobile || '', email: u.email || '',
+      status: u.status || 'active', kyc: u.kyc, createdAt: u.created_at, lastLoginAt: u.last_login_at, lastLoginMethod: u.last_login_method || '',
+      verified: u.kyc === 'verified', forceChange: !!u.force_change, demo: /^98100000\d{2}$/.test(u.pmobile || ''),
+      assigned: u.nAssigned, completed: u.nDone }));
+  }
+  if (q) rows = rows.filter((u) => [u.name, u.mobile, u.email, u.loginId, u.id].some((x) => String(x || '').toLowerCase().includes(q)));
+  res.json({ accounts: rows });
+});
+
+/* View one account (admin-only profile view). */
+router.get('/users/:id', (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) throw notFound('User not found');
+  res.json({ user: { id: u.id, role: u.role, name: u.name, mobile: u.mobile, email: u.email, status: u.status || 'active', joined: u.joined, lastLoginAt: u.last_login_at, lastLoginMethod: u.last_login_method || '', forceChange: !!u.force_change } });
+});
+
+/* Admin-initiated password reset: returns a one-time temp password, forces change at
+   next login, and stores only hashes. The temp password is shown exactly once. */
+router.post('/users/:id/reset-password', (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) throw notFound('User not found');
+  if (u.role === 'admin' && u.id === req.auth.uid) throw bad('Use change-password for your own account');
+  const temp = 'Dp' + require('crypto').randomBytes(6).toString('base64url').replace(/[-_]/g, 'A') + '7x';
+  db.prepare('UPDATE users SET pass_hash=?, force_change=1, failed_logins=0, locked_until=NULL WHERE id=?').run(bcrypt.hashSync(temp, 10), u.id);
+  db.prepare('INSERT INTO password_resets(user_id,token_hash,expires,used,created_by,created_at) VALUES(?,?,?,?,?,?)')
+    .run(u.id, require('crypto').createHash('sha256').update(temp).digest('hex'), Date.now() + 30 * 60 * 1000, 1, req.auth.uid, Date.now());
+  AUDIT.audit(req.auth.uid, 'account.reset_password', 'user', u.id, { targetRole: u.role });
+  res.json({ ok: true, tempPassword: temp, mustChangePassword: true });
+});
+
+/* Force a password change at next login without changing the current one. */
+router.post('/users/:id/force-change', (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) throw notFound('User not found');
+  db.prepare('UPDATE users SET force_change=1 WHERE id=?').run(u.id);
+  AUDIT.audit(req.auth.uid, 'account.force_change', 'user', u.id, { targetRole: u.role });
+  res.json({ ok: true });
+});
+
+/* Activate / suspend / disable. Self-demotion and last-admin lockout are refused. */
+router.post('/users/:id/status', (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) throw notFound('User not found');
+  const status = v.oneOf(req.body.status, ACCOUNT_STATUSES, 'Status');
+  if (u.id === req.auth.uid && status !== 'active') throw bad('You cannot disable your own account');
+  if (u.role === 'admin' && status !== 'active') {
+    const actives = db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND status='active'").get().c;
+    if (actives <= 1) throw bad('At least one active admin must remain');
+  }
+  db.prepare('UPDATE users SET status=? WHERE id=?').run(status, u.id);
+  AUDIT.audit(req.auth.uid, 'account.status', 'user', u.id, { from: u.status || 'active', to: status });
+  res.json({ ok: true, status });
+});
+
+/* Audit trail (admin actions) for the admin UI. */
+router.get('/audit', (req, res) => {
+  const limit = Math.min(500, v.int(req.query.limit || 150, 'Limit', { min: 1, max: 500 }));
+  res.json({ entries: AUDIT.recent(limit).map((a) => ({ id: a.id, actor: a.actor_user_id, role: a.actor_role, action: a.action, entity: a.entity, entityId: a.entity_id, detail: j(a.detail, {}), ts: a.created_at })) });
+});
+
+/* --- Puja photo management (admin): upload, moderate, publish, download ----- */
+const MEDIA = require('../services/pujaMedia');
+/* Moderation queue: all media (pending first), with the puja + pandit names. */
+router.get('/media', (req, res) => {
+  const status = req.query.status && ['PENDING_ADMIN_REVIEW', 'APPROVED', 'REJECTED'].includes(String(req.query.status)) ? String(req.query.status) : null;
+  const rows = db.prepare(`SELECT m.*, p.name puja_name, pd.name pandit_name FROM puja_media m
+    LEFT JOIN pujas p ON p.id=m.puja_id LEFT JOIN pandits pd ON pd.id=m.pandit_id
+    ${status ? 'WHERE m.status=?' : ''} ORDER BY CASE m.status WHEN 'PENDING_ADMIN_REVIEW' THEN 0 ELSE 1 END, m.created_at DESC LIMIT 300`).all(...(status ? [status] : []));
+  res.json({ media: rows.map(MEDIA.out) });
+});
+router.post('/pujas/:id/media', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
+  res.status(201).json({ media: MEDIA.adminUpload({ uid: req.auth.uid, pujaId: req.params.id, files: req.files, makePrimary: !!req.body.primary }) });
+});
+router.get('/pujas/:id/media', (req, res) => res.json({ media: MEDIA.allForPuja(req.params.id) }));
+router.patch('/media/:id', (req, res) => {
+  const b = req.body || {};
+  res.json({ media: MEDIA.moderate({ uid: req.auth.uid, id: req.params.id, status: b.status, published: b.published, primary: !!b.primary }) });
+});
+router.post('/media/reorder', (req, res) => res.json({ media: MEDIA.reorder(req.auth.uid, req.body.ids) }));
+router.delete('/media/:id', (req, res) => res.json(MEDIA.remove({ uid: req.auth.uid, role: 'admin', pid: null, id: req.params.id })));
+router.get('/media/:id/download', (req, res) => {
+  const f = MEDIA.fileFor(req.params.id, req.auth);
+  res.setHeader('Content-Type', f.mime);
+  res.setHeader('Content-Disposition', 'attachment; filename="' + (f.name || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_') + '"');
+  res.sendFile(f.file);
+});
+
 module.exports = router;

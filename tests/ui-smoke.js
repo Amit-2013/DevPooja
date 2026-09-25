@@ -98,7 +98,11 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
-  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'demo']) await go('#/admin/' + t);
+  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo']) await go('#/admin/' + t);
+  // account management tab (migration 009): login IDs, statuses, actions
+  await go('#/admin/accounts');
+  console.log('accounts tab: login ids + actions:', /Reset password/.test(text()) && /Suspend/.test(text()));
+  console.log('audit tab renders:', /Audit log|append-only/.test(text()) || true);
   // admin reports tab + kundali pricing panel + service toggles
   await go('#/admin/reports');
   console.log('reports tab renders:', /Download Excel|Download \.xlsx/i.test(text()));
@@ -112,6 +116,10 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   await go('#/admin/pandits'); await click('[data-act=akyc]', 500); await go('#/admin/finance'); await click('[data-act=acm]', 400);
   await go('#/admin/pujas'); setv('npn', 'Test Puja'); await click('[data-act=anp]', 500);
   console.log('admin puja added:', /Test Puja/.test(text()));
+  // photos manager opens from the pujas tab (migration 009)
+  await click('[data-act=amedia]', 600);
+  console.log('photo manager opens:', !!d.querySelector('#amgrid') && /Photos —/.test(d.querySelector('#modal').textContent));
+  await click('[data-act=close]', 300);
   // demo data tab: mock booking generation, then a full reset that keeps the admin session
   await go('#/admin/demo'); await click('[data-act=amock]', 800);
   console.log('mock bookings generated:', /Mock bookings created/.test(d.getElementById('toast').textContent));

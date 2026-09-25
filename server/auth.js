@@ -12,13 +12,15 @@ const secret = () => {
    deleted/downgraded users instantly regardless of token age. */
 const sign = (user, pid) => jwt.sign({ uid: user.id, role: user.role, pid: pid || null }, secret(), { expiresIn: '48h' });
 
-/* Reads Authorization: Bearer <token>. Always re-checks the user in the DB, so role changes and deletions take effect immediately. */
+/* Reads Authorization: Bearer <token>. Always re-checks the user in the DB, so role changes, deletions and account-status changes (suspended/disabled) take effect immediately. */
 function authenticate(req, _res, next) {
   const h = req.headers.authorization || '';
   if (h.startsWith('Bearer ')) {
     try {
       const p = jwt.verify(h.slice(7), secret());
-      const u = db.prepare('SELECT id, role FROM users WHERE id=?').get(p.uid);
+      const u = db.prepare('SELECT id, role, status FROM users WHERE id=?').get(p.uid);
+      if (u && u.status === 'suspended') return next(new HttpError(403, 'Your account is suspended. Please contact support.'));
+      if (u && u.status === 'disabled') return next(new HttpError(403, 'This account has been disabled. Please contact support.'));
       if (u) {
         let pid = null;
         if (u.role === 'pandit') { const pr = db.prepare('SELECT id FROM pandits WHERE user_id=?').get(u.id); pid = pr && pr.id; }

@@ -222,6 +222,7 @@ function resetAll() {
     'kits', 'prasad', 'temples', 'festivals', 'havan_kunds', 'samagri_items', 'kundali_conditions',
     'custom_requests',
     'family_members', 'export_logs', 'idempotency_keys',
+    'puja_media', 'login_activity', 'password_resets',
     'pandits', 'pujas', 'users'
   ];
   tx(() => {

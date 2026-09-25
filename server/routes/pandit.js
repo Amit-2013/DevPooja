@@ -61,4 +61,14 @@ router.post('/feature', (req, res) => {
   db.prepare('UPDATE pandits SET featured=1 WHERE id=?').run(pid(req));
   res.json({ ok: true });
 });
+
+/* --- My puja photos: upload only for own assigned bookings; pending until the
+   admin approves. Pandit sees their own uploads with approval status. --- */
+const M = require('../services/pujaMedia');
+router.post('/media', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
+  if (!req.files || !req.files.length) throw bad('Attach at least one photo');
+  res.status(201).json({ media: M.panditUpload({ pid: pid(req), uid: req.auth.uid, bookingId: req.body.bookingId, files: req.files }) });
+});
+router.get('/media', (req, res) => res.json({ media: M.mineForPandit(pid(req)) }));
+router.delete('/media/:id', (req, res) => res.json(M.remove({ uid: req.auth.uid, role: 'pandit', pid: pid(req), id: req.params.id })));
 module.exports = router;

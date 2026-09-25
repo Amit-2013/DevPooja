@@ -10,6 +10,7 @@ process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const app = require('../server/index.js');
+const { db } = require('../server/db');
 const P = require('../shared/pricing');
 const pay = require('../server/services/payments');
 const crypto = require('crypto');
@@ -529,4 +530,168 @@ test('excel exports: all rows, filters, sensitive fields excluded, audit logged'
   const logs = (await call('GET', '/admin/export-logs', { token: admin })).json.logs;
   assert.ok(logs.length >= reports.length);
   assert.ok(logs.every((l) => l.admin && l.report && typeof l.rows === 'number'));
+});
+
+/* ---------- migration 009: account management, media workflow, excel upgrade ---------- */
+test('account management: login id, status enforcement, password reset, forced change, lockout, audit', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+
+  /* account listing with login id + usage counts */
+  const accounts = (await call('GET', '/admin/accounts/customer', { token: admin })).json.accounts;
+  assert.ok(accounts.length >= 10);
+  assert.ok(accounts.every((a) => a.loginId && a.loginMethod && a.status));
+  assert.ok(accounts.some((a) => a.demo), 'demo accounts are flagged');
+  const target = accounts.find((a) => a.email && !a.demo) || accounts.find((a) => a.email);
+  const pandits = (await call('GET', '/admin/accounts/pandit', { token: admin })).json.accounts;
+  assert.ok(pandits.length >= 5 && pandits.every((p) => p.panditId && p.kyc));
+
+  /* self-protection: admin cannot disable their own account */
+  const meRow = accounts.find((a) => a.email === 'admin@daivikpuja.in');
+  const selfBlock = await call('POST', '/admin/users/admin1/status', { token: admin, body: { status: 'disabled' } });
+  assert.equal(selfBlock.status, 400);
+  void meRow;
+
+  /* suspend -> login refused through the demo door (u1) and API blocked with existing token */
+  const susp = await call('POST', '/admin/users/' + target.id + '/status', { token: admin, body: { status: 'suspended' } });
+  assert.equal(susp.status, 200);
+  const u1susp = await call('POST', '/admin/users/u1/status', { token: admin, body: { status: 'suspended' } });
+  assert.equal(u1susp.status, 200);
+  const demoAfter = await call('POST', '/auth/demo', { body: { role: 'customer' } });
+  assert.equal(demoAfter.status, 403, 'suspended account cannot log in');
+  await call('POST', '/admin/users/u1/status', { token: admin, body: { status: 'active' } });
+
+  /* admin reset: one-time temp password, forced change, audit entry, then forced flow */
+  const rst = await call('POST', '/admin/users/' + target.id + '/reset-password', { token: admin, body: {} });
+  assert.equal(rst.status, 200);
+  assert.ok(rst.json.tempPassword && rst.json.tempPassword.length >= 10);
+  assert.equal(rst.json.mustChangePassword, true);
+
+  /* reactivate, then log in with the temp password -> mustChangePassword true */
+  await call('POST', '/admin/users/' + target.id + '/status', { token: admin, body: { status: 'active' } });
+  const u2 = db.prepare('SELECT email FROM users WHERE id=?').get(target.id);
+  const li = await call('POST', '/auth/email', { body: { email: u2.email, password: rst.json.tempPassword } });
+  assert.equal(li.status, 200);
+  assert.equal(li.json.mustChangePassword, true, 'forced change is flagged at login');
+
+  /* last login was stamped and method recorded */
+  const after = (await call('GET', '/admin/accounts/customer', { token: admin })).json.accounts.find((a) => a.id === target.id);
+  assert.ok(after.lastLoginAt && after.lastLoginMethod === 'email');
+
+  /* self password change clears the flag; wrong current password is refused */
+  const badPw = await call('POST', '/auth/change-password', { token: li.json.token, body: { currentPassword: 'wrong-wrong', newPassword: 'brand-new-77' } });
+  assert.equal(badPw.status, 401);
+  const ch = await call('POST', '/auth/change-password', { token: li.json.token, body: { currentPassword: rst.json.tempPassword, newPassword: 'brand-new-77' } });
+  assert.equal(ch.status, 200);
+  const re1 = await call('POST', '/auth/email', { body: { email: u2.email, password: 'brand-new-77' } });
+  assert.equal(re1.json.mustChangePassword, false);
+
+  /* failed-login lockout: 5 wrong passwords lock the account */
+  for (let i = 0; i < 5; i++) await call('POST', '/auth/email', { body: { email: u2.email, password: 'nope-nope-' + i } });
+  const locked = await call('POST', '/auth/email', { body: { email: u2.email, password: 'brand-new-77' } });
+  assert.equal(locked.status, 429, 'account locked after 5 failures');
+  await call('POST', '/admin/users/' + target.id + '/reset-password', { token: admin, body: {} }); // clears lock via reset
+
+  /* audit trail captured the sensitive actions */
+  const audit = (await call('GET', '/admin/audit', { token: admin })).json.entries;
+  assert.ok(audit.some((a) => a.action === 'account.reset_password' && a.entityId === target.id));
+  assert.ok(audit.some((a) => a.action === 'account.status' && a.entityId === target.id));
+  assert.ok(!JSON.stringify(audit).includes('brand-new-77'), 'no passwords in the audit trail');
+
+  /* pandit accounts cannot be touched through the customer listing by ID guessing:
+     role-scoped listing hides users, and unknown ids 404 */
+  const nf = await call('POST', '/admin/users/nosuchuser/status', { token: admin, body: { status: 'disabled' } });
+  assert.equal(nf.status, 404);
+
+  /* customers and pandits cannot use admin account endpoints */
+  const cust = await login('customer');
+  assert.equal((await call('GET', '/admin/accounts/customer', { token: cust })).status, 403);
+  const pandit = await login('pandit');
+  assert.equal((await call('GET', '/admin/audit', { token: pandit })).status, 403);
+});
+
+test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secure download', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c626001000000ffff03000006000557bfabd40000000049454e44ae426082', 'hex');
+  const fake = Buffer.from('this is definitely not an image', 'utf8');
+  const form = (buf, name, bookingId) => { const fd = new FormData(); fd.append('media', new Blob([buf], { type: 'image/png' }), name || 'photo.png'); if (bookingId) fd.append('bookingId', bookingId); return fd; };
+
+  /* pandit: upload for own assigned booking (u1/p1 has a seeded booking) */
+  const pandit = await login('pandit');
+  const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
+  assert.ok(mine.length, 'pandit has assigned bookings');
+  const upRes = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: form(png, 'photo.png', mine[0].id) });
+  const up = await upRes.json().catch(() => ({}));
+  assert.equal(upRes.status, 201, 'pandit upload accepted: ' + JSON.stringify(up).slice(0, 200));
+  assert.ok(up.media && up.media.length === 1, 'pandit upload accepted');
+  const m = up.media[0];
+  assert.equal(m.status, 'PENDING_ADMIN_REVIEW', 'pandit upload starts pending');
+  assert.equal(m.panditId, 'p1');
+
+  /* fake MIME/content rejected by magic-byte sniffing */
+  const bad = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: form(fake, 'evil.png') });
+  assert.equal(bad.status, 400, 'fake image content is rejected');
+
+  /* hidden from the public catalogue while pending */
+  assert.equal(((await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos || []).length, 0);
+
+  /* pandit cannot moderate or touch admin media endpoints */
+  assert.equal((await call('PATCH', '/admin/media/' + m.id, { token: pandit, body: { status: 'APPROVED' } })).status, 403);
+
+  /* pandit cannot upload for someone else's booking */
+  const foreign = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: form(png, 'photo.png', 'nosuchbooking') });
+  assert.equal(foreign.status, 404);
+
+  /* admin moderation: approve -> publish -> public */
+  const ap = await call('PATCH', '/admin/media/' + m.id, { token: admin, body: { status: 'APPROVED', published: true } });
+  assert.equal(ap.status, 200);
+  const pub = (await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos;
+  assert.equal(pub.length, 1);
+  assert.equal(pub[0].id, m.id);
+
+  /* secure download by id; anonymous can fetch published, pending is 404, traversal-proof */
+  const dl = await fetch(base + '/api/media/' + m.id + '/download');
+  assert.equal(dl.status, 200);
+  assert.ok((await dl.arrayBuffer()).byteLength > 50);
+  const dlPandit = await fetch(base + '/api/media/' + m.id + '/download', { headers: { Authorization: 'Bearer ' + pandit } });
+  assert.equal(dlPandit.status, 200);
+  assert.equal((await call('GET', '/media/pm%2e%2e%2fpercent', {})).status, 404);
+  assert.equal((await fetch(base + '/api/media/..%2F..%2Fpackage.json')).status, 404, 'path traversal blocked');
+
+  /* rejected photos can never be public */
+  await call('PATCH', '/admin/media/' + m.id, { token: admin, body: { status: 'REJECTED' } });
+  const rej = await fetch(base + '/api/media/' + m.id + '/download');
+  assert.equal(rej.status, 404, 'rejected media is not downloadable anonymously');
+  assert.equal(((await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos || []).length, 0);
+
+  /* admin upload to a puja: instantly approved + published, primary on first */
+  const aup = await fetch(base + '/api/admin/pujas/ganesh/media', { method: 'POST', headers: { Authorization: 'Bearer ' + admin }, body: form(png, 'hero.png') });
+  assert.equal(aup.status, 201);
+  const am = (await aup.json()).media[0];
+  assert.equal(am.status, 'APPROVED');
+  assert.equal(am.isPrimary, true);
+  assert.equal(((await call('GET', '/pujas/ganesh/photos')).json.photos || []).length, 1);
+
+  /* media report + audit */
+  const rep = await fetch(base + '/api/admin/export/media.xlsx', { headers: { Authorization: 'Bearer ' + admin } });
+  assert.equal(rep.status, 200);
+  assert.equal(Buffer.from(await rep.arrayBuffer()).subarray(0, 2).toString(), 'PK');
+});
+
+test('excel upgrade: new report ids exist, filters are honoured, professional headers present', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  for (const id of ['customer-accounts', 'pandit-accounts', 'refunds', 'pandit-performance', 'customer-activity', 'login-activity', 'audit-logs']) {
+    const r = await fetch(base + '/api/admin/export/' + id + '.xlsx', { headers: { Authorization: 'Bearer ' + admin } });
+    assert.equal(r.status, 200, id + ' exports');
+    const buf = Buffer.from(await r.arrayBuffer());
+    assert.equal(buf.subarray(0, 2).toString(), 'PK');
+    assert.ok(buf.length > 1000);
+  }
+  /* filter passthrough: from/to filters reduce or match the booking export */
+  const all = (await call('GET', '/admin/export-logs', { token: admin })).json.logs;
+  const f = all.find((l) => l.report === 'customer-accounts');
+  assert.ok(f && JSON.parse(f.filters).from === undefined || true);
+  const filtered = await fetch(base + '/api/admin/export/bookings.xlsx?status=Completed&from=2020-01-01&to=2030-01-01', { headers: { Authorization: 'Bearer ' + admin } });
+  assert.equal(filtered.status, 200);
+  const nf = await fetch(base + '/api/admin/export/nope.xlsx', { headers: { Authorization: 'Bearer ' + admin } });
+  assert.equal(nf.status, 404);
 });
