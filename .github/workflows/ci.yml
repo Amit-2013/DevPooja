@@ -4,10 +4,24 @@ name: CI
 # Both backends run in parallel; the Python suite includes the full
 # SQLite->Postgres migration dress rehearsal when a source db is present
 # (it self-skips on CI where data/*.db is gitignored).
+#
+# A monthly scheduled run (3rd, 05:23 UTC) is the drift-catcher between pushes:
+# - new GitHub advisories fail the npm audit gate even with no code change;
+# - backend-python/requirements.txt uses >= bounds, so `pip install -r` can pick
+#   up newer releases since the last push — the monthly run surfaces breakage
+#   from floating dependencies before a real deploy does;
+# - the pinned runner image still receives patch refreshes, so toolchain
+#   regressions show up here too.
+# Note: GitHub disables scheduled workflows after 60 days of repo inactivity —
+# if this ever stops firing, that is why (re-enable in the Actions tab).
 
 on:
   push:
   pull_request:
+  schedule:
+    # Monthly drift-catcher: fixed day-of-month so it is a true monthly cadence.
+    # tests/test_ci_wiring.py guards this line — removing it fails the suite.
+    - cron: '23 5 3 * *'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,6 +33,14 @@ jobs:
     # Pinned image: ubuntu-latest drifts across runner images and has twice
     # failed the Node test step with no related code change (Python green on
     # the same commit). Pinning removes toolchain drift from the equation.
+    # RETIREMENT REVIEW: ubuntu-24.04 will eventually be retired by GitHub
+    # (announced in actions/runner-images + the changelog, with brownout runs
+    # before removal; the next LTS is already available by then). When this
+    # job starts failing on image grounds — or the guard in
+    # tests/test_ci_wiring.py starts skipping — re-pin to the newest LTS
+    # (ubuntu-26.04 or newer at that point), run both suites, then push.
+    # REVIEW-BY: 2027 — the matching guard test fails the suite once this year
+    # has passed, forcing the pin to be re-reviewed.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
