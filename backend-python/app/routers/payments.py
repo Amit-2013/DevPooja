@@ -11,7 +11,7 @@ Parity-critical details:
   webhooks must never double-mark a payment.
 - Reconciliation: payment.captured / order.paid mark the booking whose
   pay.orderId matches as PAID (status Confirmed/New by pandit assignment),
-  and flip a PENDING_PAYMENT kundali to PAID (when that module is ported).
+  and flip a PENDING_PAYMENT kundali to PAID by order_id (Node parity).
 - Handler errors return 500 so Razorpay retries (same as Node)."""
 import hashlib
 import hmac
@@ -24,7 +24,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import Booking, IdempotencyKey
+from ..models import Booking, IdempotencyKey, Kundali
 from ..util import j
 
 router = APIRouter(prefix="/api/webhooks", tags=["payments"])
@@ -82,8 +82,15 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                                                           time.strftime("%Y-%m-%d")]],
                                         ensure_ascii=False)
                     await db.flush()
-            # Kundalis: when the kundali module lands, reconcile here
-            # (order_id match, billing='PENDING_PAYMENT' -> PAID) — Node parity.
+            # Kundalis: order_id match, PENDING_PAYMENT -> PAID (Node parity).
+            kd = (await db.execute(select(Kundali).where(
+                Kundali.order_id == order_id,
+                Kundali.billing == "PENDING_PAYMENT").limit(1))).scalar_one_or_none()
+            if kd:
+                kd.billing = "PAID"
+                kd.payment_status = "Paid"
+                kd.payment_id = str(entity.get("id") or "webhook")[:60]
+                await db.flush()
         if event_id:
             db.add(IdempotencyKey(key="wh:" + event_id, scope="razorpay.webhook",
                                   result=json.dumps({"type": etype}),

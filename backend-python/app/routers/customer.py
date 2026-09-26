@@ -1,6 +1,7 @@
 """Customer routes — port of server/routes/customer.js (profile, bookings,
-payment verification, orders, tickets). Family/kundali routes land with the
-kundali module. Route-for-route and response-shape parity with Node."""
+payment verification, orders, tickets). The family-member routes from the same
+Node file live in routers/kundali.py (they belong to the kundali module).
+Route-for-route and response-shape parity with Node."""
 import json
 import random
 import re

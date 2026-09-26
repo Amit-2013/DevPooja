@@ -1,7 +1,7 @@
 """SQLAlchemy models mirroring the Node/SQLite schema 1:1 (same table and column
 names, same TEXT-stored-JSON convention) so the later SQLite→Postgres swap is a
 straight INSERT … SELECT and both backends can read the same shape."""
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Float, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Float, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -322,3 +322,224 @@ class IdempotencyKey(Base):
     scope: Mapped[str] = mapped_column(String(40))
     result: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(MS)
+
+
+# --- kundali module (migrations 002/003/006/008) ------------------------------
+
+class FamilyMember(Base):
+    """Separately chargeable kundali subjects (migration 008)."""
+    __tablename__ = "family_members"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    customer_id: Mapped[str] = mapped_column(String(40), index=True)
+    relationship: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(120))
+    gender: Mapped[str] = mapped_column(String(10), default="")
+    dob: Mapped[str] = mapped_column(String(10), default="")
+    tob: Mapped[str] = mapped_column(String(8), default="")
+    birth_place: Mapped[str] = mapped_column(String(160), default="")
+    city: Mapped[str] = mapped_column(String(80), default="")
+    state: Mapped[str] = mapped_column(String(80), default="")
+    country: Mapped[str] = mapped_column(String(80), default="")
+    lat: Mapped[float | None] = mapped_column(Float)
+    lon: Mapped[float | None] = mapped_column(Float)
+    tz: Mapped[str] = mapped_column(String(40), default="")
+    photo: Mapped[str] = mapped_column(String(200), default="")
+    gotra: Mapped[str] = mapped_column(String(40), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str | None] = mapped_column(String(30))   # sqlite datetime('now')
+    updated_at: Mapped[str | None] = mapped_column(String(30))
+
+
+class KundaliProfile(Base):
+    __tablename__ = "kundali_profiles"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    gender: Mapped[str | None] = mapped_column(String(10))
+    dob: Mapped[str] = mapped_column(String(10))
+    tob: Mapped[str] = mapped_column(String(8))
+    pob: Mapped[str] = mapped_column(String(160))
+    lat: Mapped[float | None] = mapped_column(Float)
+    lon: Mapped[float | None] = mapped_column(Float)
+    tz: Mapped[str] = mapped_column(String(40), default="Asia/Kolkata")
+    created_at: Mapped[int | None] = mapped_column(MS)
+    # migration 005/006
+    birth_time_accuracy: Mapped[str] = mapped_column(String(12), default="exact")
+    purpose: Mapped[str] = mapped_column(String(40), default="")
+    email: Mapped[str] = mapped_column(String(120), default="")
+    mobile: Mapped[str] = mapped_column(String(15), default="")
+    gotra: Mapped[str] = mapped_column(String(40), default="")
+    whatsapp: Mapped[str] = mapped_column(String(15), default="")
+    state: Mapped[str] = mapped_column(String(80), default="")
+    country: Mapped[str] = mapped_column(String(80), default="")
+
+
+class Kundali(Base):
+    """A generated kundali (migration 003) + commercial billing (migration 008)."""
+    __tablename__ = "kundalis"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    profile_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    chart_data: Mapped[str] = mapped_column(Text, default="{}")
+    planetary_data: Mapped[str] = mapped_column(Text, default="{}")
+    lagna: Mapped[str] = mapped_column(String(40), default="")
+    rashi: Mapped[str] = mapped_column(String(40), default="")
+    nakshatra: Mapped[str] = mapped_column(String(40), default="")
+    pada: Mapped[int | None] = mapped_column(Integer)
+    dasha_data: Mapped[str] = mapped_column(Text, default="{}")
+    navamsa_data: Mapped[str] = mapped_column(Text, default="{}")
+    calculation_version: Mapped[str] = mapped_column(String(40), default="internal-ephemeris-v1")
+    created_at: Mapped[int | None] = mapped_column(MS)
+    # migration 008
+    customer_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(String(40))
+    relationship: Mapped[str] = mapped_column(String(20), default="")
+    billing: Mapped[str] = mapped_column(String(20), default="FREE")
+    price: Mapped[int] = mapped_column(Integer, default=0)
+    discount: Mapped[int] = mapped_column(Integer, default=0)
+    gst: Mapped[int] = mapped_column(Integer, default=0)
+    final_amount: Mapped[int] = mapped_column(Integer, default=0)
+    currency: Mapped[str] = mapped_column(String(8), default="INR")
+    payment_id: Mapped[str] = mapped_column(String(60), default="")
+    order_id: Mapped[str] = mapped_column(String(40), default="")
+    payment_status: Mapped[str] = mapped_column(String(20), default="")
+    idem_key: Mapped[str] = mapped_column(String(120), default="")
+
+    __table_args__ = (
+        Index("idx_kundali_idem", "idem_key", unique=True, sqlite_where=(text("idem_key != ''"))),
+    )
+
+
+class DoshAnalysis(Base):
+    __tablename__ = "dosh_analysis"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kundali_id: Mapped[str] = mapped_column(String(20), index=True)
+    dosh_type: Mapped[str] = mapped_column(String(40))
+    detected: Mapped[int] = mapped_column(Integer, default=0)
+    severity: Mapped[str] = mapped_column(String(10), default="none")
+    confidence: Mapped[float | None] = mapped_column(Float)
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[str] = mapped_column(Text, default="[]")
+    recommendation: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[int | None] = mapped_column(MS)
+    # migration 006
+    evidence_hi: Mapped[str] = mapped_column(Text, default="[]")
+
+
+class PujaRecommendation(Base):
+    __tablename__ = "puja_recommendations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kundali_id: Mapped[str] = mapped_column(String(20), index=True)
+    puja_id: Mapped[str | None] = mapped_column(String(40))
+    recommendation_reason: Mapped[str] = mapped_column(Text, default="")
+    priority: Mapped[str] = mapped_column(String(12), default="secondary")
+    relevance_score: Mapped[int] = mapped_column(Integer, default=1)
+    related_doshas: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[int | None] = mapped_column(MS)
+    # migration 006
+    reason_hi: Mapped[str] = mapped_column(Text, default="")
+
+
+class PlaceIndex(Base):
+    __tablename__ = "place_index"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    city: Mapped[str] = mapped_column(String(80), index=True)
+    state: Mapped[str] = mapped_column(String(80), default="")
+    country: Mapped[str] = mapped_column(String(80), default="India")
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    tz: Mapped[str] = mapped_column(String(40), default="Asia/Kolkata")
+    population: Mapped[int | None] = mapped_column(Integer, default=0)
+
+
+class HavanKund(Base):
+    __tablename__ = "havan_kunds"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    material: Mapped[str] = mapped_column(String(20))
+    size_in: Mapped[int] = mapped_column(Integer)
+    price: Mapped[int] = mapped_column(Integer)
+    descr: Mapped[str] = mapped_column(Text, default="")
+    active: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class PujaKund(Base):
+    __tablename__ = "puja_kunds"
+    puja_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    kund_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    recommended: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SamagriItem(Base):
+    __tablename__ = "samagri_items"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    unit: Mapped[str] = mapped_column(String(20), default="pcs")
+    category: Mapped[str] = mapped_column(String(40), default="general")
+    active: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class PujaSamagri(Base):
+    __tablename__ = "puja_samagri"
+    puja_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    qty: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class KundaliCondition(Base):
+    __tablename__ = "kundali_conditions"
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    descr: Mapped[str] = mapped_column(Text, default="")
+    severity: Mapped[str] = mapped_column(String(10), default="low")
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    # migrations 005/006
+    remedy: Mapped[str] = mapped_column(Text, default="")
+    name_hi: Mapped[str] = mapped_column(Text, default="")
+    descr_hi: Mapped[str] = mapped_column(Text, default="")
+    remedy_hi: Mapped[str] = mapped_column(Text, default="")
+
+
+class ConditionPujaRule(Base):
+    __tablename__ = "condition_puja_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    condition_code: Mapped[str] = mapped_column(String(40))
+    puja_id: Mapped[str] = mapped_column(String(40))
+    weight: Mapped[int] = mapped_column(Integer, default=1)
+    priority: Mapped[str] = mapped_column(String(12), default="secondary")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    reason_hi: Mapped[str] = mapped_column(Text, default="")
+
+    __table_args__ = (
+        Index("uq_cond_puja", "condition_code", "puja_id", unique=True),
+    )
+
+
+class KundaliActivity(Base):
+    __tablename__ = "kundali_activity"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(40))
+    action: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[int | None] = mapped_column(MS)
+
+
+class KundaliRecommendation(Base):
+    """Legacy profile-scoped recommendations (migration 002)."""
+    __tablename__ = "kundali_recommendations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_id: Mapped[str] = mapped_column(String(40), index=True)
+    condition_code: Mapped[str] = mapped_column(String(40))
+    puja_id: Mapped[str | None] = mapped_column(String(40))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[int | None] = mapped_column(MS)
+
+
+class KundaliAnalysis(Base):
+    """Legacy profile-scoped analyses (migration 002); profile_id nullable for guests."""
+    __tablename__ = "kundali_analysis"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    summary: Mapped[str] = mapped_column(Text, default="{}")
+    matched: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[int | None] = mapped_column(MS)

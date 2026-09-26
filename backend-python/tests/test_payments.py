@@ -160,3 +160,40 @@ async def test_webhook_reconciles_booking_and_is_idempotent(client, db_session, 
     await db_session.refresh(row)
     assert row.status == "Confirmed"
     assert json.loads(row.pay)["paid"] is True
+
+
+async def test_webhook_reconciles_pending_kundali(client, db_session, monkeypatch):
+    """Node parity (index.js webhook): a captured payment whose order_id belongs to
+    a PENDING_PAYMENT kundali flips it to PAID; the same event replays as duplicate."""
+    monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", HOOK_SECRET)
+    from app.models import Kundali
+
+    tc = await login(client, "customer")
+    k = Kundali(id="K" + "a" * 12, name="WH Tester", customer_id=tc,
+                billing="PENDING_PAYMENT", price=499, gst=25, final_amount=524,
+                order_id="order_KWH1", payment_status="Pending", created_at=1)
+    db_session.add(k)
+    await db_session.commit()
+
+    payload = {"id": "evt_KWH1", "event": "payment.captured",
+               "payload": {"payment": {"entity": {
+                   "id": "pay_KWH1", "order_id": "order_KWH1", "status": "captured"}}}}
+    res = await _hook_post(client, payload, HOOK_SECRET, "evt_KWH1")
+    assert res.status_code == 200 and res.json()["ok"] is True
+
+    row = await db_session.get(Kundali, k.id)
+    await db_session.refresh(row)
+    assert row.billing == "PAID"
+    assert row.payment_status == "Paid"
+    assert row.payment_id == "pay_KWH1"
+
+    # replay of the same event id is a no-op (idempotency)
+    res2 = await _hook_post(client, payload, HOOK_SECRET, "evt_KWH1")
+    assert res2.status_code == 200 and res2.json()["duplicate"] is True
+
+    # a paid kundali is never reprocessed: no matching PENDING row -> harmless
+    res3 = await _hook_post(client, {**payload, "id": "evt_KWH2"}, HOOK_SECRET, "evt_KWH2")
+    assert res3.status_code == 200
+    row = await db_session.get(Kundali, k.id)
+    await db_session.refresh(row)
+    assert row.billing == "PAID" and row.payment_id == "pay_KWH1"

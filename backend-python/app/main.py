@@ -15,6 +15,7 @@ from .config import get_settings
 from .routers import admin as admin_router
 from .routers import auth as auth_router
 from .routers import customer as customer_router
+from .routers import kundali as kundali_router
 from .routers import media as media_router
 from .routers import pandit as pandit_router
 from .routers import payments as payments_router
@@ -31,11 +32,13 @@ async def lifespan(_app: FastAPI):
     from .db import Base, SessionLocal, engine
     from .seed_catalog import seed_catalog
     from .seed_demo import seed_demo
+    from .seed_kundali import seed_kundali
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with SessionLocal() as db:
         await seed_catalog(db)
         await seed_demo(db)
+        await seed_kundali(db)
         await db.commit()
     yield
 
@@ -98,6 +101,8 @@ app.include_router(media_router.router)
 app.include_router(customer_router.router)
 app.include_router(pandit_router.router)
 app.include_router(admin_router.router)
+app.include_router(kundali_router.router)
+app.include_router(kundali_router.fm_router)
 
 # Static mounts, ORDER MATTERS: /media before the SPA catch-all at "/".
 MEDIA = Path(settings.upload_dir) / "media"

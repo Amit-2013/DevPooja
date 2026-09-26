@@ -23,10 +23,12 @@ server so the cutover is a Render service switch, not a frontend rewrite.
 | **4-artifact delete** | original + thumb + webp + thumb_webp all removed, with stale-column fallback (port of Node fix `965ce74`) |
 | Secure download | role-checked; anonymous/customer get private photos as 404 |
 | `/api/state` + `/api/quote` | role-scoped state builder ported from `lib/state.js` (masked pandit views, admin inventory, coupons, settings) |
+| **Kundali engine** | full port of `services/astrology`: Meeus/JPL sidereal ephemeris (JPL-anchor tests to <3'), Lahiri ayanamsa, ascendant, navamsa, whole-sign houses, Vimshottari dashas, panchang (tithi/paksha/vara), dignity — all Hindi (Devanagari) fields additive, English untouched |
+| **Dosh rules + recommendations** | all 9 rules (mangal, kaal sarp, pitru, nadi, grahan, guru chandal, shani/Sade Sati transit, rahu, ketu) with bilingual evidence; DB-driven condition → puja/kund/samagri recommendations with priority tiers |
+| **Commercial kundali** | plan quotas (1/2/5 free personal), family-member chargeables, GST/coupon/discount quotes, `PENDING_PAYMENT → PAID` verify with mock/razorpay parity, idempotency keys, 15/15-min rate limit, guest flow, family CRUD (`/api/me/family`) |
 
-Not ported yet: kundali engine + commercial kundali, Excel reports, admin
-puja editing, pandit registration/KYC uploads, campaigns/leads. The Node
-server keeps running until these land.
+Not ported yet: Excel reports, admin puja editing, pandit registration/KYC
+uploads, campaigns/leads. The Node server keeps running until these land.
 
 ## Quickstart (local, SQLite — no config needed)
 
@@ -34,14 +36,15 @@ server keeps running until these land.
 cd backend-python
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt        # Windows
-.venv\Scripts\python -m pytest -q                    # 33 tests, green
+.venv\Scripts\python -m pytest -q                    # 59 tests, green
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
 
 Open http://localhost:8000/api/docs for OpenAPI docs, or http://localhost:8000/
 for the SPA. Boot auto-creates tables and seeds the full catalogue from
 `server/data/catalog.json` (18 pujas, 9 kits, temples, festivals, coupons) plus
-demo accounts. Admin: `admin@daivikpuja.in` / `admin123`.
+demo accounts and the kundali reference data (conditions, place index, kunds).
+Admin: `admin@daivikpuja.in` / `admin123`.
 
 ## Switching to Supabase PostgreSQL
 
@@ -123,17 +126,22 @@ backend-python/
       media.py           the media engine (gallery/moderation/variants/delete)
       otp.py             OTP issue/verify (demo-code parity)
       payments.py        Razorpay adapter + signature verification
+      kundali_billing.py quotas, classify, quotes, idempotency (migration 008)
+      astrology/         kundali port: ephemeris, kundali_engine, dosh_engine,
+                         recommendation_engine, rules/ (9 pure rule modules)
     routers/
       auth.py            /api/auth/*
       media.py           gallery, pandit + admin media
       customer.py        /api/bookings, /api/payments/verify, /api/orders ...
+      kundali.py         /api/kundali/* + /api/me/family (migration 008)
       pandit.py          /api/pandit/bookings/:id/:action, availability ...
       admin.py           /api/admin/bookings, coupons, settings, kits, prasad
       payments.py        /api/webhooks/razorpay (raw-body HMAC)
     seed_catalog.py      full catalogue from server/data/catalog.json
     seed_demo.py         demo users/pandits/photo (idempotent)
+    seed_kundali.py      conditions + Hindi, place index, kunds, rule mapping
   migrations/            Alembic environment
-  tests/                 33 parity tests (pytest + httpx ASGI)
+  tests/                 59 parity tests (pytest + httpx ASGI)
 ```
 
 ## Render deployment (when the cutover is chosen)
@@ -171,10 +179,19 @@ builds (Node and Python).
 ## Testing
 
 ```bash
-.venv/Scripts/python -m pytest -q        # 33 tests: auth, media, bookings, payments
+.venv/Scripts/python -m pytest -q        # 59 tests: auth, media, bookings, payments, astrology
 ```
 
 Covers the ported Node blocks: quote parity against the shared pricing module,
 double-booking 409s, tiered refunds, reschedule conflicts, the pandit flow with
 payouts + masked mobiles, cross-role security, stock conflicts, Razorpay
 hold/verify/expiry, and webhook signature + idempotency + reconciliation.
+
+The astrology suite (`tests/test_astro_parity.py`) ports `tests/astro.test.js`
+1:1: JPL Horizons longitude anchors for two instants (tolerances 0.02–0.1°),
+Gandhi/Einstein sidereal ascendants, chart invariants, Vimshottari contiguity,
+the mangal/grahan/nadi rule behaviours and the Hindi field contract.
+`tests/test_kundali_api.py` drives the HTTP flow: guest + customer generation,
+free-quota→paid transitions, family-member chargeables and saved-place override,
+idempotent replays, `pay/verify` semantics, ownership 404s, places/conditions/
+catalog metadata, and family CRUD validation.

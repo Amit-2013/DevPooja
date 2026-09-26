@@ -21,6 +21,7 @@ from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.seed_catalog import seed_catalog  # noqa: E402
 from app.seed_demo import seed_demo  # noqa: E402
+from app.seed_kundali import seed_kundali  # noqa: E402
 
 
 def day_plus(n: int) -> str:
@@ -36,6 +37,7 @@ async def _setup_db():
     async with SessionLocal() as db:
         await seed_catalog(db)
         await seed_demo(db)
+        await seed_kundali(db)
         await db.commit()
     yield
     async with engine.begin() as conn:
