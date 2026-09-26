@@ -543,3 +543,65 @@ class KundaliAnalysis(Base):
     summary: Mapped[str] = mapped_column(Text, default="{}")
     matched: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[int | None] = mapped_column(MS)
+
+
+class ExportLog(Base):
+    """Excel export audit trail (migration 008): one row per admin report download."""
+    __tablename__ = "export_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_id: Mapped[str] = mapped_column(String(40), index=True)
+    report: Mapped[str] = mapped_column(String(60))
+    filters: Mapped[str] = mapped_column(Text, default="")
+    rows: Mapped[int] = mapped_column(Integer, default=0)
+    ts: Mapped[int] = mapped_column(MS)
+
+
+class CustomRequest(Base):
+    """Customized puja requests with the full spec workflow (migration 007,
+    rebuilt with the extended status set in migration 008)."""
+    __tablename__ = "custom_requests"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(120))
+    mobile: Mapped[str] = mapped_column(String(15))
+    language: Mapped[str] = mapped_column(String(40), default="")
+    requirement: Mapped[str] = mapped_column(Text, default="")
+    purpose: Mapped[str] = mapped_column(String(40), default="")
+    deity: Mapped[str] = mapped_column(String(80), default="")
+    occasion: Mapped[str] = mapped_column(String(80), default="")
+    preferred_date: Mapped[str] = mapped_column(String(10), default="")
+    preferred_time: Mapped[str] = mapped_column(String(30), default="")
+    location: Mapped[str] = mapped_column(String(160), default="")
+    city: Mapped[str] = mapped_column(String(80), default="")
+    state: Mapped[str] = mapped_column(String(80), default="")
+    country: Mapped[str] = mapped_column(String(80), default="")
+    participants: Mapped[int | None] = mapped_column(Integer)
+    budget: Mapped[int | None] = mapped_column(Integer)
+    kundali_id: Mapped[str] = mapped_column(String(20), default="")
+    dosh_condition: Mapped[str] = mapped_column(String(60), default="")
+    remedy: Mapped[str] = mapped_column(Text, default="")
+    sankalp: Mapped[str] = mapped_column(Text, default="")
+    samagri_req: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(40), default="NEW")
+    admin_notes: Mapped[str] = mapped_column(Text, default="")
+    pandit_notes: Mapped[str] = mapped_column(Text, default="")
+    quote_amount: Mapped[int | None] = mapped_column(Integer)
+    final_price: Mapped[int | None] = mapped_column(Integer)
+    payment_status: Mapped[str] = mapped_column(String(20), default="")
+    assigned_pandit_id: Mapped[str | None] = mapped_column(String(40))
+    assigned_temple_id: Mapped[str | None] = mapped_column(String(40))
+    booking_id: Mapped[str] = mapped_column(String(40), default="")
+    history: Mapped[str] = mapped_column(Text, default="[]")
+    admin_note: Mapped[str] = mapped_column(Text, default="")
+    puja_id: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[str | None] = mapped_column(String(30))   # sqlite datetime('now')
+    updated_at: Mapped[str | None] = mapped_column(String(30))
+
+    __table_args__ = (
+        CheckConstraint("status IN ('NEW','UNDER_REVIEW','PANDIT_CONSULTATION','QUOTE_PREPARED',"
+                        "'CUSTOMER_APPROVAL_PENDING','APPROVED','PAYMENT_PENDING','PAID','PANDIT_ASSIGNED',"
+                        "'TEMPLE_ASSIGNED','SCHEDULED','IN_PROGRESS','COMPLETED','REJECTED','CANCELLED',"
+                        "'EXPIRED','REFUNDED')", name="ck_custom_requests_status"),
+    )

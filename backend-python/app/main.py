@@ -19,6 +19,7 @@ from .routers import kundali as kundali_router
 from .routers import media as media_router
 from .routers import pandit as pandit_router
 from .routers import payments as payments_router
+from .routers import reports_admin as reports_admin_router
 from .security import AuthError, current_auth
 from .db import get_db
 
@@ -103,6 +104,7 @@ app.include_router(pandit_router.router)
 app.include_router(admin_router.router)
 app.include_router(kundali_router.router)
 app.include_router(kundali_router.fm_router)
+app.include_router(reports_admin_router.router)
 
 # Static mounts, ORDER MATTERS: /media before the SPA catch-all at "/".
 MEDIA = Path(settings.upload_dir) / "media"

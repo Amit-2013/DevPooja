@@ -26,9 +26,10 @@ server so the cutover is a Render service switch, not a frontend rewrite.
 | **Kundali engine** | full port of `services/astrology`: Meeus/JPL sidereal ephemeris (JPL-anchor tests to <3'), Lahiri ayanamsa, ascendant, navamsa, whole-sign houses, Vimshottari dashas, panchang (tithi/paksha/vara), dignity — all Hindi (Devanagari) fields additive, English untouched |
 | **Dosh rules + recommendations** | all 9 rules (mangal, kaal sarp, pitru, nadi, grahan, guru chandal, shani/Sade Sati transit, rahu, ketu) with bilingual evidence; DB-driven condition → puja/kund/samagri recommendations with priority tiers |
 | **Commercial kundali** | plan quotas (1/2/5 free personal), family-member chargeables, GST/coupon/discount quotes, `PENDING_PAYMENT → PAID` verify with mock/razorpay parity, idempotency keys, 15/15-min rate limit, guest flow, family CRUD (`/api/me/family`) |
+| **Excel reports (26+ ids)** | all Node report ids at `GET /api/admin/export/:report.xlsx` via openpyxl: same professional layout (title, IST generated-on, filters line, frozen teal header, `#,##0` currency formats, totals row when >2 rows, auto column widths, auto-filter), status/date/mode/billing filters honoured, every download audited in `export_logs` (`GET /api/admin/export-logs`), sensitive fields (hashes/OTPs/tokens/KYC) excluded by design |
 
-Not ported yet: Excel reports, admin puja editing, pandit registration/KYC
-uploads, campaigns/leads. The Node server keeps running until these land.
+Not ported yet: admin puja editing, pandit registration/KYC uploads,
+campaigns/leads management. The Node server keeps running until these land.
 
 ## Quickstart (local, SQLite — no config needed)
 
@@ -126,6 +127,8 @@ backend-python/
       media.py           the media engine (gallery/moderation/variants/delete)
       otp.py             OTP issue/verify (demo-code parity)
       payments.py        Razorpay adapter + signature verification
+      reports.py         the 27 admin report queries (same ids/columns as Node)
+      xlsx.py            openpyxl builder porting the exceljs layout
       kundali_billing.py quotas, classify, quotes, idempotency (migration 008)
       astrology/         kundali port: ephemeris, kundali_engine, dosh_engine,
                          recommendation_engine, rules/ (9 pure rule modules)
@@ -136,6 +139,7 @@ backend-python/
       kundali.py         /api/kundali/* + /api/me/family (migration 008)
       pandit.py          /api/pandit/bookings/:id/:action, availability ...
       admin.py           /api/admin/bookings, coupons, settings, kits, prasad
+      reports_admin.py   /api/admin/export/:report.xlsx + /api/admin/export-logs
       payments.py        /api/webhooks/razorpay (raw-body HMAC)
     seed_catalog.py      full catalogue from server/data/catalog.json
     seed_demo.py         demo users/pandits/photo (idempotent)
@@ -179,7 +183,7 @@ builds (Node and Python).
 ## Testing
 
 ```bash
-.venv/Scripts/python -m pytest -q        # 59 tests: auth, media, bookings, payments, astrology
+.venv/Scripts/python -m pytest -q        # 66 tests: auth, media, bookings, payments, astrology, reports
 ```
 
 Covers the ported Node blocks: quote parity against the shared pricing module,
@@ -194,4 +198,10 @@ the mangal/grahan/nadi rule behaviours and the Hindi field contract.
 `tests/test_kundali_api.py` drives the HTTP flow: guest + customer generation,
 free-quota→paid transitions, family-member chargeables and saved-place override,
 idempotent replays, `pay/verify` semantics, ownership 404s, places/conditions/
-catalog metadata, and family CRUD validation.
+catalog metadata, and family CRUD validation. `tests/test_reports.py` renders
+every report id and asserts the .xlsx layout, filters, the export_logs audit
+trail, role gates, and the sensitive-field exclusions.
+
+One deliberate divergence: Node's SQL reads the JSON `pay`/`q` booking columns
+with SQLite-only `json_extract()`; the Python port parses those columns in
+Python, so the same report queries run unchanged on SQLite and Postgres.
