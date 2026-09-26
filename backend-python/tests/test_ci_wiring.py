@@ -83,3 +83,22 @@ def test_audit_gate_still_gates():
     assert "npm audit --audit-level=high" in text
     block = text.split("npm audit --audit-level=high", 1)[1][:300]
     assert "continue-on-error" not in block
+
+
+def test_python_audit_step_present_and_gating():
+    """pip-audit mirrors the Node gate: present in the python job, run against
+    requirements.txt (the full transitive closure), never continue-on-error."""
+    cfg = _ci()
+    py_job = cfg["jobs"]["python-tests"]
+    steps = py_job["steps"]
+    audit = [s for s in steps if "pip_audit" in str(s.get("run", ""))]
+    assert audit, "the pip-audit step was removed from the Python job"
+    run_block = audit[0]["run"]
+    assert "pip_audit -r requirements.txt" in run_block, (
+        "pip-audit must scan the requirements file, not the live environment, "
+        "so the floating >= bounds are audited at their resolved versions")
+    assert not audit[0].get("continue-on-error"), (
+        "the pip-audit step must gate the job, mirroring the Node npm audit gate")
+    # both backends audited -> the drift-catcher scans the whole dependency surface
+    node_text = CI.read_text(encoding="utf-8")
+    assert "npm audit --audit-level=high" in node_text

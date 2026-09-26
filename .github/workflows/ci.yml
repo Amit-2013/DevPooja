@@ -6,7 +6,8 @@ name: CI
 # (it self-skips on CI where data/*.db is gitignored).
 #
 # A monthly scheduled run (3rd, 05:23 UTC) is the drift-catcher between pushes:
-# - new GitHub advisories fail the npm audit gate even with no code change;
+# - new GitHub advisories fail the npm audit and pip-audit gates even with no
+#   code change;
 # - backend-python/requirements.txt uses >= bounds, so `pip install -r` can pick
 #   up newer releases since the last push — the monthly run surfaces breakage
 #   from floating dependencies before a real deploy does;
@@ -101,3 +102,15 @@ jobs:
 
       - name: Run pytest suite
         run: python -m pytest -q
+
+      - name: Dependency audit (pip-audit)
+        run: |
+          python -m pip install -q pip-audit
+          python -m pip_audit -r requirements.txt
+        # Gates the job, mirroring the Node npm audit gate. -r resolves the full
+        # transitive closure of requirements.txt exactly like the install step,
+        # so the floating >= bounds are audited at their current versions.
+        # pip-audit has no severity threshold: it fails on ANY known advisory.
+        # For an accepted risk, pin the ignore with a dated comment in this
+        # workflow (--ignore-vuln GHSA-xxxx) and revisit it alongside the
+        # runner-image REVIEW-BY below.
