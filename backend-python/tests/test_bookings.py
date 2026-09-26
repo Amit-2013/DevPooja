@@ -126,7 +126,9 @@ async def test_pandit_flow_accept_start_complete_review(client):
     assert done.json()["booking"]["status"] == "Completed"
     assert done.json()["booking"]["media"] == 1
     st = (await client.get("/api/state", headers={"Authorization": "Bearer " + tp})).json()
-    assert any(p["b"] == b["id"] and p["st"] == "Pending" for p in st["payouts"])
+    po = next((p for p in st["payouts"] if p["b"] == b["id"]), None)
+    assert po and po["st"] == "PENDING", "canonical payout statuses (migration 012)"
+    assert po["comm"] > 0 and po["gross"] == po["amt"] + po["comm"], "stored commission breakdown"
     assert all("XXXXXX" in (u["m"] or "") for u in st["users"]), "mobiles masked for pandits"
     rv = await client.post(f"/api/bookings/{b['id']}/review",
                            headers={"Authorization": "Bearer " + tc},

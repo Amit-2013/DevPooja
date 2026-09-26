@@ -352,7 +352,6 @@ async def review_booking(db: AsyncSession, user: User, id: str, body: dict) -> B
 async def complete_booking(db: AsyncSession, row: Booking, media_urls: list | None = None) -> Booking:
     q = j(row.q, {})
     ops = j(row.ops, {})
-    comm = await get_setting(db, "commission", 20)
     if j(row.sam, []):
         ops["sam"] = "Delivered"
     if j(row.pra, []) or row.mode == "temple":
@@ -366,10 +365,10 @@ async def complete_booking(db: AsyncSession, row: Booking, media_urls: list | No
     await db.execute(update(User).where(User.id == row.user_id).values(pts=User.pts + (q.get("earn") or 0)))
     if row.pandit_id:
         await db.execute(update(Pandit).where(Pandit.id == row.pandit_id).values(done=Pandit.done + 1))
-        n = (await db.execute(select(func.count()).select_from(Payout))).scalar_one() + 1
-        db.add(Payout(id=f"PO{n}-{row.id}", pandit_id=row.pandit_id,
-                      amount=round(q.get("svc", 0) * (1 - comm / 100)),
-                      date=today(), status="Pending", booking_id=row.id))
+        # Centralized payout engine (Phases 7-8): commission math, hold evaluation
+        # and status vocabulary live in services/payout_engine.py — never inline here.
+        from .payout_engine import create_for_booking
+        await create_for_booking(db, row, row.pandit_id)
     await db.flush()
     from ..models import Notif
     puja = await db.get(Puja, row.puja_id)

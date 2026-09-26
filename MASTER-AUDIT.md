@@ -5,8 +5,8 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 28/28, Python 82/82 (incl. 11 CI-wiring
-guards), UI smoke clean, CI green on `ba94637`.
+Verification baseline at audit time: Node 29/29, Python 84/84 (incl. CI-wiring
+guards + foundation tests), UI smoke clean.
 
 Legend — **N** = Node/Express (`server/`), **P** = FastAPI port (`backend-python/`,
 Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
@@ -60,12 +60,11 @@ a parity exception.
 | Status | **PARTIAL** — booking linkage exists; **no scheduled-date validation** (upload any time), no admin override concept |
 | Required | Server-side gate: upload allowed only when `booking.date == today` (admin override flag + audit log entry); admin view shows upload timestamp/actor |
 
-### Phase 7/8 — Earnings & payout engine
+### Phase 7/8 — Earnings & payout engine — **FOUNDATION COMPLETE (Phase 31-adjacent, done first)**
 | Aspect | Finding |
 |---|---|
-| Existing | `payouts(id, pandit_id, amount, date, status, booking_id)`; status Pending/Paid; created on booking completion with commission at that moment; commission = `getSetting('commission', 20)` (bookings.js:182) — **settings-driven, not hard-coded**; pandit earnings tab + admin finance payouts table; 27-report registry includes payouts/commission |
-| Status | **PARTIAL** — no ON_HOLD/PROCESSING/DISBURSED/FAILED/REVERSED, no hold reasons, no per-payout breakdown (gross/commission/tax/adjustment/UTR), single global commission |
-| Required | Extend `payouts` columns (status vocab, hold_reason, refs, breakdown JSON); centralize calc in a payout engine service (N+P) that both booking completion and admin use; earnings tab shows the required views |
+| Was | `payouts(id, pandit_id, amount, date, status, booking_id)`; Pending/Paid only; commission from `getSetting('commission', 20)` (settings-driven) |
+| Now | `server/services/payoutEngine.js` + Python twin `services/payout_engine.py`: canonical statuses PENDING/ON_HOLD/PROCESSING/DISBURSED/FAILED/REVERSED, hold reasons + notes (pandit-visible), money trail (gross/commission/tax/refund/adjustment → net), processing/disbursement dates, payment ref + UTR, settings-driven hold rules (`payout_holds`), auto-hold for unverified-pandit payouts, transitions audited with old→new status; migration 012; finance tab lifecycle UI; pandit earnings tab shows full breakdown + WHY on hold; `payout-audit` report id in both registries |
 
 ### Phase 9 — Commission tiers
 | Aspect | Finding |
@@ -192,12 +191,11 @@ a parity exception.
 | Existing | 27 report ids, Exceljs/openpyxl twin implementations, export audit log, filters |
 | Status | **WORKING** — extend registry for new modules (KYC, incidents, agreements, transactions/Dakshina, commission tiers, NRI packages) |
 
-### Phase 31 — Audit log
+### Phase 31 — Audit log — **FOUNDATION COMPLETE (done first)**
 | Aspect | Finding |
 |---|---|
-| Existing | `audit_logs` + admin audit tab; all exports and sensitive account actions logged |
-| Status | **PARTIAL** — lacks old/new value, reason, IP, device columns |
-| Required | Extend table + central `audit()` helper with structured payloads; retrofit the master prompt's listed actions |
+| Was | `audit_logs` + admin audit tab; all exports and sensitive account actions logged; no old/new value, reason, IP, device |
+| Now | Migration 012 adds old_value/new_value/reason/ip/device (both backends); central helpers (`lib/audit.js` / AuditLog writes) persist them; commission + coupon + KYC + account-status + payout actions write old→new values and reasons; `GET /admin/audit` returns the enriched shape (new Python endpoint — closes a parity gap); FE audit tab displays reason |
 
 ### Phase 32 — Dashboard
 | Aspect | Finding |

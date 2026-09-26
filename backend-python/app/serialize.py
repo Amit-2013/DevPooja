@@ -74,8 +74,18 @@ def ticket(r) -> dict:
 
 
 def payout(r) -> dict:
-    return {"id": r.id, "p": r.pandit_id, "amt": r.amount, "date": r.date, "st": r.status,
-            "b": r.booking_id}
+    """Payout shape: canonical statuses (Phases 7-8), hold info, money trail, refs.
+    Twin of server/lib/serialize.js payout()."""
+    from .services.payout_engine import legacy_status
+
+    return {"id": r.id, "p": r.pandit_id, "amt": r.amount, "date": r.date,
+            "st": legacy_status(r.status), "b": r.booking_id,
+            "gross": r.gross_amount if r.gross_amount is not None else r.amount,
+            "comm": r.commission_amt, "tax": r.tax_amt or 0, "refd": r.refund_amt or 0,
+            "adj": r.adjustment_amt or 0, "cur": r.currency or "INR",
+            "hr": r.hold_reason or None, "hn": r.hold_note or None,
+            "pd": r.processing_date or None, "dd": r.disbursement_date or None,
+            "pr": r.payment_ref or None, "utr": r.utr or None}
 
 
 def coupon(r) -> dict:

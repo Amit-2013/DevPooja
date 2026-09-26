@@ -197,6 +197,12 @@ class AuditLog(Base):
     entity: Mapped[str] = mapped_column(String(40))
     entity_id: Mapped[str | None] = mapped_column(String(40), index=True)
     detail: Mapped[str] = mapped_column(Text, default="{}")
+    # Master-plan Phase 31 enrichment (migration 012 twin).
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(String(300))
+    ip: Mapped[str | None] = mapped_column(String(60))
+    device: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[int] = mapped_column(MS)
 
 
@@ -280,6 +286,19 @@ class Payout(Base):
     date: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[str | None] = mapped_column(String(20))
     booking_id: Mapped[str | None] = mapped_column(String(40))
+    # Master-plan Phases 7-8: canonical statuses + money trail + hold info.
+    gross_amount: Mapped[int | None] = mapped_column(Integer)
+    commission_amt: Mapped[int | None] = mapped_column(Integer)
+    tax_amt: Mapped[int] = mapped_column(Integer, default=0)
+    refund_amt: Mapped[int] = mapped_column(Integer, default=0)
+    adjustment_amt: Mapped[int] = mapped_column(Integer, default=0)
+    currency: Mapped[str] = mapped_column(String(8), default="INR")
+    hold_reason: Mapped[str | None] = mapped_column(String(120))
+    hold_note: Mapped[str | None] = mapped_column(String(500))
+    processing_date: Mapped[str | None] = mapped_column(String(10))
+    disbursement_date: Mapped[str | None] = mapped_column(String(10))
+    payment_ref: Mapped[str | None] = mapped_column(String(80))
+    utr: Mapped[str | None] = mapped_column(String(80))
 
 
 class Coupon(Base):

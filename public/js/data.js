@@ -15,7 +15,7 @@ hi:{pujas:'पूजा',pandits:'पंडित',temples:'मंदिर',sam
  details:'विवरण',min:'मिनट',from:'से',newPuja:'नई पूजा चाहिए? अनुरोध भेजें',send:'भेजें',
  stNew:'नया',stConfirmed:'पुष्ट',stAssigned:'पंडित नियुक्त',stStarted:'प्रारंभ',stCompleted:'पूर्ण',stCancelled:'रद्द',stPendingPayment:'भुगतान लंबित'}};
 /* Booking status labels (badge()); Hindi when lang==='hi'. */
-const STATUS_HI={'New':'नया','Confirmed':'पुष्ट','Assigned':'पंडित नियुक्त','Started':'प्रारंभ','Completed':'पूर्ण','Cancelled':'रद्द','PendingPayment':'भुगतान लंबित','Open':'खुला','Resolved':'हल','Paid':'भुगतान','Pending':'लंबित','Delivered':'वितरित','Dispatched':'भेजा गया','Packed':'पैक','Processed':'प्रक्रिया','Initiated':'शुरू','verified':'सत्यापित','pending':'लंबित','rejected':'अस्वीकृत','Sent':'भेजा','Scheduled':'निर्धारित'};
+const STATUS_HI={'New':'नया','Confirmed':'पुष्ट','Assigned':'पंडित नियुक्त','Started':'प्रारंभ','Completed':'पूर्ण','Cancelled':'रद्द','PendingPayment':'भुगतान लंबित','Open':'खुला','Resolved':'हल','Paid':'भुगतान','Pending':'लंबित','Delivered':'वितरित','Dispatched':'भेजा गया','Packed':'पैक','Processed':'प्रक्रिया','Initiated':'शुरू','verified':'सत्यापित','pending':'लंबित','rejected':'अस्वीकृत','Sent':'भेजा','Scheduled':'निर्धारित','PENDING':'लंबित','ON_HOLD':'रोका गया','PROCESSING':'प्रक्रिया में','DISBURSED':'भुगतान','FAILED':'विफल','REVERSED':'पलटा'};
 const CITY_HI={'Delhi NCR':'दिल्ली एनसीआर',Mumbai:'मुंबई',Bengaluru:'बेंगलुरु',Pune:'पुणे',Jaipur:'जयपुर',Lucknow:'लखनऊ',Varanasi:'वाराणसी',Ahmedabad:'अहमदाबाद',Chennai:'चेन्नई',Hyderabad:'हैदराबाद',Kolkata:'कोलकाता',Kochi:'कोच्चि'};
 let lang=store.get('dp_lang','en');const t=k=>(T[lang]||T.en)[k]||T.en[k]||k;
 

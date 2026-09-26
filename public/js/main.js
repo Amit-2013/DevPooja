@@ -157,7 +157,17 @@ const ACT={
  acm(){run(()=>api('/admin/settings',{body:{commission:val('cm')}}),'Commission updated')},
  acc(){run(()=>api('/admin/coupons',{body:{code:val('ncc'),type:val('nct'),val:val('ncv'),max:val('ncm')}}),'Coupon created')},
  acpn(d,el){run(()=>api('/admin/coupons/'+d.id,{method:'PATCH',body:{active:el.checked}}))},
- apay(d){run(()=>api('/admin/payouts/'+d.id+'/pay',{body:{}}),'Marked paid')},
+ apay(d){run(()=>api('/admin/payouts/'+d.id+'/process',{body:{}}),'Payout moved to PROCESSING')},
+ ptrans(d){const id=d.id,act=d.v;const ok=()=>{PAGE.accts=null;sync().then(()=>render(true))};
+  if(act==='process')run(()=>api('/admin/payouts/'+id+'/process',{body:{}}),'Payout moved to PROCESSING').then(ok);
+  else if(act==='hold'){const reason=prompt('Hold reason (the pandit will see exactly this):','Customer Dispute');if(!reason)return;const note=prompt('Internal note (optional):')||undefined;run(()=>api('/admin/payouts/'+id+'/hold',{body:{reason,note}}),'Payout placed ON HOLD').then(ok)}
+  else if(act==='disburse'){const paymentRef=prompt('Payment reference (bank ref / UPI txn):');if(!paymentRef)return;const utr=prompt('UTR (optional):')||undefined;run(()=>api('/admin/payouts/'+id+'/disburse',{body:{paymentRef,utr}}),'Payout disbursed').then(ok)}
+  else if(act==='fail'){const reason=prompt('Reason for marking FAILED:');if(!reason)return;run(()=>api('/admin/payouts/'+id+'/fail',{body:{reason}}),'Payout marked FAILED').then(ok)}
+  else if(act==='reverse'){const reason=prompt('Reason for reversing this disbursed payout:');if(!reason)return;run(()=>api('/admin/payouts/'+id+'/reverse',{body:{reason}}),'Payout reversed').then(ok)}
+  else if(act==='adjust'){const amount=Number(prompt('Adjustment amount (negative to deduct):'));if(!amount)return;const reason=prompt('Reason for the adjustment:')||undefined;run(()=>api('/admin/payouts/'+id+'/adjustment',{body:{amount,reason}}),'Adjustment recorded').then(ok)}
+  else if(act==='detail')api('/admin/payouts/'+id).then((r)=>{const p=r.payout;modal('<h2>Payout '+esc(p.id)+'</h2><div class="card flat mt"><div class="col">'+
+   [['Pandit ID',p.p],['Service date',fmtD(p.date)],['Gross',inr(p.gross)],['Commission',inr(p.comm||0)],['Tax / withholding',inr(p.tax||0)],['Refund',inr(p.refd||0)],['Adjustment',inr(p.adj||0)],['<b>Net payout</b>','<b>'+inr(p.amt)+'</b>'],['Status',badge(p.st)],['Hold reason',p.hr||'-'],['Hold note',p.hn||'-'],['Processing date',p.pd?fmtD(p.pd):'-'],['Disbursement date',p.dd?fmtD(p.dd):'-']].map((x)=>'<div class="row sp"><span class="mut">'+x[0]+'</span><span>'+(x[1]===undefined?'-':x[1])+'</span></div>').join('')+'</div></div><p class="sm mut mt">Transitions are recorded in the audit log with old and new status.</p><button class="btn blk mt" data-act="close">Close</button>')});
+ },
  abn(d,el){run(()=>api('/admin/banners/'+d.id,{method:'PATCH',body:{enabled:el.checked}}))},
  acam(){run(()=>api('/admin/campaigns',{body:{name:val('cn2'),channel:val('cc2'),audience:val('ca2')}}),'Campaign scheduled')},
  async apush(){const r=await run(()=>api('/admin/push',{body:{message:val('pnm')}}));if(r&&r.sent!==undefined)toast('Sent to '+r.sent+' customers')},

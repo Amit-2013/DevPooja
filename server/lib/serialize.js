@@ -1,5 +1,6 @@
 /* Row -> API shape. The browser app uses these short field names. */
 const { j } = require('./util');
+const PE = require('../services/payoutEngine');
 
 const user = (r) => r && ({ id: r.id, n: r.name, m: r.mobile || '', e: r.email || '', pts: r.pts, plus: !!r.plus, addr: j(r.addr, []), fam: j(r.fam, []), pref: j(r.pref, {}), joined: r.joined });
 const pandit = (r, { admin = false } = {}) => r && ({
@@ -23,7 +24,15 @@ const temple = (r) => ({ id: r.id, n: r.name, city: r.city, deity: r.deity, ic: 
 const festival = (r) => ({ id: r.id, n: r.name, d: r.date, p: j(r.pujas, []), t: r.note });
 const order = (r) => ({ id: r.id, userId: r.user_id, items: j(r.items, []), total: r.total, date: r.date, st: r.status, city: r.city });
 const ticket = (r) => ({ id: r.id, userId: r.user_id, b: r.booking_id || '', t: r.text, st: r.status, prio: r.prio });
-const payout = (r) => ({ id: r.id, p: r.pandit_id, amt: r.amount, date: r.date, st: r.status, b: r.booking_id });
+/* Payout shape: canonical statuses (Phases 7-8), hold info, money trail, refs.
+   `hr` is what a pandit sees for WHY a payout is on hold; refs are admin-only via
+   the detail endpoint, but harmless here since only admins/pandit-own rows flow. */
+const payout = (r) => ({ id: r.id, p: r.pandit_id, amt: r.amount, date: r.date,
+  st: PE.legacyStatus(r.status), b: r.booking_id,
+  gross: r.gross_amount != null ? r.gross_amount : r.amount, comm: r.commission_amt,
+  tax: r.tax_amt || 0, refd: r.refund_amt || 0, adj: r.adjustment_amt || 0,
+  cur: r.currency || 'INR', hr: r.hold_reason || null, hn: r.hold_note || null,
+  pd: r.processing_date || null, dd: r.disbursement_date || null, pr: r.payment_ref || null, utr: r.utr || null });
 const coupon = (r) => ({ code: r.code, type: r.type, val: r.val, max: r.max, min: r.min, active: !!r.active, used: r.used });
 
 module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon };

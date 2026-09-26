@@ -11,10 +11,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import (Booking, Coupon, Kit, Order, Prasad, Puja, Setting)
+from ..models import (AuditLog, Booking, Coupon, Kit, Order, Prasad, Puja, Setting)
 from ..security import require_role
-from ..serialize import booking as s_booking, coupon as s_coupon
+from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout
 from ..services import bookings as B
+from ..services.payout_engine import payout_rules, set_adjustment, transition
 from ..util import bad, conflict, j, not_found, rid, v_arr, v_int, v_one_of, v_str
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -80,12 +81,122 @@ async def set_settings(body: dict, auth: dict = Depends(admin_dep),
                        db: AsyncSession = Depends(get_db)):
     val = v_int((body or {}).get("commission"), "Commission", min_val=0, max_val=60)
     row = (await db.execute(select(Setting).where(Setting.key == "commission"))).scalar_one_or_none()
+    prev = json.loads(row.value) if row and row.value else None
     if row:
         row.value = json.dumps(val)
     else:
         db.add(Setting(key="commission", value=json.dumps(val)))
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="settings.commission",
+                    entity="settings", entity_id="commission",
+                    detail=json.dumps({"from": prev, "to": val}),
+                    old_value=json.dumps(prev) if prev is not None else None,
+                    new_value=json.dumps(val), created_at=int(time.time() * 1000)))
     await db.flush()
     return {"ok": True}
+
+
+# --- payout engine (Phases 7-8) --------------------------------------------------
+HOLD_CHECKS = {"pandit_kyc", "bank", "dispute", "review", "refund", "reconciliation", "admin"}
+
+
+@router.get("/payout-rules")
+async def get_payout_rules(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"holds": await payout_rules(db)}
+
+
+@router.post("/payout-rules")
+async def put_payout_rules(body: dict, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    holds = []
+    for h in v_arr((body or {}).get("holds"), "Holds"):
+        if not isinstance(h, dict):
+            raise bad("Each hold needs reason and check")
+        holds.append({"reason": v_str(h.get("reason"), "Reason", max_len=120),
+                      "check": v_one_of(h.get("check"), HOLD_CHECKS, "Check")})
+    row = (await db.execute(select(Setting).where(Setting.key == "payout_holds"))).scalar_one_or_none()
+    prev = json.loads(row.value) if row and row.value else None
+    if row:
+        row.value = json.dumps(holds)
+    else:
+        db.add(Setting(key="payout_holds", value=json.dumps(holds)))
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="settings.payout_holds",
+                    entity="settings", entity_id="payout_holds",
+                    detail=json.dumps({"from": prev, "to": holds}),
+                    old_value=json.dumps(prev) if prev is not None else None,
+                    new_value=json.dumps(holds), created_at=int(time.time() * 1000)))
+    await db.flush()
+    return {"ok": True, "holds": holds}
+
+
+@router.get("/payouts/{payout_id}")
+async def get_payout_detail(payout_id: str, auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    from ..services.payout_engine import get_payout
+
+    row = await get_payout(db, payout_id)
+    if not row:
+        raise not_found("Payout not found")
+    return {"payout": s_payout(row)}
+
+
+@router.post("/payouts/{payout_id}/process")
+async def payout_process(payout_id: str, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    return {"payout": s_payout(await transition(db, payout_id, "process", auth["uid"]))}
+
+
+@router.post("/payouts/{payout_id}/hold")
+async def payout_hold(payout_id: str, body: dict, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    return {"payout": s_payout(await transition(db, payout_id, "hold", auth["uid"],
+                                                reason=b.get("reason"), note=b.get("note")))}
+
+
+@router.post("/payouts/{payout_id}/disburse")
+async def payout_disburse(payout_id: str, body: dict, auth: dict = Depends(admin_dep),
+                          db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    return {"payout": s_payout(await transition(db, payout_id, "disburse", auth["uid"],
+                                                payment_ref=b.get("paymentRef"), utr=b.get("utr")))}
+
+
+@router.post("/payouts/{payout_id}/fail")
+async def payout_fail(payout_id: str, body: dict, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    return {"payout": s_payout(await transition(db, payout_id, "fail", auth["uid"],
+                                                reason=(body or {}).get("reason")))}
+
+
+@router.post("/payouts/{payout_id}/reverse")
+async def payout_reverse(payout_id: str, body: dict, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    return {"payout": s_payout(await transition(db, payout_id, "reverse", auth["uid"],
+                                                reason=(body or {}).get("reason")))}
+
+
+@router.post("/payouts/{payout_id}/adjustment")
+async def payout_adjustment(payout_id: str, body: dict, auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    amt = v_int(b.get("amount"), "Adjustment", min_val=-10_000_000, max_val=10_000_000)
+    return {"payout": s_payout(await set_adjustment(db, payout_id, amt, auth["uid"],
+                                                    reason=b.get("reason")))}
+
+
+# --- audit log viewer (Phase 31) -------------------------------------------------
+@router.get("/audit")
+async def audit_log(limit: int = 150, auth: dict = Depends(admin_dep),
+                    db: AsyncSession = Depends(get_db)):
+    limit = max(1, min(500, limit))
+    rows = (await db.execute(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))).scalars().all()
+    return {"entries": [{"id": a.id, "actor": a.actor_user_id, "role": a.actor_role,
+                         "action": a.action, "entity": a.entity, "entityId": a.entity_id,
+                         "detail": j(a.detail, {}),
+                         "oldValue": j(a.old_value, a.old_value) if a.old_value else None,
+                         "newValue": j(a.new_value, a.new_value) if a.new_value else None,
+                         "reason": a.reason or None, "ip": a.ip or None,
+                         "device": a.device or None, "ts": a.created_at} for a in rows]}
 
 
 # --- samagri kits / prasad ------------------------------------------------------

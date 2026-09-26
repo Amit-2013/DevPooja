@@ -34,7 +34,7 @@ REPORT_TITLES = {
     "family-members": "Family Member", "samagri": "Samagri Kit",
     "prasad": "Prasad", "orders": "Order", "payments": "Payment",
     "refunds": "Refund", "coupons": "Coupon", "campaigns": "Campaign",
-    "payouts": "Pandit Payout", "revenue": "Revenue by Month",
+    "payouts": "Pandit Payout", "payout-audit": "Payout Ledger (holds, refs, UTR)", "revenue": "Revenue by Month",
     "commission": "Commission by Month", "puja-performance": "Puja Performance",
     "pandit-performance": "Pandit Performance", "customer-activity": "Customer Activity",
     "login-activity": "Login Activity", "audit-logs": "Audit Log", "media": "Puja Media",

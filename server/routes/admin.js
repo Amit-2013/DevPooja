@@ -7,6 +7,7 @@ const B = require('../services/bookings');
 const S = require('../lib/serialize');
 const upload = require('../lib/upload');
 const { notify } = require('../services/notify');
+const PE = require('../services/payoutEngine');
 const { v, bad, conflict, notFound, j, today, rid } = require('../lib/util');
 const P = require('../../shared/pricing');
 
@@ -41,6 +42,7 @@ router.post('/pandits/:id/kyc', (req, res) => {
   const st = v.oneOf(req.body.status, ['verified', 'rejected'], 'Status');
   const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound();
   db.prepare('UPDATE pandits SET status=? WHERE id=?').run(st, p.id);
+  AUDIT.audit(req.auth.uid, 'pandit.kyc', 'pandit', p.id, { from: p.status, to: st, reason: req.body.reason || null });
   res.json({ ok: true });
 });
 router.post('/pandits/:id/feature', (req, res) => { const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound(); db.prepare('UPDATE pandits SET featured=? WHERE id=?').run(p.featured ? 0 : 1, p.id); res.json({ ok: true }); });
@@ -75,17 +77,52 @@ router.patch('/pujas/:id', (req, res) => {
   if (b.hidden !== undefined) db.prepare('UPDATE pujas SET hidden=? WHERE id=?').run(b.hidden ? 1 : 0, p.id);
   res.json({ ok: true });
 });
-router.post('/settings', (req, res) => { setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 })); res.json({ ok: true }); });
+router.post('/settings', (req, res) => {
+  const prev = db.prepare("SELECT value FROM settings WHERE key='commission'").get();
+  setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 }));
+  AUDIT.audit(req.auth.uid, 'settings.commission', 'settings', 'commission',
+    { from: prev ? JSON.parse(prev.value) : null, to: req.body.commission });
+  res.json({ ok: true });
+});
+/* Read + update the engine's default hold set (Phase 7 hold reasons). The engine
+   falls back to the same defaults when the setting is absent. */
+const HOLD_CHECKS = ['pandit_kyc', 'bank', 'dispute', 'review', 'refund', 'reconciliation', 'admin'];
+router.get('/payout-rules', (req, res) => res.json({ holds: PE.payoutRules().holds }));
+router.post('/payout-rules', (req, res) => {
+  const holds = v.arr(req.body.holds, 'Holds').map((h) => {
+    if (!h || typeof h !== 'object') throw bad('Each hold needs reason and check');
+    return { reason: v.str(h.reason, 'Reason', { max: 120 }), check: v.oneOf(h.check, HOLD_CHECKS, 'Check') };
+  });
+  const prev = db.prepare("SELECT value FROM settings WHERE key='payout_holds'").get();
+  setSetting('payout_holds', holds);
+  AUDIT.audit(req.auth.uid, 'settings.payout_holds', 'settings', 'payout_holds',
+    { from: prev ? j(prev.value, null) : null, to: holds });
+  res.json({ ok: true, holds });
+});
 router.post('/coupons', (req, res) => {
   const b = req.body, code = v.str(b.code, 'Code', { max: 20 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!code) throw bad('Code is required');
   if (db.prepare('SELECT 1 FROM coupons WHERE code=?').get(code)) throw conflict('That code already exists');
   const type = v.oneOf(b.type, ['pct', 'flat'], 'Type'), val = v.int(b.val, 'Value', { min: 1, max: type === 'pct' ? 90 : 100000 });
   db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(code, type, val, v.int(b.max || val, 'Maximum', { min: 1 }), v.int(b.min || 1000, 'Minimum', { min: 0 }));
+  AUDIT.audit(req.auth.uid, 'coupon.create', 'coupon', code, { type, val, max: b.max || val, min: b.min || 1000 });
   res.status(201).json({ ok: true });
 });
-router.patch('/coupons/:code', (req, res) => { db.prepare('UPDATE coupons SET active=? WHERE code=?').run(req.body.active ? 1 : 0, req.params.code); res.json({ ok: true }); });
-router.post('/payouts/:id/pay', (req, res) => { const r = db.prepare("UPDATE payouts SET status='Paid' WHERE id=?").run(req.params.id); if (!r.changes) throw notFound(); res.json({ ok: true }); });
+router.patch('/coupons/:code', (req, res) => {
+  const prev = db.prepare('SELECT active FROM coupons WHERE code=?').get(req.params.code); if (!prev) throw notFound();
+  db.prepare('UPDATE coupons SET active=? WHERE code=?').run(req.body.active ? 1 : 0, req.params.code);
+  AUDIT.audit(req.auth.uid, 'coupon.toggle', 'coupon', req.params.code, { from: !!prev.active, to: !!req.body.active });
+  res.json({ ok: true });
+});
+/* Payout lifecycle goes through the centralized engine (Phases 7-8); the legacy
+   direct-'Paid' write is retired. Disbursement requires a payment reference or UTR. */
+router.post('/payouts/:id/process', (req, res) => res.json({ payout: S.payout(PE.transition(req.params.id, 'process', req.auth.uid)) }));
+router.post('/payouts/:id/hold', (req, res) => res.json({ payout: S.payout(PE.transition(req.params.id, 'hold', req.auth.uid, { reason: req.body.reason, note: req.body.note })) }));
+router.post('/payouts/:id/disburse', (req, res) => res.json({ payout: S.payout(PE.transition(req.params.id, 'disburse', req.auth.uid, { paymentRef: req.body.paymentRef, utr: req.body.utr })) }));
+router.post('/payouts/:id/fail', (req, res) => res.json({ payout: S.payout(PE.transition(req.params.id, 'fail', req.auth.uid, { reason: req.body.reason })) }));
+router.post('/payouts/:id/reverse', (req, res) => res.json({ payout: S.payout(PE.transition(req.params.id, 'reverse', req.auth.uid, { reason: req.body.reason })) }));
+router.post('/payouts/:id/adjustment', (req, res) => res.json({ payout: S.payout(PE.setAdjustment(req.params.id, v.int(req.body.amount, 'Adjustment', { min: -10000000, max: 10000000 }), req.auth.uid, req.body.reason)) }));
+router.get('/payouts/:id', (req, res) => { const r = PE.get(req.params.id); if (!r) throw notFound(); res.json({ payout: S.payout(r) }); });
 router.patch('/banners/:id', (req, res) => { db.prepare('UPDATE banners SET enabled=? WHERE id=?').run(req.body.enabled ? 1 : 0, req.params.id); res.json({ ok: true }); });
 router.post('/campaigns', (req, res) => {
   db.prepare("INSERT INTO campaigns(id,name,channel,audience,status,sent) VALUES(?,?,?,?,'Scheduled',0)").run('C' + nextSeq('campaign_seq', 3), v.str(req.body.name, 'Name', { max: 80 }), v.oneOf(req.body.channel, ['WhatsApp', 'Email', 'SMS', 'Push'], 'Channel'), v.oneOf(req.body.audience, ['All customers', 'Repeat customers', 'Plus members'], 'Audience'));
@@ -429,8 +466,10 @@ const REPORTS = {
     ['Code', 'Type', 'Value', 'Max (Rs)', 'Min order (Rs)', 'Active', 'Times used']),
   campaigns: (f) => select('SELECT id, name, channel, audience, status, sent FROM campaigns ORDER BY id', [],
     ['ID', 'Name', 'Channel', 'Audience', 'Status', 'Sent']),
-  payouts: (f) => select('SELECT po.id, p.name AS pandit, po.amount, po.date, po.status, po.booking_id FROM payouts po LEFT JOIN pandits p ON p.id=po.pandit_id ORDER BY po.date DESC', [],
-    ['Payout ID', 'Pandit', 'Amount (Rs)', 'Date', 'Status', 'Booking ID']),
+  payouts: (f) => select('SELECT po.id, p.name AS pandit, po.amount, po.date, po.status, po.booking_id, po.gross_amount, po.commission_amt, po.tax_amt, po.refund_amt, po.adjustment_amt, po.hold_reason, po.processing_date, po.disbursement_date, po.payment_ref, po.utr FROM payouts po LEFT JOIN pandits p ON p.id=po.pandit_id ORDER BY po.date DESC', [],
+    ['Payout ID', 'Pandit', 'Net (Rs)', 'Date', 'Status', 'Booking ID', 'Gross (Rs)', 'Commission (Rs)', 'Tax (Rs)', 'Refund (Rs)', 'Adjustment (Rs)', 'Hold reason', 'Processing date', 'Disbursement date', 'Payment ref', 'UTR']),
+  'payout-audit': (f) => select('SELECT po.id, po.pandit_id, po.amount, po.status, po.hold_reason, po.hold_note, po.processing_date, po.disbursement_date, po.payment_ref, po.utr FROM payouts po ORDER BY po.date DESC', [],
+    ['Payout ID', 'Pandit ID', 'Net (Rs)', 'Status', 'Hold reason', 'Hold note', 'Processing date', 'Disbursement date', 'Payment ref', 'UTR']),
   revenue: (f) => {
     const rows = db.prepare("SELECT substr(b.date,1,7) ym, COUNT(*) n, SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)) amt FROM bookings b WHERE json_extract(b.pay,'$.paid')=1 GROUP BY ym ORDER BY ym DESC").all();
     return { columns: ['Month', 'Paid bookings', 'Revenue (Rs)'], rows: rows.map((r) => [r.ym, r.n, r.amt || 0]) };
@@ -534,7 +573,7 @@ const REPORT_TITLES = {
   pandits: 'Pandit', temples: 'Temple', pujas: 'Puja', bookings: 'Puja Booking', 'custom-requests': 'Customized Puja Request',
   kundalis: 'Kundali', 'kundali-payments': 'Kundali Payment', 'family-members': 'Family Member', samagri: 'Samagri Kit',
   prasad: 'Prasad', orders: 'Order', payments: 'Payment', refunds: 'Refund', coupons: 'Coupon', campaigns: 'Campaign',
-  payouts: 'Pandit Payout', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
+  payouts: 'Pandit Payout', 'payout-audit': 'Payout Ledger (holds, refs, UTR)', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
   'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
   'audit-logs': 'Audit Log', media: 'Puja Media'
 };
@@ -693,14 +732,15 @@ router.post('/users/:id/status', (req, res) => {
     if (actives <= 1) throw bad('At least one active admin must remain');
   }
   db.prepare('UPDATE users SET status=? WHERE id=?').run(status, u.id);
-  AUDIT.audit(req.auth.uid, 'account.status', 'user', u.id, { from: u.status || 'active', to: status });
+  AUDIT.audit(req.auth.uid, 'account.status', 'user', u.id, { from: u.status || 'active', to: status },
+    'Account lifecycle change from the admin accounts screen');
   res.json({ ok: true, status });
 });
 
 /* Audit trail (admin actions) for the admin UI. */
 router.get('/audit', (req, res) => {
   const limit = Math.min(500, v.int(req.query.limit || 150, 'Limit', { min: 1, max: 500 }));
-  res.json({ entries: AUDIT.recent(limit).map((a) => ({ id: a.id, actor: a.actor_user_id, role: a.actor_role, action: a.action, entity: a.entity, entityId: a.entity_id, detail: j(a.detail, {}), ts: a.created_at })) });
+  res.json({ entries: AUDIT.recent(limit).map((a) => ({ id: a.id, actor: a.actor_user_id, role: a.actor_role, action: a.action, entity: a.entity, entityId: a.entity_id, detail: j(a.detail, {}), oldValue: a.old_value ? j(a.old_value, a.old_value) : null, newValue: a.new_value ? j(a.new_value, a.new_value) : null, reason: a.reason || null, ip: a.ip || null, device: a.device || null, ts: a.created_at })) });
 });
 
 /* --- Puja photo management (admin): upload, moderate, publish, download ----- */

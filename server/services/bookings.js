@@ -4,6 +4,7 @@ const P = require('../../shared/pricing');
 const { j, iso, addDays, today, bad, forbidden, notFound, conflict, v } = require('../lib/util');
 const { notify } = require('./notify');
 const pay = require('./payments');
+const PE = require('./payoutEngine');
 
 const STATUSES = ['New', 'Confirmed', 'Assigned', 'Started', 'Completed', 'Cancelled'];
 const OPEN = ['New', 'Confirmed', 'Assigned'];
@@ -179,7 +180,6 @@ function reviewBooking(user, id, body) {
 
 function completeBooking(row, mediaUrls = []) {
   const q = j(row.q, {}), ops = j(row.ops, {});
-  const comm = getSetting('commission', 20);
   if (j(row.sam, []).length) ops.sam = 'Delivered';
   if (j(row.pra, []).length || row.mode === 'temple') ops.pra = ops.pra || 'Dispatched';
   const media = [...j(row.media, []), ...mediaUrls];
@@ -188,8 +188,9 @@ function completeBooking(row, mediaUrls = []) {
     db.prepare('UPDATE users SET pts=pts+? WHERE id=?').run(q.earn || 0, row.user_id);
     if (row.pandit_id) {
       db.prepare('UPDATE pandits SET done=done+1 WHERE id=?').run(row.pandit_id);
-      const n = db.prepare('SELECT COUNT(*) c FROM payouts').get().c + 1;
-      db.prepare('INSERT INTO payouts(id,pandit_id,amount,date,status,booking_id) VALUES(?,?,?,?,?,?)').run('PO' + n + '-' + row.id, row.pandit_id, Math.round(q.svc * (1 - comm / 100)), today(), 'Pending', row.id);
+      /* Centralized payout engine (Phases 7-8): commission math, hold evaluation and
+         status vocabulary live in services/payoutEngine.js — never inline here. */
+      PE.createForBooking(row, row.pandit_id);
     }
   })();
   const name = db.prepare('SELECT name FROM pujas WHERE id=?').get(row.puja_id).name;

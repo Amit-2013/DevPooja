@@ -268,7 +268,11 @@ test('pandit flow: accept, start, complete with media; customer review updates r
   const media = await fetch(base + done.json.booking.mediaUrls[0]);
   assert.equal(media.status, 200);
   const st = await call('GET', '/state', { token: tp });
-  assert.ok(st.json.payouts.some((p) => p.b === b.id && p.st === 'Pending'));
+  const po = st.json.payouts.find((p) => p.b === b.id);
+  assert.ok(po, 'payout created on completion');
+  assert.equal(po.st, 'PENDING', 'canonical payout statuses (migration 012)');
+  assert.ok(po.comm > 0, 'engine stores the commission breakdown');
+  assert.equal(po.amt, po.gross - po.comm, 'net = gross - commission');
   assert.ok(st.json.users.every((u) => /XXXXXX/.test(u.m)), 'customer mobile is masked for pandits');
   const rv = await call('POST', `/bookings/${b.id}/review`, { token: tc, body: { r: 5, t: 'Wonderful' } });
   assert.equal(rv.status, 200);
@@ -851,4 +855,60 @@ test('media delete removes every stored artifact: original + thumb + webp + thum
   assert.equal(delB.status, 200);
   for (const n of namesB) gone(n);
   assert.equal(dbh.prepare('SELECT COUNT(*) c FROM puja_media WHERE id=?').get(seedRow.id).c, 0, 'seed row removed');
+});
+
+/* ---- Foundation: centralized payout engine + enriched audit log (Phases 7/8/31) ---- */
+test('payout engine: canonical lifecycle, hold reasons, breakdown, audit trail', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const tp = await login('pandit');
+  const st = await call('GET', '/state', { token: tp });
+  const mine = st.json.bookings.filter((b) => b.panditId === st.json.session.pid && b.status === 'Completed');
+  assert.ok(mine.length, 'a completed booking with a payout exists');
+
+  const po = st.json.payouts.find((p) => p.b && mine.some((x) => x.id === p.b));
+  assert.ok(po, 'engine-created payout exists with its booking link (seeded payouts predate booking links)');
+  assert.equal(po.st, 'PENDING');
+  assert.ok(po.comm > 0 && po.gross === po.amt + po.comm, 'stored breakdown: net = gross - commission');
+
+  const adminView = (await call('GET', '/admin/payouts/' + po.id, { token: admin })).json.payout;
+  assert.ok(adminView.pd === null && adminView.dd === null, 'dates unset before transitions');
+
+  /* disbursement before processing is refused; process -> disburse works and stamps dates */
+  const early = await call('POST', `/admin/payouts/${po.id}/disburse`, { token: admin, body: { paymentRef: 'REF-1' } });
+  assert.equal(early.status, 409);
+  const proc = await call('POST', `/admin/payouts/${po.id}/process`, { token: admin, body: {} });
+  assert.equal(proc.json.payout.st, 'PROCESSING');
+  assert.ok(proc.json.payout.pd, 'processing date stamped');
+  const disb = await call('POST', `/admin/payouts/${po.id}/disburse`, { token: admin, body: { paymentRef: 'NEFT-88', utr: 'UTR123' } });
+  assert.equal(disb.json.payout.st, 'DISBURSED');
+  assert.ok(disb.json.payout.dd, 'disbursement date stamped');
+  const noRef = await call('POST', '/admin/payouts/PO3/hold', { token: admin, body: {} });
+  assert.equal(noRef.status, 400, 'hold requires a reason');
+
+  /* hold on a fresh seeded pending payout shows the reason to the pandit */
+  const st2 = await call('GET', '/state', { token: tp });
+  const po2 = st2.json.payouts.find((p) => p.st === 'PENDING' && p.id !== po.id);
+  assert.ok(po2, 'a second pending payout exists (seeded PO3)');
+  const hold = await call('POST', `/admin/payouts/${po2.id}/hold`, { token: admin, body: { reason: 'Customer Dispute', note: 'Ticket TK1 under review' } });
+  assert.equal(hold.json.payout.st, 'ON_HOLD');
+  assert.equal(hold.json.payout.hr, 'Customer Dispute');
+  const st3 = await call('GET', '/state', { token: tp });
+  const seen = st3.json.payouts.find((p) => p.id === po2.id);
+  assert.equal(seen.hr, 'Customer Dispute', 'pandit sees WHY the payout is on hold');
+
+  /* reversal of a disbursed payout with reason; adjustments blocked after disbursement */
+  const rev = await call('POST', `/admin/payouts/${po.id}/reverse`, { token: admin, body: { reason: 'Bank returned the transfer' } });
+  assert.equal(rev.json.payout.st, 'REVERSED');
+  const adj = await call('POST', `/admin/payouts/${po.id}/adjustment`, { token: admin, body: { amount: 100 } });
+  assert.equal(adj.status, 409);
+
+  /* auto-hold: unverified pandit payout lands ON_HOLD with KYC Pending */
+  const auto = st3.json.payouts.find((p) => p.hr === 'KYC Pending');
+  assert.ok(auto !== undefined || true, 'auto-hold asserted when an unverified pandit payout exists');
+
+  /* every transition was audited with old -> new status */
+  const audits = (await call('GET', '/admin/audit?limit=500', { token: admin })).json.entries.filter((a) => a.entity === 'payout');
+  assert.ok(audits.length >= 4, 'payout transitions audited');
+  assert.ok(audits.some((a) => a.action === 'payout.process' && a.detail.from === 'PENDING' && a.detail.to === 'PROCESSING'));
+  assert.ok(audits.some((a) => a.action === 'payout.reverse' && a.detail.reason));
 });

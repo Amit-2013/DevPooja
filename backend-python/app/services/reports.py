@@ -188,8 +188,19 @@ async def report(db: AsyncSession, report_id: str, f: dict) -> dict | None:
 
     if report_id == "payouts":
         rows = await _all(db, "SELECT po.*, p.name AS pandit FROM payouts po LEFT JOIN pandits p ON p.id=po.pandit_id ORDER BY po.date DESC")
-        return {"columns": ["Payout ID", "Pandit", "Amount (Rs)", "Date", "Status", "Booking ID"],
-                "rows": [[r.id, r.pandit or "", r.amount, r.date, r.status, r.booking_id] for r in rows]}
+        return {"columns": ["Payout ID", "Pandit", "Net (Rs)", "Date", "Status", "Booking ID", "Gross (Rs)", "Commission (Rs)", "Tax (Rs)", "Refund (Rs)", "Adjustment (Rs)", "Hold reason", "Processing date", "Disbursement date", "Payment ref", "UTR"],
+                "rows": [[r.id, r.pandit or "", r.amount, r.date, r.status, r.booking_id,
+                          r.gross_amount if r.gross_amount is not None else r.amount,
+                          r.commission_amt, r.tax_amt, r.refund_amt, r.adjustment_amt,
+                          r.hold_reason or "", r.processing_date or "", r.disbursement_date or "",
+                          r.payment_ref or "", r.utr or ""] for r in rows]}
+
+    if report_id == "payout-audit":
+        rows = await _all(db, "SELECT po.* FROM payouts po ORDER BY po.date DESC")
+        return {"columns": ["Payout ID", "Pandit ID", "Net (Rs)", "Status", "Hold reason", "Hold note", "Processing date", "Disbursement date", "Payment ref", "UTR"],
+                "rows": [[r.id, r.pandit_id or "", r.amount, r.status, r.hold_reason or "",
+                          r.hold_note or "", r.processing_date or "", r.disbursement_date or "",
+                          r.payment_ref or "", r.utr or ""] for r in rows]}
 
     if report_id == "revenue":
         rows = await _all(db, "SELECT substr(b.date, 1, 7) AS ym, COUNT(*) AS n, b.pay, b.q FROM bookings b GROUP BY ym ORDER BY ym DESC")
