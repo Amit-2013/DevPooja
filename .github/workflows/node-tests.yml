@@ -21,7 +21,8 @@ permissions:
 jobs:
   node-tests:
     name: Node (Express + SQLite)
-    # Pinned image (hygiene): ubuntu-latest drift made failures harder to attribute.
+    # Pinned image (hygiene only — the pin was NOT the fix for the failures
+    # below; it just keeps runner-image drift out of the attribution picture).
     # ROOT CAUSE of the earlier phantom Node failures (1d14e99, 186848e, 3c02b4c):
     # sharp ships its platform binaries as npm OPTIONAL dependencies (@img/*),
     # so a flaked prebuild download is silently skipped; require('sharp') then
