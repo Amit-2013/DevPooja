@@ -21,9 +21,13 @@ permissions:
 jobs:
   node-tests:
     name: Node (Express + SQLite)
-    # Pinned image: ubuntu-latest drifts across runner images and has twice
-    # failed the Node test step with no related code change (Python green on
-    # the same commit). Pinning removes toolchain drift from the equation.
+    # Pinned image (hygiene): ubuntu-latest drift made failures harder to attribute.
+    # ROOT CAUSE of the earlier phantom Node failures (1d14e99, 186848e, 3c02b4c):
+    # sharp ships its platform binaries as npm OPTIONAL dependencies (@img/*),
+    # so a flaked prebuild download is silently skipped; require('sharp') then
+    # throws, mediaVariants disables WebP variants, and the media-delete test
+    # fails with an empty webp column. The verify/retry steps below turn that
+    # silent skip into a loud install failure with one automatic retry.
     # RETIREMENT REVIEW: ubuntu-24.04 will eventually be retired by GitHub
     # (announced in actions/runner-images + the changelog, with brownout runs
     # before removal; the next LTS is already available by then). When this
@@ -43,7 +47,20 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        id: install
         run: npm ci
+
+      - name: Verify sharp prebuilds landed
+        id: verify-sharp
+        run: node -e "require('sharp'); console.log('sharp native prebuilds OK')"
+
+      - name: Retry install (optional-dep downloads can flake silently)
+        if: failure() && steps.verify-sharp.conclusion == 'failure'
+        run: npm ci
+
+      - name: Verify sharp prebuilds landed (after retry)
+        if: failure() && steps.verify-sharp.conclusion == 'failure'
+        run: node -e "require('sharp'); console.log('sharp native prebuilds OK after retry')"
 
       - name: API tests (node --test)
         run: |

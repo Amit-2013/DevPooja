@@ -16,7 +16,14 @@ const THUMB_SUFFIX = '.t320.jpg';
 const THUMB_WEBP_SUFFIX = '.t320.webp';
 const WEBP_SUFFIX = '.webp';
 let sharp = null;
-try { sharp = require('sharp'); } catch (e) { /* variants stay disabled without sharp */ }
+try { sharp = require('sharp'); }
+catch (e) {
+  /* sharp's @img/* platform binaries are OPTIONAL npm deps: a flaked prebuild
+     download is silently skipped by the installer, which lands here. Variants
+     stay disabled without sharp, but this must never be silent — CI and
+     deployments need to see why (a retry of npm ci usually fixes it). */
+  console.warn('[mediaVariants] sharp unavailable — WebP variants disabled:', e.message);
+}
 
 const baseName = (f) => String(f || '').replace(/\.[a-z0-9]+$/i, '');
 const exists = (p) => { try { return fs.statSync(p).size > 0; } catch { return false; } };

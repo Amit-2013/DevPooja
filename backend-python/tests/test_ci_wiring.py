@@ -153,3 +153,16 @@ def test_reusable_workflows_are_workflow_call_only():
         assert set(triggers) == {"workflow_call"}, (
             f"{name} triggers are {sorted(triggers)} — reusable workflows should "
             "only expose workflow_call; ci.yml and pages.yml own the triggers")
+
+
+def test_sharp_optional_dependency_guard_stays_in_place():
+    """sharp's @img/* prebuilds are OPTIONAL npm deps; a flaked download silently
+    disables WebP variants and phantom-fails the media tests. The install steps
+    must keep verifying sharp loads and retrying once — removing this guard
+    resurrects the undiagnosable failures from a536278-era runs."""
+    for path in (NODE, PAGES):
+        text = _text(path)
+        assert "Verify sharp prebuilds landed" in text, (
+            f"{path.name} lost the sharp install verification — required because "
+            "npm silently skips flaked optional-dep downloads")
+        assert "Retry install" in text, f"{path.name} lost the npm ci retry step"

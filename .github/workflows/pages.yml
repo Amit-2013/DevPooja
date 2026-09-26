@@ -37,6 +37,17 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # Same silent-optional-deps guard as node-tests.yml: the snapshot build
+      # seeds photos through sharp, so a missing prebuild degrades the demo.
+      - name: Verify sharp prebuilds landed
+        id: verify-sharp
+        run: node -e "require('sharp'); console.log('sharp native prebuilds OK')"
+      - name: Retry install (optional-dep downloads can flake silently)
+        if: failure() && steps.verify-sharp.conclusion == 'failure'
+        run: npm ci
+      - name: Verify sharp prebuilds landed (after retry)
+        if: failure() && steps.verify-sharp.conclusion == 'failure'
+        run: node -e "require('sharp'); console.log('sharp native prebuilds OK after retry')"
       - run: npm run build:pages
       - uses: actions/configure-pages@v5
         with:

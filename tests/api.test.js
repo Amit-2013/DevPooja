@@ -816,6 +816,13 @@ test('media delete removes every stored artifact: original + thumb + webp + thum
   const jpeg = fs.readFileSync(path.join(__dirname, '..', 'shared', 'seed-photos', 'durga.jpg')); // real decodable image for sharp
   const dbh = require('../server/db').db;
   const V = require('../server/services/mediaVariants');
+  /* sharp's @img/* platform binaries are npm OPTIONAL deps: a flaked prebuild
+     download is silently skipped, variants end up disabled, and the assertions
+     below would fail with a misleading empty-webp error. Fail here instead,
+     with the actual remediation. */
+  let sharpLoadable = null;
+  try { sharpLoadable = require('sharp'); } catch (e) { sharpLoadable = null; }
+  assert.ok(sharpLoadable, 'sharp could not be loaded — the @img/* optional platform binaries likely failed to download; re-run npm ci before investigating app code');
   const updir = path.join(process.env.UPLOAD_DIR, 'media');
   const gone = (n) => assert.equal(fs.existsSync(path.join(updir, n)), false, 'artifact removed on delete: ' + n);
 
