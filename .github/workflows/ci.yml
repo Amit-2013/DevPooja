@@ -2,8 +2,11 @@
 #   .github/workflows/node-tests.yml    (Node/Express suite + npm audit gate)
 #   .github/workflows/python-tests.yml  (FastAPI suite + pip-audit gate)
 # Edit the reusable files to change how either backend is tested; edit THIS file
-# only for triggers (push/PR/monthly drift-catcher) or job wiring.
+# only for triggers (push/PR/manual dispatch/monthly drift-catcher) or job wiring.
 #
+# workflow_dispatch lets an operator rerun both audit gates on demand — after a
+# new advisory lands or a floating dependency looks suspect — without waiting
+# for the monthly schedule below.
 # The monthly scheduled run (3rd, 05:23 UTC) is the drift-catcher between pushes:
 # - new GitHub advisories fail the npm audit and pip-audit gates even with no
 #   code change;
@@ -20,6 +23,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
   schedule:
     # Monthly drift-catcher: fixed day-of-month so it is a true monthly cadence.
     # tests/test_ci_wiring.py guards this line — removing it fails the suite.

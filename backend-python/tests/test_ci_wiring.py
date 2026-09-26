@@ -62,6 +62,17 @@ def test_monthly_schedule_present():
     assert day.isdigit() and 1 <= int(day) <= 28
 
 
+def test_manual_dispatch_available():
+    """The drift-catcher must stay runnable on demand: the monthly schedule is
+    the fallback, not the only trigger. After a new advisory lands or a
+    floating dependency looks suspect, an operator reruns the audit gates
+    immediately instead of waiting for the cron."""
+    triggers = _triggers(CI)
+    assert "workflow_dispatch" in triggers, (
+        "ci.yml lost workflow_dispatch — manual drift-catcher runs must stay "
+        "available so the audit gates can be rerun between pushes")
+
+
 def test_ci_jobs_call_the_reusable_workflows():
     jobs = _load(CI)["jobs"]
     uses = {name: cfg.get("uses") for name, cfg in jobs.items()}
