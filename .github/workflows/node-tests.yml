@@ -1,0 +1,70 @@
+name: Node tests (reusable)
+
+# The single source of truth for the Node/Express test job. Called by:
+#   - .github/workflows/ci.yml    (push, PR, monthly drift-catcher schedule)
+#   - .github/workflows/pages.yml (before publishing the Pages snapshot)
+# Setup, test steps, failure annotations and the npm audit gate live ONLY here —
+# edit this file to change them everywhere.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js major version (better-sqlite3 13 needs >= 22)
+        required: false
+        type: string
+        default: '22'
+
+permissions:
+  contents: read
+
+jobs:
+  node-tests:
+    name: Node (Express + SQLite)
+    # Pinned image: ubuntu-latest drifts across runner images and has twice
+    # failed the Node test step with no related code change (Python green on
+    # the same commit). Pinning removes toolchain drift from the equation.
+    # RETIREMENT REVIEW: ubuntu-24.04 will eventually be retired by GitHub
+    # (announced in actions/runner-images + the changelog, with brownout runs
+    # before removal; the next LTS is already available by then). When this
+    # job starts failing on image grounds — or the guard in
+    # tests/test_ci_wiring.py starts skipping — re-pin to the newest LTS
+    # (ubuntu-26.04 or newer at that point), run both suites, then push.
+    # REVIEW-BY: 2027 — the matching guard test fails the suite once this year
+    # has passed, forcing the pin to be re-reviewed.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: API tests (node --test)
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/api-test.log
+
+      - name: API test failure details
+        if: failure()
+        run: echo "::error::Node API tests failed — $(tail -c 1200 /tmp/api-test.log | tr '\r\n' '  ')"
+
+      - name: Astro tests
+        run: node --test tests/astro.test.js
+
+      - name: UI smoke (jsdom)
+        run: npm run test:ui
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+        # Gates the job now: the uuid override is resolved. exceljs declares
+        # uuid ^8.3.0 (2 moderate advisories below 11.1.1) and package.json forces
+        # patched ^11.1.0 — npm's only alternative "fix" is a breaking exceljs
+        # downgrade. With the override, `npm audit --audit-level=high` exits 0;
+        # any future high/critical advisory fails this job. If that happens,
+        # revisit the override in package.json before weakening this gate.

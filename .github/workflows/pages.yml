@@ -20,9 +20,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Reuse the shared Node test job (setup, tests, annotations, audit gate) —
+  # the same single source of truth ci.yml calls. A broken build never publishes.
+  tests:
+    name: Node tests (Pages gate)
+    uses: ./.github/workflows/node-tests.yml
+
   build:
-    # Pinned image: same rationale as ci.yml (test steps failed twice on
-    # ubuntu-latest with no related code change; local runs are always green).
+    needs: tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +37,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      # Never publish a snapshot of a broken build.
-      - name: Tests
-        run: |
-          set -o pipefail
-          npm test 2>&1 | tee /tmp/pages-test.log
-      - name: Test failure details
-        if: failure()
-        run: echo "::error::npm test failed on the Pages build — $(tail -c 1200 /tmp/pages-test.log | tr '\r\n' '  ')"
       - run: npm run build:pages
       - uses: actions/configure-pages@v5
         with:

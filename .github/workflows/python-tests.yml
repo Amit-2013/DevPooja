@@ -1,0 +1,56 @@
+name: Python tests (reusable)
+
+# The single source of truth for the FastAPI/pytest test job. Called by:
+#   - .github/workflows/ci.yml (push, PR, monthly drift-catcher schedule)
+# Setup, the pytest suite and the pip-audit gate live ONLY here.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version for the FastAPI backend
+        required: false
+        type: string
+        default: '3.12'
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    name: Python (FastAPI + pytest)
+    # Pinned image: same rationale and REVIEW-BY as node-tests.yml — keep the
+    # two pins in lockstep when re-pinning.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: backend-python/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest suite
+        run: python -m pytest -q
+
+      - name: Dependency audit (pip-audit)
+        run: |
+          python -m pip install -q pip-audit
+          python -m pip_audit -r requirements.txt
+        # Gates the job, mirroring the Node npm audit gate. -r resolves the full
+        # transitive closure of requirements.txt exactly like the install step,
+        # so the floating >= bounds are audited at their current versions.
+        # pip-audit has no severity threshold: it fails on ANY known advisory.
+        # For an accepted risk, pin the ignore with a dated comment in this
+        # workflow (--ignore-vuln GHSA-xxxx) and revisit it alongside the
+        # runner-image REVIEW-BY in node-tests.yml.

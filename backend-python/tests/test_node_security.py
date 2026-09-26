@@ -55,7 +55,9 @@ def test_override_is_effective_in_the_lockfile():
 
 
 def test_ci_audit_step_gates_without_continue_on_error():
-    wf = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    # The gate lives in the reusable workflow (node-tests.yml) since the
+    # reusable-workflow extraction; ci.yml is a triggers-only caller.
+    wf = (ROOT / ".github/workflows/node-tests.yml").read_text(encoding="utf-8")
     assert "npm audit --audit-level=high" in wf
     block = wf.split("npm audit --audit-level=high", 1)[1][:300]
     assert "continue-on-error: true" not in block, (

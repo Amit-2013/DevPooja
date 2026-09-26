@@ -1,11 +1,10 @@
-name: CI
-
-# Run the Node/Express suite and the Python/FastAPI suite on every push and PR.
-# Both backends run in parallel; the Python suite includes the full
-# SQLite->Postgres migration dress rehearsal when a source db is present
-# (it self-skips on CI where data/*.db is gitignored).
+# CI — triggers only. The job definitions live in the reusable workflows:
+#   .github/workflows/node-tests.yml    (Node/Express suite + npm audit gate)
+#   .github/workflows/python-tests.yml  (FastAPI suite + pip-audit gate)
+# Edit the reusable files to change how either backend is tested; edit THIS file
+# only for triggers (push/PR/monthly drift-catcher) or job wiring.
 #
-# A monthly scheduled run (3rd, 05:23 UTC) is the drift-catcher between pushes:
+# The monthly scheduled run (3rd, 05:23 UTC) is the drift-catcher between pushes:
 # - new GitHub advisories fail the npm audit and pip-audit gates even with no
 #   code change;
 # - backend-python/requirements.txt uses >= bounds, so `pip install -r` can pick
@@ -15,6 +14,8 @@ name: CI
 #   regressions show up here too.
 # Note: GitHub disables scheduled workflows after 60 days of repo inactivity —
 # if this ever stops firing, that is why (re-enable in the Actions tab).
+
+name: CI
 
 on:
   push:
@@ -28,89 +29,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  node-tests:
+  node:
     name: Node (Express + SQLite)
-    # Pinned image: ubuntu-latest drifts across runner images and has twice
-    # failed the Node test step with no related code change (Python green on
-    # the same commit). Pinning removes toolchain drift from the equation.
-    # RETIREMENT REVIEW: ubuntu-24.04 will eventually be retired by GitHub
-    # (announced in actions/runner-images + the changelog, with brownout runs
-    # before removal; the next LTS is already available by then). When this
-    # job starts failing on image grounds — or the guard in
-    # tests/test_ci_wiring.py starts skipping — re-pin to the newest LTS
-    # (ubuntu-26.04 or newer at that point), run both suites, then push.
-    # REVIEW-BY: 2027 — the matching guard test fails the suite once this year
-    # has passed, forcing the pin to be re-reviewed.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/node-tests.yml
 
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: API tests (node --test)
-        run: |
-          set -o pipefail
-          npm test 2>&1 | tee /tmp/api-test.log
-
-      - name: API test failure details
-        if: failure()
-        run: echo "::error::Node API tests failed — $(tail -c 1200 /tmp/api-test.log | tr '\r\n' '  ')"
-
-      - name: Astro tests
-        run: node --test tests/astro.test.js
-
-      - name: UI smoke (jsdom)
-        run: npm run test:ui
-
-      - name: Security audit
-        run: npm audit --audit-level=high
-        # Gates the job now: the uuid override is resolved. exceljs declares
-        # uuid ^8.3.0 (2 moderate advisories below 11.1.1) and package.json forces
-        # patched ^11.1.0 — npm's only alternative "fix" is a breaking exceljs
-        # downgrade. With the override, `npm audit --audit-level=high` exits 0;
-        # any future high/critical advisory fails this job. If that happens,
-        # revisit the override in package.json before weakening this gate.
-
-  python-tests:
+  python:
     name: Python (FastAPI + pytest)
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: backend-python
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend-python/requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run pytest suite
-        run: python -m pytest -q
-
-      - name: Dependency audit (pip-audit)
-        run: |
-          python -m pip install -q pip-audit
-          python -m pip_audit -r requirements.txt
-        # Gates the job, mirroring the Node npm audit gate. -r resolves the full
-        # transitive closure of requirements.txt exactly like the install step,
-        # so the floating >= bounds are audited at their current versions.
-        # pip-audit has no severity threshold: it fails on ANY known advisory.
-        # For an accepted risk, pin the ignore with a dated comment in this
-        # workflow (--ignore-vuln GHSA-xxxx) and revisit it alongside the
-        # runner-image REVIEW-BY below.
+    uses: ./.github/workflows/python-tests.yml
