@@ -138,11 +138,35 @@ backend-python/
 
 ## Render deployment (when the cutover is chosen)
 
-- **Build:** `pip install -r backend-python/requirements.txt`
-- **Start:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (working dir `backend-python`)
-- Set env vars: `DATABASE_URL`, `JWT_SECRET`, `RAZORPAY_WEBHOOK_SECRET`,
-  `ENVIRONMENT=production`, `DEMO_MODE=false`
-- Health check path: `/api/health`
+The repo-root **`render.yaml`** declares this service (`daivikpooja-fastapi`,
+Docker runtime, free plan, health check `/api/health`). In Render:
+**New + → Blueprint** → pick this repo → **Apply**. Render prompts once for
+`DATABASE_URL` (and the Razorpay secrets if you want them now), generates a
+random `JWT_SECRET`, and auto-syncs on every push afterwards. The existing
+Node service is untouched by the blueprint; `render.yaml` carries a commented
+block to adopt it too (paste its exact dashboard name — a matching name
+adopts the existing service, a different one would create a duplicate).
+
+The blueprint builds `backend-python/Dockerfile` with the **repo root as the
+docker context** (`dockerContext: .`), because the app reads
+`server/data/catalog.json` and serves `public/` — both outside
+`backend-python/`. The multi-stage image installs pinned wheels on
+`python:3.12-slim`, runs as `nobody`, keeps uploads (and the fallback SQLite
+file) on a `/data` volume, and honours Render's injected `PORT`. To adopt the
+service without the blueprint instead: create a Web Service with Docker
+runtime, Dockerfile path `./backend-python/Dockerfile`, context `.`.
+Native-Python fallback: build `pip install -r backend-python/requirements.txt`,
+start `cd backend-python && uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+
+Env vars (identical either way): `DATABASE_URL` (Supabase pooler URI — the
+blueprint prompts for it; without it the service boots on throwaway SQLite),
+`JWT_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `PAYMENT_MODE`,
+`ENVIRONMENT=production`, `DEMO_MODE=false`.
+
+Local image test: `docker build -f backend-python/Dockerfile -t daivikpooja-api .`
+then `docker run -p 8000:8000 -e JWT_SECRET=... daivikpooja-api`.
+A root `.dockerignore` keeps secrets, databases and venvs out of both image
+builds (Node and Python).
 
 ## Testing
 

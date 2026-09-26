@@ -1,11 +1,39 @@
-node_modules
-data
-backups
-uploads
-dist
+# Applies to both image builds (repo-root Node Dockerfile and
+# backend-python/Dockerfile). Neither build may bake in secrets, databases or
+# local artifacts — and nothing here may exclude public/ or server/data/,
+# which the FastAPI image needs.
+
+# VCS and CI
 .git
+.github
 .freebuff
-*.zip
-*.db
+
+# Node build/test artifacts
+node_modules
+dist
+coverage
+*.log
+
+# Local runtime dirs (root-anchored: server/data/ stays IN the context —
+# the FastAPI image copies catalog.json from it)
+data
+uploads
+
+# Python backend artifacts
+backend-python/.venv
+backend-python/data
+backend-python/uploads
+backend-python/.pytest_cache
+**/__pycache__
+**/*.pyc
+
+# Local env files and databases — never baked into images
 .env
-server.log
+backend-python/.env
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# Backups and archives
+backups
+*.zip

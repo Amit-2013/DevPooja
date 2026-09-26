@@ -1,0 +1,90 @@
+# Render Blueprint — DaivikPooja
+#
+# Declares the FastAPI (backend-python) service. One "Apply" in the Render
+# dashboard (New + → Blueprint → point at this repo) provisions it.
+#
+# The FastAPI image is built from the REPO ROOT context, because the app reads
+# two repo-root paths at boot: server/data/catalog.json (catalogue seed) and
+# public/ (the SPA). See backend-python/Dockerfile.
+#
+# ---------------------------------------------------------------------
+# Adopting the existing Node service (optional)
+# ---------------------------------------------------------------------
+# A blueprint only manages services it declares; the Node service keeps
+# running/auto-deploying exactly as it is today either way. If you want Render
+# to manage it from this file too, uncomment the block at the bottom and set
+# `name:` to the service's EXACT name from the Render dashboard — a matching
+# name ADOPTS the existing service, a non-matching name would create a
+# duplicate instead.
+#
+# ---------------------------------------------------------------------
+# Secrets (sync: false)
+# ---------------------------------------------------------------------
+# Render prompts for sync:false values once, during the FIRST Apply. On later
+# blueprint syncs they are ignored — set/update secrets in the dashboard:
+#   DATABASE_URL            — Supabase pooled Postgres URI (required; see below)
+#   RAZORPAY_WEBHOOK_SECRET — same secret as the Razorpay dashboard
+#   RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET — only when PAYMENT_MODE=razorpay
+#
+# DATABASE_URL format (Supabase pooler, port 6543):
+#   postgresql+asyncpg://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:6543/postgres
+# Supabase poolers need statement_cache_size=0; app/db.py adds it automatically.
+
+services:
+  # ---- new FastAPI service (backend-python)
+  - type: web
+    name: daivikpooja-fastapi
+    runtime: docker
+    dockerfilePath: ./backend-python/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    plan: free
+    envVars:
+      # Supabase pooled URI — set in the dashboard, never committed here.
+      # Leaving it unset falls back to the image's throwaway SQLite file
+      # (fine for a smoke test, not for real data on a re-deploying host).
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DEMO_MODE
+        value: "false"
+      - key: UPLOAD_DIR
+        value: /data/uploads
+      - key: PAYMENT_MODE
+        value: mock
+      # Webhook secret must match the Razorpay dashboard (set in the UI).
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      # Only needed when PAYMENT_MODE=razorpay (set in the UI).
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+
+  # ---- existing Node/Express service (UNCOMMENT TO ADOPT) ----
+  # - type: web
+  #   name: daivikpujarender        # ← EXACT name from your Render dashboard
+  #   runtime: docker
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   healthCheckPath: /api/health
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #     - key: JWT_SECRET
+  #       generateValue: true
+  #     - key: ADMIN_EMAIL
+  #       sync: false
+  #     - key: ADMIN_PASSWORD
+  #       sync: false
+  #     - key: DEMO_MODE
+  #       value: "false"
+  #     - key: TRUST_PROXY
+  #       value: "1"
+  #     - key: PAYMENT_MODE
+  #       value: mock
+  #     - key: RAZORPAY_WEBHOOK_SECRET
+  #       sync: false
