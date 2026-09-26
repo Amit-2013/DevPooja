@@ -275,8 +275,15 @@ async def report(db: AsyncSession, report_id: str, f: dict) -> dict | None:
               (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id) AS assigned,
               (SELECT COUNT(*) FROM bookings b WHERE b.pandit_id=p.id AND b.status='Completed') AS completed
             FROM pandits p ORDER BY p.name""")
+        # Node sums json_extract(b.q,'$.svc') over completed bookings; parse in
+        # Python so the query stays portable across SQLite and Postgres.
+        svc_rows = await _all(db, "SELECT pandit_id, q FROM bookings WHERE status='Completed'")
+        svc_by_pandit: dict = {}
+        for b in svc_rows:
+            svc_by_pandit[b.pandit_id] = svc_by_pandit.get(b.pandit_id, 0) + int((j(b.q, {}).get("svc")) or 0)
         return {"columns": ["Pandit", "City", "Rating", "Assigned", "Completed", "Service value (Rs)"],
-                "rows": [[r.name, r.city, r.rating, r.assigned, r.completed, 0] for r in rows]}
+                "rows": [[r.name, r.city, r.rating, r.assigned, r.completed,
+                          svc_by_pandit.get(r.id, 0)] for r in rows]}
 
     if report_id == "customer-activity":
         rows = await _all(db, """

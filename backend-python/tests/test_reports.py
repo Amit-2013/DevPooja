@@ -162,3 +162,29 @@ async def test_sensitive_fields_excluded(client):
     ws2 = _load(r2)["customer-accounts"]
     headers2 = " ".join(str(ws2.cell(row=4, column=i).value) for i in range(1, ws2.max_column + 1)).lower()
     assert "password" not in headers2 and "hash" not in headers2
+
+
+async def test_pandit_performance_service_value(client, db_session):
+    """Node sums json_extract(b.q,'$.svc') over completed bookings into the
+    'Service value (Rs)' column — the port must parse the JSON, not zero-fill."""
+    from app.models import Booking, Pandit
+
+    pname = (await db_session.get(Pandit, "p1")).name
+    db_session.add(Booking(id="bk_svctest0001", user_id="u1", puja_id="lakshmi",
+                           mode="home", date="2027-01-01", slot="11:11 PM",
+                           pandit_id="p1", q=json.dumps({"svc": 1234, "total": 1500}),
+                           pay=json.dumps({"paid": True}), status="Completed", created=1))
+    await db_session.commit()
+    admin = await admin_login(client)
+    r = await client.get("/api/admin/export/pandit-performance.xlsx",
+                         headers={"Authorization": "Bearer " + admin})
+    ws = _load(r)["pandit-performance"]
+    headers = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+    svc_col = headers.index("Service value (Rs)") + 1
+    name_col = headers.index("Pandit") + 1
+    for i in range(5, ws.max_row + 1):
+        if ws.cell(row=i, column=name_col).value == pname:
+            assert ws.cell(row=i, column=svc_col).value == 1234
+            break
+    else:
+        pytest.fail("demo pandit row not found in pandit-performance")
