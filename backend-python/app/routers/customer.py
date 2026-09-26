@@ -28,6 +28,24 @@ def _me(db: AsyncSession, auth: dict) -> User:
     return db.get(User, auth["uid"])
 
 
+# --- available pandits (Phase 3: same centralized rules as the booking engine) ---
+@router.get("/pandits/available")
+async def available_pandits(date: str, slot: str, mode: str | None = None,
+                            pujaId: str | None = None, city: str | None = None,
+                            auth: dict = Depends(customer_dep),
+                            db: AsyncSession = Depends(get_db)):
+    from ..pricing import MODES, SLOTS
+    from ..services.availability import who_is_available
+    from ..util import v_date, v_one_of
+
+    date_v = v_date(date)
+    slot_v = v_one_of(slot, SLOTS, "Time slot")
+    mode_v = mode if mode in MODES else "home"  # tolerant fallback, Node parity
+    rows = await who_is_available(db, pujaId or "", city, date_v, slot_v, mode=mode_v)
+    return {"pandits": [{"id": p.id, "n": p.name, "city": p.city, "rating": p.rating,
+                          "pf": p.pf, "spec": j(p.spec, [])} for p in rows]}
+
+
 # --- profile -----------------------------------------------------------------
 @router.patch("/me")
 async def update_me(body: dict, auth: dict = Depends(customer_dep),

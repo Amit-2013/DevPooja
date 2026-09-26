@@ -56,7 +56,9 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
     _ = get_setting  # imported for parity; settings surfaced per-role below
 
     p_rows = (await db.execute(select(Pandit))).scalars().all()
-    st["pandits"] = [pandit(p, admin=(role == "admin")) for p in p_rows
+    st["pandits"] = [pandit(p, admin=(role == "admin"),
+                            self=(role == "pandit" and p.id == auth.get("pid")))
+                     for p in p_rows
                      if role == "admin" or p.status == "verified"
                      or (role == "pandit" and p.id == auth.get("pid"))]
     busy_rows = (await db.execute(select(Booking.id, Booking.pandit_id, Booking.date, Booking.slot).where(

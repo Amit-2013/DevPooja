@@ -93,7 +93,9 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   await click('[data-act=pacc]', 500); await click('[data-act=pstart]', 500); await click('[data-act=pdone]');
   d.querySelectorAll('.dck').forEach((c) => { c.checked = true; }); await click('[data-act=pdoneok]', 700);
   console.log('portal completed booking:', /Completed/.test(text()));
-  await go('#/portal/calendar'); await click('[data-act=poff]', 400);
+  await go('#/portal/calendar');
+  /* Phase 3 calendar: date action modal (toggle off / holiday / block) + rules save */
+  await click('[data-act=pcal]', 400); await click('[data-act=pcaloff]', 400); await click('[data-act=pcsave]', 400);
   await click('[data-act=logout]', 400);
 
   // admin

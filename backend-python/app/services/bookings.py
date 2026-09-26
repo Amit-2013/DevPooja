@@ -25,6 +25,7 @@ from ..pricing import MODES, SLOTS, coupon_problem, hours_until, quote, refund_p
 from ..util import (bad, conflict, j, not_found, v_arr, v_date, v_int,
                     v_mobile, v_one_of, v_str)
 from . import payments as pay
+from . import availability as AV
 
 STATUSES = ["New", "Confirmed", "Assigned", "Started", "Completed", "Cancelled"]
 OPEN = ["New", "Confirmed", "Assigned"]
@@ -70,27 +71,15 @@ async def next_seq(db: AsyncSession, name: str, start: int) -> int:
     return n
 
 
-async def is_free(db: AsyncSession, p: Pandit, date: str, slot: str, skip_id: str = "") -> bool:
-    if not p or p.status != "verified" or not p.avail:
-        return False
-    if date in j(p.off, []):
-        return False
-    clash = (await db.execute(
-        select(Booking.id).where(
-            Booking.pandit_id == p.id, Booking.date == date, Booking.slot == slot,
-            Booking.status != "Cancelled", Booking.id != skip_id).limit(1))).scalar_one_or_none()
-    return clash is None
+async def is_free(db: AsyncSession, p: Pandit, date: str, slot: str, **kw) -> bool:
+    """Consolidated into services/availability.py (Phase 3) — kept as a thin
+    delegate so any remaining caller keeps working."""
+    return await AV.is_free(db, p, date, slot, **kw)
 
 
-async def auto_pick(db: AsyncSession, puja_id: str, city: str | None, date: str, slot: str) -> Pandit | None:
-    rows = (await db.execute(select(Pandit).where(Pandit.status == "verified"))).scalars().all()
-    free = [p for p in rows if await is_free(db, p, date, slot)]
-    spec_of = lambda p: j(p.spec, [])  # noqa: E731
-
-    def score(p: Pandit):
-        return (puja_id in spec_of(p), p.city == city, p.rating or 0)
-    free.sort(key=score, reverse=True)
-    return free[0] if free else None
+async def auto_pick(db: AsyncSession, puja_id: str, city: str | None, date: str, slot: str,
+                    **kw) -> Pandit | None:
+    return await AV.auto_pick(db, puja_id, city, date, slot, **kw)
 
 
 async def price_request(db: AsyncSession, user: User | None, body: dict, *, strict_coupon: bool = True) -> dict:
@@ -193,10 +182,16 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
 
     pandit = pr["pandit"]
     if pandit:
-        if not await is_free(db, pandit, date, slot):
-            raise conflict("That pandit is no longer free at this time. Choose another pandit or slot.")
+        verdict = await AV.check(db, pandit, date, slot, mode=mode, city=addr and addr.get("city"))
+        if not verdict["ok"]:
+            raise conflict("That pandit is not available: " + verdict["reason"])
     else:
-        pandit = await auto_pick(db, puja.id, addr and addr["city"], date, slot)
+        pandit = await auto_pick(db, puja.id, addr and addr.get("city"), date, slot, mode=mode)
+        if mode == "home" and not pandit:
+            rows = (await db.execute(select(Pandit).where(Pandit.status == "verified"))).scalars().all()
+            codes = { (await AV.check(db, p, date, slot, mode=mode, city=addr and addr.get("city")))["code"] for p in rows }
+            if "RADIUS" in codes - {"CONFLICT", "MARKED_OFF"}:
+                raise conflict("No pandit services your area yet. Try an online puja instead.")
     for k in kits:
         res = await db.execute(
             update(Kit).where(Kit.id == k.id, Kit.stock > 0)
@@ -317,8 +312,9 @@ async def reschedule_booking(db: AsyncSession, user: User, id: str, body: dict) 
     slot = v_one_of(body.get("slot"), SLOTS, "Time slot")
     if row.pandit_id:
         p = await db.get(Pandit, row.pandit_id)
-        if not await is_free(db, p, date, slot, skip_id=row.id):
-            raise conflict("Your pandit is not free then. Try another slot.")
+        verdict = await AV.check(db, p, date, slot, mode=row.mode, city=j(row.addr, {}).get("city"), skip_id=row.id)
+        if not verdict["ok"]:
+            raise conflict("Your pandit is not available then: " + verdict["reason"])
     row.date, row.slot = date, slot
     row.log = _log_append(row, "Rescheduled")
     await db.flush()
@@ -432,8 +428,10 @@ async def admin_assign(db: AsyncSession, id: str, pid: str | None) -> Booking:
         row.log = _log_append(row, "Unassigned")
     else:
         p = await db.get(Pandit, pid)
-        if not p or not await is_free(db, p, row.date, row.slot, skip_id=row.id):
-            raise conflict("That pandit is not free at this time.")
+        verdict = await AV.check(db, p, row.date, row.slot, mode=row.mode,
+                                 city=j(row.addr, {}).get("city"), skip_id=row.id) if p else {"ok": False}
+        if not verdict["ok"]:
+            raise conflict("That pandit is not available: " + verdict.get("reason", "Pandit not found"))
         row.pandit_id = pid
         row.pst = "pending"
         if row.status == "New":

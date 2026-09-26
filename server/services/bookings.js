@@ -5,6 +5,7 @@ const { j, iso, addDays, today, bad, forbidden, notFound, conflict, v } = requir
 const { notify } = require('./notify');
 const pay = require('./payments');
 const PE = require('./payoutEngine');
+const AV = require('./availability');
 
 const STATUSES = ['New', 'Confirmed', 'Assigned', 'Started', 'Completed', 'Cancelled'];
 const OPEN = ['New', 'Confirmed', 'Assigned'];
@@ -16,18 +17,11 @@ function expireUnpaid() {
   rows.forEach((r) => cancelInternal(r, 0, 'Payment not completed', false));
 }
 
-function isFree(p, date, slot, skipId) {
-  if (!p || p.status !== 'verified' || !p.avail) return false;
-  if (j(p.off, []).includes(date)) return false;
-  const c = db.prepare("SELECT 1 FROM bookings WHERE pandit_id=? AND date=? AND slot=? AND status NOT IN ('Cancelled') AND id != ?").get(p.id, date, slot, skipId || '');
-  return !c;
-}
-
-function autoPick(pujaId, city, date, slot) {
-  const list = db.prepare("SELECT * FROM pandits WHERE status='verified'").all().filter((p) => isFree(p, date, slot));
-  list.sort((a, b) => (j(b.spec, []).includes(pujaId) - j(a.spec, []).includes(pujaId)) || ((b.city === city) - (a.city === city)) || b.rating - a.rating);
-  return list[0] || null;
-}
+/* Availability lives in services/availability.js (master plan Phase 3) —
+   the former local isFree/autoPick were consolidated there. Booking creation,
+   rescheduling and admin assignment all consult it, so weekly offs, holidays,
+   blocked dates, slots, capability flags and the home radius are enforced
+   uniformly with a human-readable reason on every NOT BOOKABLE answer. */
 
 /* Validate the pricing-relevant parts of a request and return { puja, mode, pandit, kits, prasad, coupon, q, couponError } */
 function priceRequest(userRow, body, { strictCoupon = true } = {}) {
@@ -81,8 +75,16 @@ function createBooking(user, body) {
 
   const run = tx(() => {
     let pandit = pr.pandit;
-    if (pandit) { if (!isFree(pandit, date, slot)) throw conflict('That pandit is no longer free at this time. Choose another pandit or slot.'); }
-    else pandit = autoPick(puja.id, addr && addr.city, date, slot);
+    if (pandit) {
+      const v2 = AV.check(pandit, date, slot, { mode, city: addr && addr.city });
+      if (!v2.ok) throw conflict('That pandit is not available: ' + v2.reason);
+    } else pandit = AV.autoPick(puja.id, addr && addr.city, date, slot, { mode });
+    if (mode === 'home' && !pandit) {
+      const why = db.prepare("SELECT * FROM pandits WHERE status='verified'").all()
+        .map((p) => AV.check(p, date, slot, { mode, city: addr && addr.city }).code)
+        .filter((c) => c !== 'CONFLICT' && c !== 'MARKED_OFF');
+      if (why.includes('RADIUS')) throw conflict('No pandit services your area yet. Try an online puja instead.');
+    }
     for (const k of kits) { const r = db.prepare('UPDATE kits SET stock=stock-1 WHERE id=? AND stock>0').run(k.id); if (!r.changes) throw conflict(k.name + ' is out of stock'); }
     if (q.pts) db.prepare('UPDATE users SET pts=pts-? WHERE id=?').run(q.pts, user.id);
     if (pr.coupon && q.disc) db.prepare('UPDATE coupons SET used=used+1 WHERE code=?').run(pr.coupon.code);
@@ -154,7 +156,8 @@ function rescheduleBooking(user, id, body) {
   const slot = v.oneOf(body.slot, P.SLOTS, 'Time slot');
   if (row.pandit_id) {
     const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(row.pandit_id);
-    if (!isFree(p, date, slot, row.id)) throw conflict('Your pandit is not free then. Try another slot.');
+    const vv = AV.check(p, date, slot, { mode: row.mode, city: j(row.addr, {}).city, skipId: row.id });
+    if (!vv.ok) throw conflict('Your pandit is not available then: ' + vv.reason);
   }
   try { db.prepare('UPDATE bookings SET date=?, slot=?, log=? WHERE id=?').run(date, slot, log(row, 'Rescheduled'), id); }
   catch (e) { if (String(e.code).startsWith('SQLITE_CONSTRAINT')) throw conflict('Your pandit is not free then.'); throw e; }
@@ -229,7 +232,8 @@ function adminAssign(id, pid) {
     db.prepare("UPDATE bookings SET pandit_id=NULL, pst=NULL, status=CASE WHEN status='Assigned' THEN 'Confirmed' ELSE status END, log=? WHERE id=?").run(log(row, 'Unassigned'), id);
   } else {
     const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(pid);
-    if (!p || !isFree(p, row.date, row.slot, id)) throw conflict('That pandit is not free at this time.');
+    const vv = p ? AV.check(p, row.date, row.slot, { mode: row.mode, city: j(row.addr, {}).city, skipId: id }) : { ok: false };
+    if (!vv.ok) throw conflict('That pandit is not available: ' + vv.reason);
     try { db.prepare("UPDATE bookings SET pandit_id=?, pst='pending', status=CASE WHEN status='New' THEN 'Confirmed' ELSE status END, log=? WHERE id=?").run(pid, log(row, 'Assigned to ' + p.name), id); }
     catch (e) { if (String(e.code).startsWith('SQLITE_CONSTRAINT')) throw conflict('That pandit is not free at this time.'); throw e; }
     notify(row.user_id, 'WhatsApp', `A pandit has been assigned to ${id}: ${p.name}.`);
@@ -266,4 +270,4 @@ function adminManual(body) {
   return getBooking(id);
 }
 
-module.exports = { STATUSES, isFree, priceRequest, createBooking, confirmPayment, cancelBooking, rescheduleBooking, reviewBooking, completeBooking, panditAct, adminAssign, adminStatus, adminManual, expireUnpaid, getBooking, cancelInternal };
+module.exports = { STATUSES, availability: AV, priceRequest, createBooking, confirmPayment, cancelBooking, rescheduleBooking, reviewBooking, completeBooking, panditAct, adminAssign, adminStatus, adminManual, expireUnpaid, getBooking, cancelInternal };

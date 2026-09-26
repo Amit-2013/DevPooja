@@ -129,6 +129,16 @@ const ACT={
  async pdoneok(d){if($$('.dck:checked').length<4)return toast('Complete the checklist first');const f=new FormData();[...($('#pmedia').files||[])].forEach(x=>f.append('media',x));await closeAnd(run(()=>api('/pandit/bookings/'+d.id+'/complete',{form:f}),'Puja marked completed. Payout queued.'))},
  pchk(d){const b=B(d.id),p=PU(b.pujaId);modal('<h2>Puja checklist</h2><p class="sm mut">'+esc(p.n)+'</p><h3 class="mt">Samagri</h3><div class="col mt">'+p.sam.map(s=>'<label><input type="checkbox"> '+esc(s)+'</label>').join('')+'</div><h3 class="mt">Steps</h3><ol class="sm mt" style="padding-left:20px"><li>Sankalp</li><li>Invocation of '+esc(p.deity)+'</li><li>Main worship</li><li>Aarti</li><li>Prasad and blessings</li></ol>')},
  poff(d){run(()=>api('/pandit/availability',{body:{date:d.d}}))},
+ pcsave(){const weekly=[...document.querySelectorAll('.pcwd:checked')].map(x=>Number(x.value)),slots=[...document.querySelectorAll('.pcslot:checked')].map(x=>x.value);
+  run(()=>api('/pandit/calendar',{method:'PUT',body:{weeklyOff:weekly,slots,onlineEnabled:val('pcon')==='on'||document.getElementById('pcon').checked,templeEnabled:document.getElementById('pct').checked,radiusKm:val('pcr')||null,baseCity:val('pcbc')}}),'Availability rules saved');PAGE.pcav=null},
+ pcal(d){const s=d.d;modal('<h2>'+fmtD(s)+'</h2><div class="col mt" style="gap:10px">'+
+  '<button class="btn" data-act="pcaloff" data-d="'+s+'">Mark unavailable / available (toggle)</button>'+
+  '<button class="btn sec" data-act="pcalhol" data-d="'+s+'">Toggle holiday</button>'+
+  '<button class="btn sec" data-act="pcalblk" data-d="'+s+'">Block date with a reason…</button>'+
+  '</div><p class="sm mut mt">Unavailable = this date only. Holiday = recurs in your planning. Blocked = with a reason kept on record.</p><button class="btn blk mt" data-act="close">Close</button>')},
+ pcaloff(d){run(()=>api('/pandit/availability',{body:{date:d.d}}),'Date updated').then(()=>{closeModal();PAGE.pcav=null;sync().then(()=>render(true))})},
+ pcalhol(d){run(()=>api('/pandit/calendar/dates',{body:{date:d.d,kind:'holiday'}}),'Holiday updated').then(()=>{closeModal();PAGE.pcav=null;sync().then(()=>render(true))})},
+ pcalblk(d){const reason=prompt('Reason for blocking this date (kept on record):');if(reason===null)return;run(()=>api('/pandit/calendar/dates',{body:{date:d.d,kind:'blocked',reason}}),'Date blocked').then(()=>{closeModal();PAGE.pcav=null;sync().then(()=>render(true))})},
  pcm(d){const g=PAGE.pc;g.m+=+d.d;if(g.m<0){g.m=11;g.y--}if(g.m>11){g.m=0;g.y++}render(true)},
  psv(){run(()=>api('/pandit/profile',{method:'PATCH',body:{city:val('qc'),exp:val('qx'),langs:val('ql'),bio:val('qb'),spec:$$('.qs:checked').map(x=>x.value).join(','),avail:$('#qa').checked}}),'Profile saved')},
  pfeat(){run(()=>api('/pandit/feature',{body:{}}),'Featured listing activated')},

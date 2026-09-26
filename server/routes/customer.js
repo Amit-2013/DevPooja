@@ -6,9 +6,23 @@ const pay = require('../services/payments');
 const S = require('../lib/serialize');
 const { v, bad, conflict, notFound, HttpError, today, j, rid, wrap } = require('../lib/util');
 const { notify } = require('../services/notify');
+const P = require('../../shared/pricing');
 
 router.use(requireRole('customer'));
 const me = (req) => currentUser(req);
+
+/* Who can take this booking? Powers the wizard's available-pandit list with the
+   SAME centralized availability rules the booking engine enforces (Phase 3). */
+router.get('/pandits/available', (req, res) => {
+  const AV = require('../services/availability');
+  const date = v.date(req.query.date), slot = v.oneOf(req.query.slot, P.SLOTS, 'Time slot');
+  const mode = req.query.mode && P.MODES[req.query.mode] ? req.query.mode : 'home';
+  const pujaId = String(req.query.pujaId || '');
+  const list = AV.whoIsAvailable(pujaId, req.query.city, date, slot, { mode }).map((p) => ({
+    id: p.id, n: p.name, city: p.city, rating: p.rating, pf: p.pf, spec: j(p.spec, [])
+  }));
+  res.json({ pandits: list });
+});
 
 router.patch('/me', (req, res) => {
   const u = me(req), b = req.body;

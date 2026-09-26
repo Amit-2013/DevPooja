@@ -749,11 +749,12 @@ const MEDIA = require('../services/pujaMedia');
 router.get('/media', (req, res) => {
   res.json({ media: MEDIA.adminList({ status: req.query.status, source: req.query.source, limit: req.query.limit }) });
 });
-router.post('/pujas/:id/media', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
-  res.status(201).json({ media: MEDIA.adminUpload({ uid: req.auth.uid, pujaId: req.params.id, files: req.files, makePrimary: !!req.body.primary, altText: req.body.altText, category: req.body.category, published: req.body.published === undefined ? true : !!req.body.published }) });
-  /* WebP variants for the new files (async; boot repair is the safety net). */
-  require('../services/mediaVariants').repairAll(20).catch(() => {});
-});
+router.post('/pujas/:id/media', upload.media.array('media', 8), upload.verifyMagic(), wrap(async (req, res) => {
+  const media = MEDIA.adminUpload({ uid: req.auth.uid, pujaId: req.params.id, files: req.files, makePrimary: !!req.body.primary, altText: req.body.altText, category: req.body.category, published: req.body.published === undefined ? true : !!req.body.published });
+  /* Variants generated inline (awaited); boot-time repair remains the safety net for older rows. */
+  for (const m of media) await require('../services/mediaVariants').ensureVariants(MEDIA.row(m.id));
+  res.status(201).json({ media });
+}));
 router.get('/pujas/:id/media', (req, res) => res.json({ media: MEDIA.allForPuja(req.params.id) }));
 router.patch('/media/:id', (req, res) => {
   const b = req.body || {};

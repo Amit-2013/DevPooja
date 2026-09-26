@@ -30,7 +30,7 @@ function buildState(auth) {
   };
 
   const pRows = db.prepare('SELECT * FROM pandits').all();
-  st.pandits = pRows.filter((p) => role === 'admin' || p.status === 'verified' || (role === 'pandit' && p.id === auth.pid)).map((p) => S.pandit(p, { admin: role === 'admin' }));
+  st.pandits = pRows.filter((p) => role === 'admin' || p.status === 'verified' || (role === 'pandit' && p.id === auth.pid)).map((p) => S.pandit(p, { admin: role === 'admin', self: role === 'pandit' && p.id === auth.pid }));
   st.busy = db.prepare("SELECT id, pandit_id p, date, slot FROM bookings WHERE pandit_id IS NOT NULL AND status NOT IN ('Cancelled')").all();
   st.reviews = db.prepare("SELECT b.pandit_id pid, b.review, b.puja_id FROM bookings b WHERE b.review IS NOT NULL AND b.review_hidden=0 AND b.pandit_id IS NOT NULL").all()
     .map((r) => { const rv = j(r.review, {}); return { pid: r.pid, r: rv.r, t: rv.t, by: rv.by, puja: r.puja_id }; });

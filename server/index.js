@@ -164,7 +164,7 @@ app.use('/api/kundali', require('./routes/kundali'));
 app.use('/api/pandit', require('./routes/pandit'));
 app.use('/api/admin', require('./routes/admin'));
 const customer = require('./routes/customer');
-const customerPaths = ['/me', '/bookings', '/payments', '/orders', '/tickets'];
+const customerPaths = ['/me', '/bookings', '/payments', '/orders', '/tickets', '/pandits/available'];
 app.use('/api', (req, res, next) => (customerPaths.some((p) => req.path === p || req.path.startsWith(p + '/')) ? customer(req, res, next) : next()));
 app.use('/api', (_q, _r, next) => next(new HttpError(404, 'Not found')));
 

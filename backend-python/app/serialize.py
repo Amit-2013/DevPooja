@@ -13,7 +13,7 @@ def user(r) -> dict | None:
             "pref": j(r.pref, {}), "joined": r.joined}
 
 
-def pandit(r, *, admin: bool = False) -> dict | None:
+def pandit(r, *, admin: bool = False, self: bool = False) -> dict | None:
     if r is None:
         return None
     out = {"id": r.id, "n": r.name, "city": r.city, "exp": r.exp, "langs": j(r.langs, []),
@@ -23,6 +23,9 @@ def pandit(r, *, admin: bool = False) -> dict | None:
     if admin:
         out["m"] = r.mobile
         out["kyc"] = list((j(r.kyc, {}) or {}).get("files", {}).keys())
+    if admin or self:
+        from .services.availability import config_of
+        out["av"] = config_of(r)
     return out
 
 
@@ -76,7 +79,7 @@ def ticket(r) -> dict:
 def payout(r) -> dict:
     """Payout shape: canonical statuses (Phases 7-8), hold info, money trail, refs.
     Twin of server/lib/serialize.js payout()."""
-    from .services.payout_engine import legacy_status
+    from .services.payout_engine import legacy_status  # noqa: F401  (kept for parity)
 
     return {"id": r.id, "p": r.pandit_id, "amt": r.amount, "date": r.date,
             "st": legacy_status(r.status), "b": r.booking_id,

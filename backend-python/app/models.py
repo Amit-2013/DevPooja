@@ -35,6 +35,16 @@ class User(Base):
 
 class Pandit(Base):
     __tablename__ = "pandits"
+    # Centralized availability calendar (migration 013 twin, Phase 3).
+    weekly_off: Mapped[str] = mapped_column(Text, default="[]")
+    slots: Mapped[str] = mapped_column(Text, default="[]")
+    holidays: Mapped[str] = mapped_column(Text, default="[]")
+    blocked_dates: Mapped[str] = mapped_column(Text, default="[]")
+    radius_km: Mapped[int | None] = mapped_column(Integer)
+    base_lat: Mapped[float | None] = mapped_column(Float)
+    base_lon: Mapped[float | None] = mapped_column(Float)
+    online_enabled: Mapped[int] = mapped_column(Integer, default=1)
+    temple_enabled: Mapped[int] = mapped_column(Integer, default=1)
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(40))
     name: Mapped[str] = mapped_column(String(120))

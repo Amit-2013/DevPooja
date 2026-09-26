@@ -1,12 +1,14 @@
 /* Row -> API shape. The browser app uses these short field names. */
 const { j } = require('./util');
 const PE = require('../services/payoutEngine');
+const AV = require('../services/availability');
 
 const user = (r) => r && ({ id: r.id, n: r.name, m: r.mobile || '', e: r.email || '', pts: r.pts, plus: !!r.plus, addr: j(r.addr, []), fam: j(r.fam, []), pref: j(r.pref, {}), joined: r.joined });
-const pandit = (r, { admin = false } = {}) => r && ({
+const pandit = (r, { admin = false, self = false } = {}) => r && ({
   id: r.id, n: r.name, city: r.city, exp: r.exp, langs: j(r.langs, []), spec: j(r.spec, []), rating: r.rating, rev: r.rev, done: r.done,
   pf: r.pf, bio: r.bio || '', color: r.color || '#0c4b49', st: r.status, feat: !!r.featured, off: j(r.off, []), avail: !!r.avail,
-  ...(admin ? { m: r.mobile, kyc: Object.keys(j(r.kyc, {}).files || {}) } : {})
+  ...(admin ? { m: r.mobile, kyc: Object.keys(j(r.kyc, {}).files || {}) } : {}),
+  ...(self || admin ? { av: AV.configOf(r) } : {})
 });
 const booking = (r) => {
   const media = j(r.media, []);

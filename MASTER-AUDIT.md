@@ -5,8 +5,8 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 29/29, Python 84/84 (incl. CI-wiring
-guards + foundation tests), UI smoke clean.
+Verification baseline at audit time: Node 30/30, Python 85/85 (incl. CI-wiring
+guards + foundation + availability suites), UI smoke clean.
 
 Legend — **N** = Node/Express (`server/`), **P** = FastAPI port (`backend-python/`,
 Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
@@ -32,12 +32,11 @@ a parity exception.
 
 ## 1. Feature/status map by master-prompt phase
 
-### Phase 3 — Pandit availability calendar
+### Phase 3 — Pandit availability calendar — **IMPLEMENTED (Phase 3 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | `pandits.off` JSON array of ISO dates (whole-day off only); `pandits.avail` boolean; `is_free()` in `server/services/bookings.js:18` checks status/avail/off/booking-conflict; partial unique `idx_pandit_slot` prevents double-booking; `autoPick()` sorts by spec/city/rating; pandit calendar UI `pCal()` in `portal-admin.js` (tap-to-toggle off); P: `POST /pandit/availability` toggle (pandit.py:73) |
-| Status | **PARTIAL** — per-date off + slot conflict exists; no time slots config, no weekly-off patterns, no holidays, no blocked-date reasons, no home-radius, no online/temple capability flags |
-| Required | One availability module: extend `pandits` (+ maybe `pandit_availability` table via migration 012) with weekly-off, slots, radius_km, online_enabled, temple_enabled, holidays; **extend** `is_free()` with the full bookable formula; auto-assign respects it; FE calendar gains slot/weekly-off editing; P mirrored |
+| Was | `pandits.off` per-date toggle + slot-conflict only; no weekly off, slots, holidays, blocked dates, radius or capability flags |
+| Now | Migration 013 extends the SAME pandits table (weekly_off, slots, holidays, blocked_dates with reasons, radius_km + base coords, online/temple flags — all permissive defaults so existing data is untouched). ONE engine: `server/services/availability.js` + twin `backend-python/app/services/availability.py` with the ordered bookable formula (KYC → avail → weekly off → holiday → blocked → marked-off → slot → online/temple → home radius → conflict) returning WHY on every NOT BOOKABLE. Booking creation, reschedule and admin assignment all consult it; auto-assign honours radius and capabilities; `GET /pandit/calendar`, `PUT /pandit/calendar`, `POST /pandit/calendar/dates`, `GET /pandit/calendar/why` (both backends); customer `GET /pandits/available` (Node: mounted via customerPaths). Pandit portal: rules editor (weekly off, slots, flags, radius + base city) and month grid with date actions (toggle/holiday/block-with-reason). Legacy date-toggle un-blocks structured entries. DB partial unique index remains the hard double-booking guarantee. |
 
 ### Phase 4 — Pandit KYC
 | Aspect | Finding |

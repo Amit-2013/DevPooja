@@ -918,3 +918,89 @@ test('payout engine: canonical lifecycle, hold reasons, breakdown, audit trail',
   assert.ok(audits.some((a) => a.action === 'payout.process' && a.detail.from === 'PENDING' && a.detail.to === 'PROCESSING'));
   assert.ok(audits.some((a) => a.action === 'payout.reverse' && a.detail.reason));
 });
+
+/* ---- Phase 3: centralized availability calendar ---- */
+test('availability calendar: weekly off, holidays, blocked dates, slots, flags, radius, auto-assign', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const tc = await login('customer'), tp = await login('pandit');
+
+  /* pandit reads own calendar config; default is permissive */
+  const cal0 = (await call('GET', '/pandit/calendar', { token: tp })).json.calendar;
+  assert.deepEqual(cal0.weeklyOff, []);
+  assert.equal(cal0.radiusKm, null);
+  assert.equal(cal0.onlineEnabled, true);
+
+  const day = dayPlus(30);
+  const wd = new Date(day + 'T12:00:00Z').getUTCDay();
+
+  /* 1. weekly off blocks the whole weekday */
+  let r = await call('PUT', '/pandit/calendar', { token: tp, body: { weeklyOff: [wd] } });
+  assert.deepEqual(r.json.calendar.weeklyOff, [wd]);
+  let b = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: day, slot: '10:00 AM', panditId: 'p1' }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /weekly off/i);
+
+  /* 2. holiday blocks a single date */
+  await call('PUT', '/pandit/calendar', { token: tp, body: { weeklyOff: [] } });
+  r = await call('POST', '/pandit/calendar/dates', { token: tp, body: { date: day, kind: 'holiday' } });
+  assert.ok(r.json.calendar.holidays.includes(day));
+  b = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: day, slot: '10:00 AM', panditId: 'p1' }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /holiday/i);
+
+  /* 3. blocked date carries a reason */
+  await call('POST', '/pandit/calendar/dates', { token: tp, body: { date: day, kind: 'holiday' } }); // clear
+  r = await call('POST', '/pandit/calendar/dates', { token: tp, body: { date: day, kind: 'blocked', reason: 'Family function' } });
+  assert.ok(r.json.calendar.blockedDates.some((x) => x.date === day && x.reason === 'Family function'));
+  b = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: day, slot: '10:00 AM', panditId: 'p1' }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /blocked by the pandit: Family function/);
+
+  /* 4. slot restriction */
+  await call('POST', '/pandit/calendar/dates', { token: tp, body: { date: day, kind: 'blocked' } }); // clear
+  await call('PUT', '/pandit/calendar', { token: tp, body: { slots: ['06:00 AM'] } });
+  b = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: day, slot: '10:00 AM', panditId: 'p1' }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /slot/i);
+  await call('PUT', '/pandit/calendar', { token: tp, body: { slots: [] } });
+
+  /* 5. online capability flag */
+  await call('PUT', '/pandit/calendar', { token: tp, body: { onlineEnabled: false } });
+  b = await call('POST', '/bookings', { token: tc, body: bookingBody({ mode: 'online', date: dayPlus(3), slot: '10:00 AM', panditId: 'p1' }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /online/i);
+  await call('PUT', '/pandit/calendar', { token: tp, body: { onlineEnabled: true } });
+
+  /* 6. temple capability flag */
+  await call('PUT', '/pandit/calendar', { token: tp, body: { templeEnabled: false } });
+  b = await call('POST', '/bookings', { token: tc, body: bookingBody({ pujaId: 'rudra', mode: 'temple', templeId: 't1', date: dayPlus(3), panditId: 'p1' }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /temple services/i);
+  await call('PUT', '/pandit/calendar', { token: tp, body: { templeEnabled: true } });
+
+  /* 7. home radius: p1 based in Delhi NCR; a 50 km radius rejects Chennai */
+  r = await call('PUT', '/pandit/calendar', { token: tp, body: { radiusKm: 50, baseCity: 'Delhi NCR' } });
+  assert.equal(r.json.calendar.radiusKm, 50);
+  b = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(3), slot: '10:00 AM', panditId: 'p1', addr: { line: '1 Marina Beach Rd', city: 'Chennai', pin: '600005' } }) });
+  assert.equal(b.status, 409);
+  assert.match(b.json.error, /service radius/);
+
+  /* auto-assign honours the radius: a Mumbai home booking cannot land on p1 */
+  const mock = await call('POST', '/admin/demo/bookings', { token: admin, body: { count: 6 } });
+  assert.equal(mock.status, 201);
+
+  /* why endpoint explains a verdict */
+  const why = (await call('GET', `/pandit/calendar/why?date=${dayPlus(3)}&slot=10:00%20AM&mode=home`, { token: tp })).json.verdict;
+  assert.equal(why.ok, false);
+  assert.equal(why.code, 'RADIUS');
+
+  /* customer-facing availability list respects the same rules */
+  const avail = (await call('GET', `/pandits/available?date=${dayPlus(3)}&slot=10:00%20AM&mode=home&city=Chennai`, { token: tc })).json.pandits;
+  assert.ok(avail.every((p) => p.id !== 'p1'), 'p1 excluded outside its radius');
+  assert.ok(avail.some((p) => p.id === 'p2'), 'Chennai pandit available');
+
+  /* restore permissive defaults so other tests are unaffected */
+  await call('PUT', '/pandit/calendar', { token: tp, body: { weeklyOff: [], slots: [], onlineEnabled: true, templeEnabled: true, radiusKm: null } });
+  const ok = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(31), slot: '10:00 AM', panditId: 'p1' }) });
+  assert.equal(ok.status, 201, 'bookable again after rules cleared');
+});
