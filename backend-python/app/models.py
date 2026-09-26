@@ -634,3 +634,129 @@ class CustomRequest(Base):
                         "'TEMPLE_ASSIGNED','SCHEDULED','IN_PROGRESS','COMPLETED','REJECTED','CANCELLED',"
                         "'EXPIRED','REFUNDED')", name="ck_custom_requests_status"),
     )
+
+
+# --- Master-plan scaffolding (migration 014 twin; tables are created empty and
+# --- unused by application code until their phase lands) -------------------------
+
+
+class KycDocument(Base):
+    """Phase 4: per-document KYC records with the master status vocabulary."""
+    __tablename__ = "kyc_documents"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    pandit_id: Mapped[str] = mapped_column(String(40))
+    doc_type: Mapped[str] = mapped_column(String(40))
+    file_name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(30), default="PENDING")
+    uploaded_at: Mapped[int] = mapped_column(MS)
+    verified_by: Mapped[str | None] = mapped_column(String(40))
+    verified_at: Mapped[int | None] = mapped_column(MS)
+    reject_reason: Mapped[str | None] = mapped_column(String(300))
+    expires_at: Mapped[int | None] = mapped_column(MS)
+    next_reverification_at: Mapped[int | None] = mapped_column(MS)
+
+
+class CommissionTier(Base):
+    """Phase 9: tiered commission configuration."""
+    __tablename__ = "commission_tiers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tier: Mapped[str] = mapped_column(String(30))
+    service_category: Mapped[str] = mapped_column(String(40), default="ALL")
+    commission_pct: Mapped[int] = mapped_column(Integer)
+    pandit_share_pct: Mapped[int] = mapped_column(Integer, default=0)
+    effective_from: Mapped[str | None] = mapped_column(String(10))
+    effective_to: Mapped[str | None] = mapped_column(String(10))
+    active: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class Transaction(Base):
+    """Phase 10: typed money ledger (SERVICE_PAYMENT/DAKSHINA/REFUND/...)."""
+    __tablename__ = "transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    type: Mapped[str] = mapped_column(String(30))
+    user_id: Mapped[str | None] = mapped_column(String(40))
+    pandit_id: Mapped[str | None] = mapped_column(String(40))
+    booking_id: Mapped[str | None] = mapped_column(String(40))
+    kundali_id: Mapped[str | None] = mapped_column(String(40))
+    amount: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(8), default="INR")
+    ref_table: Mapped[str | None] = mapped_column(String(40))
+    ref_id: Mapped[str | None] = mapped_column(String(40))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(MS)
+
+
+class Incident(Base):
+    """Phase 20: pandit incident reporting."""
+    __tablename__ = "incidents"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    pandit_id: Mapped[str] = mapped_column(String(40))
+    booking_id: Mapped[str | None] = mapped_column(String(40))
+    customer_id: Mapped[str | None] = mapped_column(String(40))
+    category: Mapped[str] = mapped_column(String(30))
+    description: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(20), default="OPEN")
+    admin_notes: Mapped[str | None] = mapped_column(Text)
+    resolution: Mapped[str | None] = mapped_column(Text)
+    reported_at: Mapped[int] = mapped_column(MS)
+    resolved_at: Mapped[int | None] = mapped_column(MS)
+
+
+class Agreement(Base):
+    """Phase 23: versioned agreement documents; accepted versions are immutable."""
+    __tablename__ = "agreements"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT")
+    document_hash: Mapped[str | None] = mapped_column(String(64))
+    file_name: Mapped[str | None] = mapped_column(String(200))
+    created_by: Mapped[str | None] = mapped_column(String(40))
+    effective_from: Mapped[str | None] = mapped_column(String(10))
+    created_at: Mapped[int] = mapped_column(MS)
+    published_at: Mapped[int | None] = mapped_column(MS)
+    archived_at: Mapped[int | None] = mapped_column(MS)
+
+
+class AgreementAcceptance(Base):
+    """Phase 24-25: version-locked acceptance records (one per pandit+agreement)."""
+    __tablename__ = "agreement_acceptances"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    agreement_id: Mapped[str] = mapped_column(String(40))
+    pandit_id: Mapped[str] = mapped_column(String(40))
+    method: Mapped[str] = mapped_column(String(20), default="DIGITAL")
+    otp_verified: Mapped[int] = mapped_column(Integer, default=0)
+    ip: Mapped[str | None] = mapped_column(String(60))
+    device: Mapped[str | None] = mapped_column(String(200))
+    accepted_at: Mapped[int] = mapped_column(MS)
+    signature_ref: Mapped[str | None] = mapped_column(String(120))
+
+
+class TrialPooja(Base):
+    """Phase 18: pandit activation assessments."""
+    __tablename__ = "trial_poojas"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    pandit_id: Mapped[str] = mapped_column(String(40))
+    evaluator: Mapped[str | None] = mapped_column(String(80))
+    date: Mapped[str | None] = mapped_column(String(10))
+    service: Mapped[str | None] = mapped_column(String(80))
+    punctuality: Mapped[int | None] = mapped_column(Integer)
+    communication: Mapped[int | None] = mapped_column(Integer)
+    ritual_compliance: Mapped[int | None] = mapped_column(Integer)
+    presentation: Mapped[int | None] = mapped_column(Integer)
+    customer_interaction: Mapped[int | None] = mapped_column(Integer)
+    digital_capability: Mapped[int | None] = mapped_column(Integer)
+    documentation: Mapped[int | None] = mapped_column(Integer)
+    final_score: Mapped[int | None] = mapped_column(Integer)
+    result: Mapped[str] = mapped_column(String(30), default="PENDING")
+    admin_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(MS)

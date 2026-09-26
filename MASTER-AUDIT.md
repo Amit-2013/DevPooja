@@ -5,8 +5,8 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 30/30, Python 85/85 (incl. CI-wiring
-guards + foundation + availability suites), UI smoke clean.
+Verification baseline at audit time: Node 34/34 (30 API + 4 security), Python 88/88
+(incl. CI-wiring guards + foundation + availability + security suites), UI smoke clean.
 
 Legend — **N** = Node/Express (`server/`), **P** = FastAPI port (`backend-python/`,
 Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
@@ -203,8 +203,19 @@ a parity exception.
 | Status | **PARTIAL** — add pending agreements, today's pujas/revenue, payout pending/on-hold, incidents, campaigns, leads, kundalis-generated |
 
 ### Phases 33–37 — Validation, security, dedup, regression, quality
+- **Phase 34 security harness IN PLACE (landed early with migration 014):**
+  `tests/security.test.js` (Node, 4 tests) + `backend-python/tests/test_security.py` (3 tests)
+  — pandit/customer cannot reach exports or admin reads (403/401 asserted per path),
+  cross-role isolation (cancel/accept/audit-trail ownership), duplicate booking
+  (DB constraint), duplicate payment (Razorpay signature replay is idempotent),
+  duplicate payout disbursement (engine refuses transitions out of DISBURSED),
+  kundali idempotency-key replay, and malformed/injection-shaped input handling.
+  Later phases must keep these green; new endpoints inherit the guards.
+- **Migration 014 scaffolding created (empty, unused until each phase lands):**
+  kyc_documents [4], commission_tiers [9], transactions [10], incidents [20],
+  agreements + agreement_acceptances (version-locked unique index) [23-25],
+  trial_poojas [18] — SQLAlchemy models mirrored.
 - E2E workflows to script-test: onboarding, booking (with availability), customized puja, KYC, agreement, payout.
-- Security tests to add: pandit cannot export/access others' data; photo date gate; coupon/commission/payout manipulation; duplicate booking/payment/payout (idempotency_keys exists — reuse).
 - Duplication sweep after implementation; no dead code/placeholder buttons (FE note: analytics "Sample" KPI and incentives text are static copy — verify and either wire or label).
 
 ### Phase 36 — Do-not-break list
