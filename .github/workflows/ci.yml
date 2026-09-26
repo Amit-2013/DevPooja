@@ -16,7 +16,10 @@ concurrency:
 jobs:
   node-tests:
     name: Node (Express + SQLite)
-    runs-on: ubuntu-latest
+    # Pinned image: ubuntu-latest drifts across runner images and has twice
+    # failed the Node test step with no related code change (Python green on
+    # the same commit). Pinning removes toolchain drift from the equation.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +33,13 @@ jobs:
         run: npm ci
 
       - name: API tests (node --test)
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/api-test.log
+
+      - name: API test failure details
+        if: failure()
+        run: echo "::error::Node API tests failed — $(tail -c 1200 /tmp/api-test.log | tr '\r\n' '  ')"
 
       - name: Astro tests
         run: node --test tests/astro.test.js
@@ -49,7 +58,7 @@ jobs:
 
   python-tests:
     name: Python (FastAPI + pytest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend-python
