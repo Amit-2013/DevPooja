@@ -14,9 +14,15 @@ const { db } = require('../server/db');
 const P = require('../shared/pricing');
 const pay = require('../server/services/payments');
 const crypto = require('crypto');
+const seedMod = require('../server/seed');
 
 let server, base;
-test.before(() => new Promise((r) => { server = app.listen(0, () => { base = 'http://127.0.0.1:' + server.address().port; r(); }); }));
+test.before(async () => {
+  /* Await the boot media pipeline (seeded photos + WebP variants) so media tests
+     never race it — the CI phantom failure root cause alongside sharp flakes. */
+  await seedMod.settledMedia();
+  await new Promise((r) => { server = app.listen(0, () => { base = 'http://127.0.0.1:' + server.address().port; r(); }); });
+});
 test.after(() => { server.closeAllConnections(); server.close(); });
 
 async function call(method, url, { token, body, form } = {}) {

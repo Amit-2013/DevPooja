@@ -299,15 +299,31 @@ function backfillHindi() {
   try { setSetting('service_toggles', getSetting2('service_toggles', { home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true })); } catch (e) { /* older database */ }
 }
 
+/* Promise for the boot-time media pipeline (seeded photos + variant repair),
+   assigned by bootstrap(); tests await settledMedia() so they never race it. */
+let bootMediaChain = Promise.resolve();
+
 function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo();
   /* Bundled puja photos (freely licensed, see shared/seed-photos/CREDITS.md): copied
-     into puja_media once per puja. Pujas that already have media are never touched. */
-  try {
-    const { seedPujaPhotos } = require('./services/photoSeed');
-    Promise.resolve(seedPujaPhotos()).then((r) => { if ((r.seeded || r.variants) && !process.env.QUIET) console.log('[photoSeed] ' + r.seeded + ' seeded, ' + r.skipped + ' already had photos, ' + (r.variants || 0) + ' variants'); }).catch(() => {});
-  } catch (e) { console.error('[photoSeed]', e.message); }
-  /* WebP variant repair for any rows missing them (no-op when everything exists). */
-  try { require('./services/mediaVariants').repairAll().then((r) => { if (r.processed && !process.env.QUIET) console.log('[mediaVariants] repaired ' + r.generated + '/' + r.processed); }).catch(() => {}); } catch (e) { /* optional */ } }
+     into puja_media once per puja. Pujas that already have media are never touched.
+     The chain is SEQUENTIAL on purpose: photoSeed and repairAll both run sharp over
+     the same rows, and running them concurrently produced transient
+     "vipspng: libpng read error" under CI load — a row could fail to get its
+     variants and later tests (media delete) would see an incomplete artifact set.
+     Callers that must wait for settled media (tests) use settledMedia(). */
+  const { seedPujaPhotos } = require('./services/photoSeed');
+  const { repairAll } = require('./services/mediaVariants');
+  bootMediaChain = Promise.resolve()
+    .then(() => seedPujaPhotos())
+    .then((r) => { if (r && (r.seeded || r.variants) && !process.env.QUIET) console.log('[photoSeed] ' + r.seeded + ' seeded, ' + r.skipped + ' already had photos, ' + (r.variants || 0) + ' variants'); })
+    .then(() => repairAll())
+    .then((r) => { if (r && r.processed && !process.env.QUIET) console.log('[mediaVariants] repaired ' + r.generated + '/' + r.processed); })
+    .catch((e) => { console.error('[media boot]', e.message); });
+}
+
+/* Resolves once boot-time media work (seeded photos + variant repair) has settled.
+   Tests await this so they never race the fire-and-forget boot pipeline. */
+function settledMedia() { return Promise.resolve(bootMediaChain); }
 
 /* getSetting without crashing when the settings table does not exist yet. */
 function getSetting2(k, d) { try { const r = db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r ? JSON.parse(r.value) : d; } catch (e) { return d; } }
@@ -379,4 +395,4 @@ function mockBookings(n) {
   return { created: made.length, ids: made, requested: count };
 }
 
-module.exports = { bootstrap, seedCatalog, seedKundaliCatalog, seedDemo, ensureAdmin, resetAll, demoOn, demoStats, mockBookings, DEMO_PASSWORD };
+module.exports = { bootstrap, settledMedia, seedCatalog, seedKundaliCatalog, seedDemo, ensureAdmin, resetAll, demoOn, demoStats, mockBookings, DEMO_PASSWORD };

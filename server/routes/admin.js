@@ -8,7 +8,7 @@ const S = require('../lib/serialize');
 const upload = require('../lib/upload');
 const { notify } = require('../services/notify');
 const PE = require('../services/payoutEngine');
-const { v, bad, conflict, notFound, j, today, rid } = require('../lib/util');
+const { v, bad, conflict, notFound, j, today, rid, wrap } = require('../lib/util');
 const P = require('../../shared/pricing');
 
 router.use(requireRole('admin'));
@@ -267,13 +267,16 @@ router.get('/demo/stats', (req, res) => res.json(seedMod.demoStats()));
    demo state: admin account, catalogue, demo accounts, sample bookings and mock
    kundalis. The logged-in admin's own account is recreated with the same email,
    but their session token stops working — the response carries a fresh one. */
-router.post('/demo/reset', (req, res) => {
+/* Demo reset re-runs bootstrap(), which re-seeds photos and variants sequentially;
+   the response waits for that chain so a client never sees a half-settled media set. */
+router.post('/demo/reset', wrap(async (req, res) => {
   if (req.body && req.body.confirm !== 'RESET') throw bad('Type RESET to confirm');
   const me = db.prepare('SELECT email FROM users WHERE id=?').get(req.auth.uid);
   const adminEmail = me ? me.email : null;
   seedMod.resetAll();
   setSetting('booking_seq', 2400);
   seedMod.bootstrap();
+  await seedMod.settledMedia();
   let token = null;
   try {
     const email = (process.env.ADMIN_EMAIL || adminEmail || 'admin@daivikpuja.in').toLowerCase();
@@ -281,7 +284,7 @@ router.post('/demo/reset', (req, res) => {
     token = u ? sign(u) : null;
   } catch (e) { /* token stays null; the UI falls back to the admin login form */ }
   res.json({ ok: true, stats: seedMod.demoStats(), token });
-});
+}));
 
 /* Generate mock bookings across the demo customers (demo mode only). */
 router.post('/demo/bookings', (req, res) => {
@@ -583,9 +586,6 @@ const REPORT_TITLES = {
    Indian-currency number formats, a totals row where useful — and an export_logs
    audit entry (admin, report, filters, row count). Sensitive fields stay excluded
    by design: the REPORTS queries never select password hashes, tokens or OTPs. */
-/* wrap() catches async failures: a thrown error here would otherwise hang the
-   request, because Express 4 does not catch rejected async handlers. */
-const { wrap } = require('../lib/util');
 router.get('/export/:report.xlsx', wrap(async (req, res) => {
   const rep = REPORTS[req.params.report];
   if (!rep) throw notFound('Unknown report');
