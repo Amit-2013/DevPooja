@@ -11,10 +11,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import (AuditLog, Booking, Coupon, Kit, Order, Prasad, Puja, Setting)
+from ..models import (AuditLog, Booking, Coupon, KycDocument, Kit, Order, Pandit,
+                      Prasad, Puja, Setting, User)
 from ..security import require_role
 from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout
 from ..services import bookings as B
+from ..services import kyc as KYC
+from ..services import account_status as AS
 from ..services.payout_engine import payout_rules, set_adjustment, transition
 from ..util import bad, conflict, j, not_found, rid, v_arr, v_int, v_one_of, v_str
 
@@ -185,6 +188,59 @@ async def payout_adjustment(payout_id: str, body: dict, auth: dict = Depends(adm
 
 
 # --- audit log viewer (Phase 31) -------------------------------------------------
+# --- KYC documents (Phase 4) ---------------------------------------------------
+@router.get("/kyc")
+async def kyc_summary(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await KYC.summary(db)
+
+
+@router.post("/kyc/{doc_id}/decide")
+async def kyc_decide(doc_id: str, body: dict, auth: dict = Depends(admin_dep),
+                     db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    row = await KYC.decide(db, id=doc_id, uid=auth["uid"],
+                           status=v_one_of(b.get("status"), KYC.STATUSES, "Status"),
+                           reason=b.get("reason"), expires_at=b.get("expiresAt"),
+                           reverify_at=b.get("reverifyAt"))
+    return {"document": KYC.out(row)}
+
+
+@router.get("/kyc/{doc_id}/file")
+async def kyc_file(doc_id: str, auth: dict = Depends(admin_dep),
+                   db: AsyncSession = Depends(get_db)):
+    """Streams the stored document; authenticated FileResponse (admin-only)."""
+    from fastapi.responses import FileResponse
+    import pathlib
+
+    from ..config import get_settings
+
+    row = (await db.execute(select(KycDocument).where(KycDocument.id == doc_id))).scalar_one_or_none()
+    if not row:
+        raise not_found("KYC document not found")
+    file = pathlib.Path(get_settings().upload_dir) / "kyc" / pathlib.Path(row.file_name).name
+    if not file.exists():
+        raise not_found("File missing")
+    return FileResponse(file)
+
+
+# --- Pandit account lifecycle (Phase 22) ---------------------------------------
+@router.get("/pandit-lifecycle")
+async def pandit_lifecycle(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"pandits": await AS.overview(db)}
+
+
+@router.post("/pandits/{pandit_id}/lifecycle")
+async def pandit_lifecycle_set(pandit_id: str, body: dict, auth: dict = Depends(admin_dep),
+                               db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    p = await AS.transition(db, pandit_id, v_one_of(b.get("lifecycle"), AS.LIFECYCLE, "Lifecycle"),
+                            auth["uid"], reason=b.get("reason"), note=b.get("note"),
+                            frm=b.get("from"), to=b.get("to"), review_date=b.get("reviewDate"))
+    from ..serialize import pandit as s_pandit
+
+    return {"lifecycle": AS.current_lifecycle(p), "pandit": s_pandit(p, admin=True)}
+
+
 @router.get("/audit")
 async def audit_log(limit: int = 150, auth: dict = Depends(admin_dep),
                     db: AsyncSession = Depends(get_db)):

@@ -581,6 +581,32 @@ const REPORT_TITLES = {
   'audit-logs': 'Audit Log', media: 'Puja Media'
 };
 
+/* --- KYC documents (Phase 4): admin screen data + decisions --- */
+const KYC = require('../services/kyc');
+router.get('/kyc', (req, res) => res.json(KYC.summary()));
+router.post('/kyc/:id/decide', (req, res) => {
+  const b = req.body || {};
+  const row = KYC.decide({ id: req.params.id, uid: req.auth.uid, status: v.oneOf(b.status, KYC.STATUSES, 'Status'),
+    reason: b.reason, expiresAt: b.expiresAt, reverifyAt: b.reverifyAt });
+  res.json({ document: KYC.out(row) });
+});
+router.get('/kyc/:id/file', (req, res) => {
+  const row = KYC.get(req.params.id); if (!row) throw notFound('KYC document not found');
+  const file = path.join(upload.dirs.kyc, path.basename(row.file_name));
+  if (!fs.existsSync(file)) throw notFound('File missing');
+  res.sendFile(file);
+});
+
+/* --- Pandit account lifecycle (Phase 22) --- */
+const AS = require('../services/accountStatus');
+router.get('/pandit-lifecycle', (req, res) => res.json({ pandits: AS.overview() }));
+router.post('/pandits/:id/lifecycle', (req, res) => {
+  const b = req.body || {};
+  const p = AS.transition(req.params.id, v.oneOf(b.lifecycle, AS.LIFECYCLE, 'Lifecycle'), req.auth.uid,
+    { reason: b.reason, note: b.note, from: b.from, to: b.to, reviewDate: b.reviewDate });
+  res.json({ lifecycle: AS.currentLifecycle(p), pandit: S.pandit(p, { admin: true }) });
+});
+
 /* GET /admin/export/:report.xlsx — professional format: report title, generated-on
    (IST), applied filters, frozen + filterable header row, auto column widths,
    Indian-currency number formats, a totals row where useful — and an export_logs

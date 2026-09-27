@@ -47,6 +47,10 @@ function resolvePlace(city) {
 function check(p, date, slot, { mode, city, lat, lon, skipId } = {}) {
   if (!p) return { ok: false, reason: 'Pandit not found', code: 'NOT_FOUND' };
   if (p.status !== 'verified') return { ok: false, reason: 'KYC verification pending', code: 'KYC' };
+  /* Phase 22 lifecycle: suspended/terminated pandits take no bookings
+     (account_note '__terminated__' marks termination; avail=0 covers suspension). */
+  if (p.account_note === '__terminated__') return { ok: false, reason: 'Pandit account is terminated', code: 'ACCOUNT' };
+  if (!p.avail && p.account_reason) return { ok: false, reason: 'Pandit account is suspended: ' + p.account_reason, code: 'ACCOUNT' };
   if (!p.avail) return { ok: false, reason: 'Pandit is not accepting new bookings', code: 'AVAIL_FLAG' };
 
   const weekly = j(p.weekly_off, []);

@@ -141,6 +141,19 @@ const ACT={
  pcalblk(d){const reason=prompt('Reason for blocking this date (kept on record):');if(reason===null)return;run(()=>api('/pandit/calendar/dates',{body:{date:d.d,kind:'blocked',reason}}),'Date blocked').then(()=>{closeModal();PAGE.pcav=null;sync().then(()=>render(true))})},
  pcm(d){const g=PAGE.pc;g.m+=+d.d;if(g.m<0){g.m=11;g.y--}if(g.m>11){g.m=0;g.y++}render(true)},
  psv(){run(()=>api('/pandit/profile',{method:'PATCH',body:{city:val('qc'),exp:val('qx'),langs:val('ql'),bio:val('qb'),spec:$$('.qs:checked').map(x=>x.value).join(','),avail:$('#qa').checked}}),'Profile saved')},
+ async pdocup(){const inp=document.getElementById('pdf');const f=inp&&inp.files&&inp.files[0];if(!f){toast('Choose a document file first');return}const fd=new FormData();fd.append('doc',f);fd.append('docType',val('pdt'));try{await api('/pandit/kyc/documents',{form:fd});toast('Document uploaded — verification team will review it');PAGE.pdocs=null;sync().then(()=>render(true))}catch(e){toast(e.message)}},
+ kycdec(d){const v=d.v;let body={status:v};
+  if(v==='REJECTED'){const r=prompt('Rejection reason (the pandit will see exactly this):');if(!r)return;body.reason=r}
+  else if(v==='REVERIFICATION_REQUIRED'){const r=prompt('What must be re-uploaded and why:');if(!r)return;body.reason=r}
+  else if(v==='VERIFIED'){const days=prompt('Valid for how many days? (empty = no expiry)','730');if(days&&Number(days)>0){body.expiresAt=Date.now()+Number(days)*86400000}}
+  run(()=>api('/admin/kyc/'+d.id+'/decide',{body}),'KYC decision recorded').then(()=>{PAGE.kycSum=null;sync().then(()=>render(true))})},
+ plc(d){const v=d.v;let body={lifecycle:v};
+  if(v==='SUSPENDED'||v==='TERMINATED'){const r=prompt(v==='SUSPENDED'?'Suspension reason (documented):':'Termination reason (documented):');if(!r)return;body.reason=r;
+   const to=prompt(v==='SUSPENDED'?'Suspension end date (YYYY-MM-DD, empty = indefinite):':'')||undefined;if(to)body.to=to;
+   const rd=prompt('Review date (YYYY-MM-DD, empty = none):')||undefined;if(rd)body.reviewDate=rd;
+   if(!confirm('This will block login and hold open payouts. Continue?'))return}
+  else if(v==='UNDER_REVIEW'){body.note=prompt('What needs review?')||undefined}
+  run(()=>api('/admin/pandits/'+d.id+'/lifecycle',{body}),'Account lifecycle updated').then(()=>{PAGE.lc=null;PAGE.accts=null;sync().then(()=>render(true))})},
  pfeat(){run(()=>api('/pandit/feature',{body:{}}),'Featured listing activated')},
  /* admin */
  aman(){modal('<h2>Manual booking</h2><div class="frm mt"><label class="f">Customer name<input id="mn"></label><label class="f">Mobile<input id="mm" inputmode="numeric" maxlength="10"></label><label class="f">Puja<select id="mp">'+PUJAS.map(p=>'<option value="'+p.id+'">'+p.n+'</option>').join('')+'</select></label><label class="f">Type<select id="mt">'+Object.entries(MODES).map(([k,m])=>'<option value="'+k+'">'+m.n+'</option>').join('')+'</select></label><label class="f">Date<input type="date" id="md" value="'+addDays(2)+'"></label><label class="f">Slot<select id="ms">'+SLOTS.map(s=>'<option>'+s+'</option>').join('')+'</select></label><label class="f">City<select id="mc">'+CITIES.map(c=>'<option>'+c+'</option>').join('')+'</select></label></div><button class="btn mt" data-act="amanok">Create booking</button>')},

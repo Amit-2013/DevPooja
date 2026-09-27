@@ -121,6 +121,9 @@ async def create_for_booking(db: AsyncSession, row, pandit_id: str | None) -> st
         rule = next((h for h in rules if h.get("check") == "pandit_kyc"), None)
         if rule and pandit and pandit.status != "verified":
             await _apply_hold(db, pid, rule.get("reason") or "KYC Pending", rule.get("note"))
+        elif pandit and pandit.account_reason:
+            # Phase 22: suspended/terminated pandits hold payouts with the documented reason.
+            await _apply_hold(db, pid, "Admin Hold", "Pandit account suspended: " + pandit.account_reason)
     elif row.booking_id:
         b = (await db.execute(select(Booking).where(Booking.id == row.booking_id))).scalar_one_or_none()
         rule = next((h for h in rules if h.get("check") == "review"), None)

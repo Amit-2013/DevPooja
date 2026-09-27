@@ -3,7 +3,7 @@ profile and featured listing (media endpoints already live in routers/media.py;
 pandit registration arrives with KYC uploads)."""
 import json
 
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,8 +12,9 @@ from ..models import Pandit, Puja
 from ..security import require_role
 from ..serialize import booking as s_booking
 from ..services import bookings as B
+from ..services import kyc as KYC
 from ..services.availability import check as av_check, config_of, resolve_place
-from ..util import bad, j, v_date, v_int, v_one_of, v_str
+from ..util import bad, j, rid, v_date, v_int, v_one_of, v_str
 from ..pricing import SLOTS
 
 router = APIRouter(prefix="/api/pandit", tags=["pandit"])
@@ -167,6 +168,41 @@ async def calendar_why(date: str, slot: str | None = None, mode: str | None = No
     slot_v = slot if slot in SLOTS else None
     p = await db.get(Pandit, auth["pid"])
     return {"verdict": await av_check(db, p, date_v, slot_v, mode=mode)}
+
+
+# --- My KYC documents (Phase 4; closes the upload parity gap) ---------------------
+@router.get("/kyc/documents")
+async def kyc_documents(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    rows = await KYC.for_pandit(db, auth["pid"])
+    return {"documents": [KYC.out(r) for r in rows]}
+
+
+@router.post("/kyc/documents", status_code=201)
+async def kyc_upload(docType: str = Form(...), doc: UploadFile | None = File(None),
+                     auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    from ..config import get_settings
+    from ..util import verify_upload as vu
+
+    if doc is None:
+        raise bad("Attach the document file")
+    data = await doc.read(get_settings().max_upload_mb * 1024 * 1024 + 1)
+    if len(data) > get_settings().max_upload_mb * 1024 * 1024:
+        raise bad("File too large")
+    claimed = doc.content_type or ""
+    if claimed == "application/pdf":
+        if data[:5] != b"%PDF-":
+            raise bad("File content does not match its type")
+    else:
+        vu(data, claimed)
+    file_name = rid(16) + (".pdf" if claimed == "application/pdf" else "." + claimed.split("/")[-1])
+    import pathlib
+
+    kyc_dir = pathlib.Path(get_settings().upload_dir) / "kyc"
+    kyc_dir.mkdir(parents=True, exist_ok=True)
+    (kyc_dir / file_name).write_bytes(data)
+    row = await KYC.upload(db, pid=auth["pid"], uid=auth["uid"], doc_type=docType,
+                           file_name=file_name, original_name=doc.filename or "")
+    return {"document": KYC.out(row)}
 
 
 @router.patch("/profile")

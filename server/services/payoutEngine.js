@@ -48,9 +48,11 @@ function findHold(row) {
   if (row.hold_reason) return { reason: row.hold_reason, note: row.hold_note || null };
   const rules = payoutRules().holds;
   if (row.pandit_id) {
-    const pandit = db.prepare('SELECT status FROM pandits WHERE id=?').get(row.pandit_id);
+    const pandit = db.prepare('SELECT status, account_reason FROM pandits WHERE id=?').get(row.pandit_id);
     const rule = pandit && rules.find((h) => h.check === 'pandit_kyc');
     if (rule && pandit.status !== 'verified') return rule;
+    /* Phase 22: suspended/terminated pandits hold payouts with the documented reason. */
+    if (pandit && pandit.account_reason) return { reason: 'Admin Hold', note: 'Pandit account suspended: ' + pandit.account_reason };
   }
   if (row.booking_id) {
     const b = db.prepare("SELECT esc FROM bookings WHERE id=?").get(row.booking_id);

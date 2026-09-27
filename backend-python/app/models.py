@@ -45,6 +45,12 @@ class Pandit(Base):
     base_lon: Mapped[float | None] = mapped_column(Float)
     online_enabled: Mapped[int] = mapped_column(Integer, default=1)
     temple_enabled: Mapped[int] = mapped_column(Integer, default=1)
+    # Phase 22 account lifecycle (migration 015 twin).
+    account_reason: Mapped[str | None] = mapped_column(String(120))
+    account_from: Mapped[str | None] = mapped_column(String(10))
+    account_to: Mapped[str | None] = mapped_column(String(10))
+    account_review_date: Mapped[str | None] = mapped_column(String(10))
+    account_note: Mapped[str | None] = mapped_column(Text)
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(40))
     name: Mapped[str] = mapped_column(String(120))

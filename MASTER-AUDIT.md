@@ -5,8 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 34/34 (30 API + 4 security), Python 88/88
-(incl. CI-wiring guards + foundation + availability + security suites), UI smoke clean.
+Verification baseline at audit time: Node 36/36 (30 API + 4 security + 2 KYC/lifecycle),
+Python 90/90 (incl. CI-wiring guards + foundation + availability + security + KYC/lifecycle
+suites), UI smoke clean.
 
 Legend — **N** = Node/Express (`server/`), **P** = FastAPI port (`backend-python/`,
 Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
@@ -38,12 +39,11 @@ a parity exception.
 | Was | `pandits.off` per-date toggle + slot-conflict only; no weekly off, slots, holidays, blocked dates, radius or capability flags |
 | Now | Migration 013 extends the SAME pandits table (weekly_off, slots, holidays, blocked_dates with reasons, radius_km + base coords, online/temple flags — all permissive defaults so existing data is untouched). ONE engine: `server/services/availability.js` + twin `backend-python/app/services/availability.py` with the ordered bookable formula (KYC → avail → weekly off → holiday → blocked → marked-off → slot → online/temple → home radius → conflict) returning WHY on every NOT BOOKABLE. Booking creation, reschedule and admin assignment all consult it; auto-assign honours radius and capabilities; `GET /pandit/calendar`, `PUT /pandit/calendar`, `POST /pandit/calendar/dates`, `GET /pandit/calendar/why` (both backends); customer `GET /pandits/available` (Node: mounted via customerPaths). Pandit portal: rules editor (weekly off, slots, flags, radius + base city) and month grid with date actions (toggle/holiday/block-with-reason). Legacy date-toggle un-blocks structured entries. DB partial unique index remains the hard double-booking guarantee. |
 
-### Phase 4 — Pandit KYC
+### Phase 4 — Pandit KYC — **IMPLEMENTED (Phase 4 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | `pandits.kyc` JSON; `status` pending/verified/rejected; admin Approve/Reject (`akyc` act, portal-admin.js pandits tab); doc-view buttons (`adoc`); registration upload slots in `regPandit()` FE; `kyc_documents` TABLE ALREADY CREATED (migration 014, empty) |
-| Status | **PARTIAL** — binary approve/reject only; no UNDER_REVIEW/EXPIRED/REVERIFICATION_REQUIRED, no expiry dates, no reminders, no per-document records |
-| Required | **Activate** the scaffolded `kyc_documents` table (per-document rows, status vocabulary, verified-by/date, expiry, next-reverification) + admin KYC screen + reminder surface in notification engine; P gets the missing upload/verify endpoints |
+| Was | Binary approve/reject on `pandits.kyc` JSON; no per-document records, expiry or reminders |
+| Now | `kyc_documents` (014) activated: per-document upload (pandit portal Profile tab; magic-byte + PDF checks, 8 MB cap), full vocabulary PENDING/UNDER_REVIEW/VERIFIED/REJECTED/EXPIRED/REVERIFICATION_REQUIRED (+SUPERSEDED history), re-upload supersedes the open copy keeping history, admin decisions require reasons the pandit sees, expiry sweep + 30-day reminders surface in the admin KYC tab and notify the pandit, every decision audited with old→new status + reason, admin document download endpoint. `services/kyc.js` + twin `services/kyc.py`; closes the Python pandit-upload parity gap |
 
 ### Phase 5 — Pandit profile
 | Aspect | Finding |
@@ -156,12 +156,11 @@ a parity exception.
 | Status | **PARTIAL** |
 | Required | Extend users role vocab + permission map (pandit must never export); permission checks in admin routes by sub-role |
 
-### Phase 22 — Pandit account status
+### Phase 22 — Pandit account status — **IMPLEMENTED (Phase 22 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | `pandits.status` pending/verified/rejected; account management (009) suspends logins (users.status) |
-| Status | **PARTIAL** — suspension exists at login level; no UNDER_REVIEW/SUSPENDED/TERMINATED lifecycle with reasons/dates/payout-hold linkage |
-| Required | Extend pandit status vocab + suspension record (reason/start/end/review date) + termination checklist effects |
+| Was | Login-level suspension only (009); no lifecycle with reasons/dates/payout linkage |
+| Now | Migration 015 adds account_reason/_from/_to/_review_date/_note to pandits. `services/accountStatus.js` + twin: ACTIVE/UNDER_REVIEW/SUSPENDED/TERMINATED (ACTIVE == 'verified'; onboarding states untouched). Suspension/termination block login immediately (existing tokens revoked by the 009 re-check), block booking via the availability engine (ACCOUNT code with the reason), and HOLD open payouts (Admin Hold + documented reason; legacy 'Pending' rows included). Termination is final (no reinstatement). Reinstatement clears the columns and releases held payouts to PROCESSING. Every transition audited old→new lifecycle + reason. Admin pandits tab shows lifecycle badges + Suspend/Reinstate/Terminate actions |
 
 ### Phases 23–25 — Agreements
 | Aspect | Finding |

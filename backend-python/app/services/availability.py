@@ -52,6 +52,11 @@ async def check(db, p: Pandit | None, date: str, slot: str | None, *,
         return {"ok": False, "reason": "Pandit not found", "code": "NOT_FOUND"}
     if p.status != "verified":
         return {"ok": False, "reason": "KYC verification pending", "code": "KYC"}
+    # Phase 22 lifecycle: suspended/terminated pandits take no bookings.
+    if p.account_note == "__terminated__":
+        return {"ok": False, "reason": "Pandit account is terminated", "code": "ACCOUNT"}
+    if not p.avail and p.account_reason:
+        return {"ok": False, "reason": "Pandit account is suspended: " + p.account_reason, "code": "ACCOUNT"}
     if not p.avail:
         return {"ok": False, "reason": "Pandit is not accepting new bookings", "code": "AVAIL_FLAG"}
 

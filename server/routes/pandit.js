@@ -61,6 +61,18 @@ router.get('/calendar', (req, res) => {
   const row = db.prepare('SELECT * FROM pandits WHERE id=?').get(pid(req));
   res.json({ calendar: require('../services/availability').configOf(row) });
 });
+
+/* --- My KYC documents (Phase 4): per-document upload + status --- */
+const K = require('../services/kyc');
+router.get('/kyc/documents', (req, res) => {
+  res.json({ documents: K.forPandit(pid(req)).map(K.out) });
+});
+router.post('/kyc/documents', upload.kyc.single('doc'), upload.verifyMagic(), (req, res) => {
+  if (!req.file) throw bad('Attach the document file');
+  const row = K.upload({ pid: pid(req), uid: req.auth.uid, docType: req.body.docType,
+    fileName: req.file.filename, originalName: req.file.originalname });
+  res.status(201).json({ document: K.out(row) });
+});
 router.put('/calendar', (req, res) => {
   const b = req.body || {};
   const AV = require('../services/availability');
