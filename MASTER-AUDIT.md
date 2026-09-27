@@ -6,8 +6,10 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
 Verification baseline at audit time: Node 36/36 (30 API + 4 security + 2 KYC/lifecycle),
-Python 90/90 (incl. CI-wiring guards + foundation + availability + security + KYC/lifecycle
-suites), UI smoke clean.
+Python 90/90 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+pins the inventory claims in this document to the real codebase so the two cannot
+silently drift apart.
 
 Legend — **N** = Node/Express (`server/`), **P** = FastAPI port (`backend-python/`,
 Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
@@ -20,11 +22,11 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
 | P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
-| N tables | ~57 | `server/db.js` + migrations 001–014 (012 audit/payout, 013 availability, 014 scaffolding) |
+| N tables | ~57 | `server/db.js` + migrations 001–015 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle) |
 | P models | 47 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 28 ids | 27 + `payout-audit`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 34 (30 API + 4 security), Python 88 | `tests/api.test.js`, `tests/security.test.js`, `backend-python/tests/` |
+| Tests | Node 36 (30 API + 4 security + 2 KYC/lifecycle), Python 90 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
