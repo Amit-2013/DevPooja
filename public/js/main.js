@@ -140,7 +140,8 @@ const ACT={
  pcalhol(d){run(()=>api('/pandit/calendar/dates',{body:{date:d.d,kind:'holiday'}}),'Holiday updated').then(()=>{closeModal();PAGE.pcav=null;sync().then(()=>render(true))})},
  pcalblk(d){const reason=prompt('Reason for blocking this date (kept on record):');if(reason===null)return;run(()=>api('/pandit/calendar/dates',{body:{date:d.d,kind:'blocked',reason}}),'Date blocked').then(()=>{closeModal();PAGE.pcav=null;sync().then(()=>render(true))})},
  pcm(d){const g=PAGE.pc;g.m+=+d.d;if(g.m<0){g.m=11;g.y--}if(g.m>11){g.m=0;g.y++}render(true)},
- psv(){run(()=>api('/pandit/profile',{method:'PATCH',body:{city:val('qc'),exp:val('qx'),langs:val('ql'),bio:val('qb'),spec:$$('.qs:checked').map(x=>x.value).join(','),avail:$('#qa').checked}}),'Profile saved')},
+ psv(){run(()=>api('/pandit/profile',{method:'PATCH',body:{city:val('qc'),exp:val('qx'),langs:val('ql'),bio:val('qb'),spec:$$('.qs:checked').map(x=>x.value).join(','),avail:$('#qa').checked,gotra:val('qg'),veda:val('qv'),quals:val('qq')}}),'Profile saved')},
+ async pphotoup(){const inp=document.getElementById('ppf');const f=inp&&inp.files&&inp.files[0];if(!f){toast('Choose a photo first');return}const fd=new FormData();fd.append('photo',f);try{await api('/pandit/profile/photo',{form:fd});toast('Profile photo updated');delete PAGE.pdocs;sync().then(()=>render(true))}catch(e){toast(e.message)}},
  async pdocup(){const inp=document.getElementById('pdf');const f=inp&&inp.files&&inp.files[0];if(!f){toast('Choose a document file first');return}const fd=new FormData();fd.append('doc',f);fd.append('docType',val('pdt'));try{await api('/pandit/kyc/documents',{form:fd});toast('Document uploaded — verification team will review it');PAGE.pdocs=null;sync().then(()=>render(true))}catch(e){toast(e.message)}},
  kycdec(d){const v=d.v;let body={status:v};
   if(v==='REJECTED'){const r=prompt('Rejection reason (the pandit will see exactly this):');if(!r)return;body.reason=r}
@@ -155,6 +156,11 @@ const ACT={
   else if(v==='UNDER_REVIEW'){body.note=prompt('What needs review?')||undefined}
   run(()=>api('/admin/pandits/'+d.id+'/lifecycle',{body}),'Account lifecycle updated').then(()=>{PAGE.lc=null;PAGE.accts=null;sync().then(()=>render(true))})},
  pfeat(){run(()=>api('/pandit/feature',{body:{}}),'Featured listing activated')},
+ /* QA (Phases 5+17): admin records an observation; delete + drill-down */
+ qanew(){const p=PAGE.qaNew||{};const dims={};['punctuality','communication','ritualCompliance','presentation','customerInteraction','digitalCapability','documentation'].forEach(k=>{const v=val('qa_'+k);if(v)dims[k]=+v});
+  run(()=>api('/admin/qa',{body:{panditId:p.panditId||val('qap'),bookingId:val('qab')||undefined,...dims,notes:val('qan')||undefined}}),'QA record saved').then(()=>{PAGE.qa=null;PAGE.pqa=null;sync().then(()=>render(true))})},
+ qadel(d){if(!confirm('Delete this QA record? The score is recomputed.'))return;run(()=>api('/admin/qa/'+d.id,{method:'DELETE'}),'QA record deleted').then(()=>{PAGE.qa=null;PAGE.pqa=null;sync().then(()=>render(true))})},
+ async qapandit(d){try{const x=await api('/admin/pandits/'+d.id+'/qa');PAGE.qaPandit=x;PAGE.qaTab='pandits';render(true)}catch(e){toast(e.message)}},
  /* Agreements (Phases 23-25): pandit OTP flow + admin version management */
  async pagotp(){try{await api('/pandit/agreement/send-otp',{body:{}});toast('OTP sent to your registered mobile'+(db.config.demo?' (demo: 123456)':''))}catch(e){toast(e.message)}},
  async pagacc(d){if(!$('#agconsent')||!$('#agconsent').checked){toast('Tick the consent box first');return}const otp=val('agotp');if(!otp){toast('Enter the OTP sent to your mobile');return}

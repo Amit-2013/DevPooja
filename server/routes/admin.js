@@ -38,6 +38,28 @@ router.post('/bookings/:id/ops', (req, res) => {
 });
 router.post('/reviews/:id/toggle', (req, res) => { const r = B.getBooking(req.params.id); if (!r || !r.review) throw notFound(); db.prepare('UPDATE bookings SET review_hidden=? WHERE id=?').run(r.review_hidden ? 0 : 1, r.id); res.json({ ok: true }); });
 
+/* --- QA & rating engine (Phase 17) + profile enrichment read (Phase 5) --- */
+const QA = require('../services/qa');
+router.get('/qa', (req, res) => {
+  res.json({ records: QA.list().map(QA.out) });
+});
+router.post('/qa', (req, res) => {
+  const rec = QA.create({ evaluator: req.auth.uid, panditId: req.body.panditId, bookingId: req.body.bookingId,
+    dims: { punctuality: req.body.punctuality, communication: req.body.communication, ritual_compliance: req.body.ritualCompliance,
+      presentation: req.body.presentation, customer_interaction: req.body.customerInteraction,
+      digital_capability: req.body.digitalCapability, documentation: req.body.documentation },
+    notes: req.body.notes });
+  res.status(201).json({ record: rec });
+});
+router.delete('/qa/:id', (req, res) => {
+  res.json(QA.remove({ id: req.params.id, uid: req.auth.uid }));
+});
+router.get('/pandits/:id/qa', (req, res) => {
+  const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id);
+  if (!p) throw notFound('Pandit not found');
+  res.json({ records: QA.forPandit(p.id).map(QA.out), derived: QA.derived(p.id), qaScore: p.qa_score });
+});
+
 router.post('/pandits/:id/kyc', (req, res) => {
   const st = v.oneOf(req.body.status, ['verified', 'rejected'], 'Status');
   const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound();

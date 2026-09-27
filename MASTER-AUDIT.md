@@ -5,8 +5,8 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 38/38 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper),
-Python 102/102 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+Verification baseline at audit time: Node 40/40 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile),
+Python 104/104 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
 security + KYC/lifecycle + agreements suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
@@ -22,11 +22,11 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
 | P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
-| N tables | ~57 | `server/db.js` + migrations 001–015 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle) |
-| P models | 47 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding |
+| N tables | ~58 | `server/db.js` + migrations 001–016 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA) |
+| P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 28 ids | 27 + `payout-audit`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 38 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper), Python 102 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `backend-python/tests/` |
+| Tests | Node 40 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile), Python 104 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -47,12 +47,12 @@ a parity exception.
 | Was | Binary approve/reject on `pandits.kyc` JSON; no per-document records, expiry or reminders |
 | Now | `kyc_documents` (014) activated: per-document upload (pandit portal Profile tab; magic-byte + PDF checks, 8 MB cap), full vocabulary PENDING/UNDER_REVIEW/VERIFIED/REJECTED/EXPIRED/REVERIFICATION_REQUIRED (+SUPERSEDED history), re-upload supersedes the open copy keeping history, admin decisions require reasons the pandit sees, expiry sweep + 30-day reminders surface in the admin KYC tab and notify the pandit, the sweep also runs on a schedule (unref'd interval armed at boot, `KYC_SWEEP_MS` default 6h, 0 disables — reminders fire with zero admin traffic), every decision audited with old→new status + reason, admin document download endpoint. `services/kyc.js` + twin `services/kyc.py`; closes the Python pandit-upload parity gap |
 
-### Phase 5 — Pandit profile
+### Phase 5 — Pandit profile — **IMPLEMENTED (Phase 5 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | `pandits` has name/city/exp/langs/spec/rating/rev/done/pf/bio/kyc/featured/off/avail; FE profile edit tab; public pandit profile page |
-| Status | **PARTIAL** — missing photo, gotra/lineage, qualifications, approved-services control (spec doubles as it, unverified), QA score, cancellation/no-show % |
-| Required | Extend `pandits` columns (migration) + profile tab sections; derive cancellation%/no-show% from bookings |
+| Was | Missing photo, gotra/lineage, qualifications, QA score, cancellation/no-show % |
+| Now | Migration 016 extends the SAME pandits row: `photo_file` (magic-checked image upload, stored under media/ so it is publicly served from /media like catalogue photos; KYC files stay private), `gotra`, `qualifications`, `veda_school`, cached `qa_score`. Profile PATCH accepts gotra/quals/veda (length-capped); pandit profile tab has photo upload + the new fields; public pandit profile shows photo, gotra/tradition/qualifications card and QA score. Cancellation% (cancelled while assigned to this pandit) and no-show% (past scheduled date, assigned, never Started/Completed) are DERIVED from bookings on read — never stored — and surface on the QA endpoints (`GET /admin/pandits/:id/qa`, `GET /pandit/me/qa`) and the growth tab. `services/qa.js` + twin `app/services/qa.py` |
+| Status | **IMPLEMENTED** |
 
 ### Phase 6 — Service photo date gate
 | Aspect | Finding |
@@ -123,12 +123,12 @@ a parity exception.
 | Status | **PARTIAL** — customer-side only; no pandit-cancel/no-show compensation, penalties not configurable (rules are in code, not settings) |
 | Required | Extract cancellation engine service; move windows/percentages to settings; add pandit-cancel + no-show paths with compensation; N+P |
 
-### Phase 17 — QA & rating engine
+### Phase 17 — QA & rating engine — **IMPLEMENTED (Phase 17 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | `reviews` table (rating-only-from-completed), moderation (hide/show), rating aggregates on pandits, pandit growth tab shows acceptance/completion rates |
-| Status | **PARTIAL** — no punctuality/compliance/communication breakdown, no QA score, no admin QA history |
-| Required | Extend reviews or add `qa_records`; QA score computation; admin history view |
+| Was | No punctuality/compliance breakdown, no QA score, no admin QA history |
+| Now | `qa_records` (migration 016): one admin-scored observation per booking across the 7-dimension trial-pooja rubric (punctuality, communication, ritual_compliance, presentation, customer_interaction, digital_capability, documentation; each 1..5). `overall` is computed server-side as the mean of the supplied dimensions; `pandits.qa_score` is a cached average refreshed on every write (customer reviews keep driving `pandits.rating` unchanged). Endpoints (both backends): `GET /admin/qa`, `POST /admin/qa` (201), `DELETE /admin/qa/:id` (score recomputed), `GET /admin/pandits/:id/qa`; pandit self-view `GET /pandit/me/qa`. Every write audited (`qa.recorded`/`qa.deleted` with old/new values); the pandit is notified with the overall score. Admin portal: Service quality tab (records table + record form + per-pandit drill-down); pandit Growth tab shows QA score, derived cancellation/no-show % and own QA history |
+| Status | **IMPLEMENTED** |
 
 ### Phase 18 — Trial pooja
 | Aspect | Finding |

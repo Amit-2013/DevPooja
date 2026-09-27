@@ -255,8 +255,50 @@ async def update_profile(body: dict, auth: dict = Depends(pandit_dep),
     p.bio = v_str(b.get("bio"), "About", optional=True, max_len=600)
     p.spec = json.dumps(spec)
     p.avail = 1 if b.get("avail") else 0
+    # Phase 5 enrichment (optional free text, length-capped like the Node twin).
+    p.gotra = v_str(b.get("gotra"), "Gotra", optional=True, max_len=60)
+    p.qualifications = v_str(b.get("quals"), "Qualifications", optional=True, max_len=600)
+    p.veda_school = v_str(b.get("veda"), "Tradition", optional=True, max_len=60)
     await db.flush()
     return {"ok": True}
+
+
+@router.post("/profile/photo")
+async def upload_profile_photo(photo: UploadFile = File(...),
+                               auth: dict = Depends(pandit_dep),
+                               db: AsyncSession = Depends(get_db)):
+    """Profile photo (Phase 5): magic-checked image stored under media/ so it is
+    served publicly from /media like catalogue photos; KYC files stay private."""
+    from pathlib import Path
+    from ..config import get_settings
+    from ..util import rid, verify_upload
+    data = await photo.read()
+    real = verify_upload(data, photo.content_type or "")
+    if real == "application/pdf":
+        raise bad("Profile photos must be images")
+    name = "prof-" + rid(10) + {"image/jpeg": ".jpg", "image/png": ".png",
+                                "image/webp": ".webp"}.get(real, ".jpg")
+    d = Path(get_settings().upload_dir) / "media"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_bytes(data)
+    p = await db.get(Pandit, auth["pid"])
+    old, p.photo_file = p.photo_file, name
+    await db.flush()
+    if old:
+        try:
+            (d / old).unlink()
+        except OSError:
+            pass
+    return {"ok": True, "photo": "/media/" + name}
+
+
+@router.get("/me/qa")
+async def my_qa(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    """My QA history + derived service metrics (Phases 5 + 17)."""
+    from ..services import qa as QA
+    from ..services.qa import out as qa_out
+    records = [qa_out(r) for r in await QA.for_pandit(db, auth["pid"])]
+    return {"records": records, "derived": await QA.derived(db, auth["pid"])}
 
 
 @router.post("/feature")

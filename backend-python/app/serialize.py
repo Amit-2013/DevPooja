@@ -19,7 +19,13 @@ def pandit(r, *, admin: bool = False, self: bool = False) -> dict | None:
     out = {"id": r.id, "n": r.name, "city": r.city, "exp": r.exp, "langs": j(r.langs, []),
            "spec": j(r.spec, []), "rating": r.rating, "rev": r.rev, "done": r.done,
            "pf": r.pf, "bio": r.bio or "", "color": r.color or "#0c4b49", "st": r.status,
-           "feat": bool(r.featured), "off": j(r.off, []), "avail": bool(r.avail)}
+           "feat": bool(r.featured), "off": j(r.off, []), "avail": bool(r.avail),
+           "photo": "/media/" + r.photo_file if r.photo_file else "",
+           "gotra": r.gotra or "", "quals": r.qualifications or "", "veda": r.veda_school or "",
+           "qa": r.qa_score}
+    # NOTE: derived cancellation/no-show metrics are NOT inlined here (they need an
+    # async query); both backends expose them on the dedicated QA endpoints
+    # (/admin/pandits/{id}/qa, /pandit/me/qa) which the portals use.
     if admin:
         out["m"] = r.mobile
         out["kyc"] = list((j(r.kyc, {}) or {}).get("files", {}).keys())

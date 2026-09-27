@@ -7,6 +7,11 @@ const user = (r) => r && ({ id: r.id, n: r.name, m: r.mobile || '', e: r.email |
 const pandit = (r, { admin = false, self = false } = {}) => r && ({
   id: r.id, n: r.name, city: r.city, exp: r.exp, langs: j(r.langs, []), spec: j(r.spec, []), rating: r.rating, rev: r.rev, done: r.done,
   pf: r.pf, bio: r.bio || '', color: r.color || '#0c4b49', st: r.status, feat: !!r.featured, off: j(r.off, []), avail: !!r.avail,
+  photo: r.photo_file ? '/media/' + r.photo_file : '', gotra: r.gotra || '', quals: r.qualifications || '', veda: r.veda_school || '',
+  qa: r.qa_score === undefined || r.qa_score === null ? null : r.qa_score,
+  /* derived cancellation/no-show metrics are NOT inlined here (they need their own
+     queries); both backends expose them on the dedicated QA endpoints
+     (/admin/pandits/:id/qa, /pandit/me/qa) which the portals use. */
   ...(admin ? { m: r.mobile, kyc: Object.keys(j(r.kyc, {}).files || {}) } : {}),
   ...(self || admin ? { av: AV.configOf(r) } : {})
 });

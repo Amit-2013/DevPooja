@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const path = require('path');
+const fs = require('fs');
 const { db } = require('../db');
 const { requireRole } = require('../auth');
 const B = require('../services/bookings');
@@ -150,9 +151,30 @@ router.get('/calendar/why', (req, res) => {
 router.patch('/profile', (req, res) => {
   const b = req.body, spec = list(b.spec).filter((s) => pujaIds().includes(s));
   if (!spec.length) throw bad('Select at least one puja');
-  db.prepare('UPDATE pandits SET city=?, exp=?, langs=?, bio=?, spec=?, avail=? WHERE id=?')
-    .run(CITIES.includes(b.city) ? b.city : 'Delhi NCR', v.int(b.exp, 'Experience', { min: 0, max: 70 }), JSON.stringify(list(b.langs).slice(0, 10)), v.str(b.bio, 'About', { optional: true, max: 600 }), JSON.stringify(spec), b.avail ? 1 : 0, pid(req));
+  db.prepare('UPDATE pandits SET city=?, exp=?, langs=?, bio=?, spec=?, avail=?, gotra=?, qualifications=?, veda_school=? WHERE id=?')
+    .run(CITIES.includes(b.city) ? b.city : 'Delhi NCR', v.int(b.exp, 'Experience', { min: 0, max: 70 }), JSON.stringify(list(b.langs).slice(0, 10)), v.str(b.bio, 'About', { optional: true, max: 600 }), JSON.stringify(spec), b.avail ? 1 : 0,
+      v.str(b.gotra, 'Gotra', { optional: true, max: 60 }), v.str(b.quals, 'Qualifications', { optional: true, max: 600 }), v.str(b.veda, 'Tradition', { optional: true, max: 60 }), pid(req));
   res.json({ ok: true });
+});
+
+/* Profile photo (Phase 5): image-only, magic-checked, stored under media/ so it
+   is served publicly from /media like catalogue photos. KYC files stay private. */
+router.post('/profile/photo', upload.kyc.single('photo'), upload.verifyMagic(), (req, res) => {
+  if (!req.file) throw bad('Attach a photo');
+  if (req.file.mimetype === 'application/pdf') { try { fs.unlinkSync(req.file.path); } catch (e) {} throw bad('Profile photos must be images'); }
+  const p = db.prepare('SELECT photo_file FROM pandits WHERE id=?').get(pid(req));
+  const name = 'prof-' + rid(10) + path.extname(req.file.originalname || '.jpg').toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 8);
+  const dest = path.join(upload.dirs.media, name);
+  fs.renameSync(req.file.path, dest);
+  db.prepare('UPDATE pandits SET photo_file=? WHERE id=?').run(name, pid(req));
+  if (p && p.photo_file) { try { fs.unlinkSync(path.join(upload.dirs.media, p.photo_file)); } catch (e) { /* already gone */ } }
+  res.json({ ok: true, photo: '/media/' + name });
+});
+
+/* My QA history + derived service metrics (Phases 5 + 17). */
+router.get('/me/qa', (req, res) => {
+  const Q = require('../services/qa');
+  res.json({ records: Q.forPandit(pid(req)).map(Q.out), derived: Q.derived(pid(req)) });
 });
 router.post('/feature', (req, res) => {
   if ((process.env.PAYMENT_MODE || 'mock') !== 'mock') return res.status(501).json({ error: 'Featured-listing billing is not wired to the gateway yet. See README.' });

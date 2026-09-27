@@ -51,6 +51,12 @@ class Pandit(Base):
     account_to: Mapped[str | None] = mapped_column(String(10))
     account_review_date: Mapped[str | None] = mapped_column(String(10))
     account_note: Mapped[str | None] = mapped_column(Text)
+    # Phases 5 + 17 profile enrichment + QA (migration 016 twin).
+    photo_file: Mapped[str | None] = mapped_column(String(120))
+    gotra: Mapped[str | None] = mapped_column(String(60))
+    qualifications: Mapped[str | None] = mapped_column(Text)
+    veda_school: Mapped[str | None] = mapped_column(String(60))
+    qa_score: Mapped[float | None] = mapped_column(Float)
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(40))
     name: Mapped[str] = mapped_column(String(120))
@@ -765,4 +771,26 @@ class TrialPooja(Base):
     final_score: Mapped[int | None] = mapped_column(Integer)
     result: Mapped[str] = mapped_column(String(30), default="PENDING")
     admin_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(MS)
+
+
+class QaRecord(Base):
+    """Phase 17: one admin-scored QA observation per booking. Dimension
+    vocabulary mirrors TrialPooja (014) so trial and live QA speak the same
+    language; overall = server-computed mean of the supplied dimensions."""
+    __tablename__ = "qa_records"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    pandit_id: Mapped[str] = mapped_column(String(40), index=True)
+    booking_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    evaluator: Mapped[str] = mapped_column(String(80))
+    punctuality: Mapped[int | None] = mapped_column(Integer)
+    communication: Mapped[int | None] = mapped_column(Integer)
+    ritual_compliance: Mapped[int | None] = mapped_column(Integer)
+    presentation: Mapped[int | None] = mapped_column(Integer)
+    customer_interaction: Mapped[int | None] = mapped_column(Integer)
+    digital_capability: Mapped[int | None] = mapped_column(Integer)
+    documentation: Mapped[int | None] = mapped_column(Integer)
+    overall: Mapped[float | None] = mapped_column(Float)
+    notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(MS)

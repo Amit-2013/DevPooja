@@ -205,6 +205,50 @@ async def kyc_decide(doc_id: str, body: dict, auth: dict = Depends(admin_dep),
     return {"document": KYC.out(row)}
 
 
+# --- QA & rating engine (Phase 17) + profile enrichment read (Phase 5) ---
+from ..services import qa as QA_SVC  # noqa: E402
+
+
+@router.get("/qa")
+async def qa_list(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"records": await QA_SVC.list_all(db)}
+
+
+@router.post("/qa", status_code=201)
+async def qa_create(body: dict, auth: dict = Depends(admin_dep),
+                    db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    rec = await QA_SVC.create(db, evaluator=auth["uid"], pandit_id=b.get("panditId"),
+                              booking_id=b.get("bookingId"),
+                              dims={"punctuality": b.get("punctuality"), "communication": b.get("communication"),
+                                    "ritual_compliance": b.get("ritualCompliance"), "presentation": b.get("presentation"),
+                                    "customer_interaction": b.get("customerInteraction"),
+                                    "digital_capability": b.get("digitalCapability"),
+                                    "documentation": b.get("documentation")},
+                              notes=b.get("notes"))
+    await db.commit()
+    return rec
+
+
+@router.delete("/qa/{qa_id}")
+async def qa_delete(qa_id: str, auth: dict = Depends(admin_dep),
+                    db: AsyncSession = Depends(get_db)):
+    r = await QA_SVC.remove(db, id=qa_id, uid=auth["uid"])
+    await db.commit()
+    return r
+
+
+@router.get("/pandits/{pandit_id}/qa")
+async def pandit_qa(pandit_id: str, auth: dict = Depends(admin_dep),
+                    db: AsyncSession = Depends(get_db)):
+    from ..models import Pandit
+    p = await db.get(Pandit, pandit_id)
+    if not p:
+        raise not_found("Pandit not found")
+    return {"records": [QA_SVC.out(r) for r in await QA_SVC.for_pandit(db, pandit_id)],
+            "derived": await QA_SVC.derived(db, pandit_id), "qaScore": p.qa_score}
+
+
 @router.get("/kyc/{doc_id}/file")
 async def kyc_file(doc_id: str, auth: dict = Depends(admin_dep),
                    db: AsyncSession = Depends(get_db)):
