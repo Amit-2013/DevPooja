@@ -255,6 +255,99 @@ async def audit_log(limit: int = 150, auth: dict = Depends(admin_dep),
                          "device": a.device or None, "ts": a.created_at} for a in rows]}
 
 
+# --- Agreements (Phases 23-25): versioned publishing + acceptance registry ------
+from fastapi import UploadFile, File, Form
+import hashlib as _hs
+import pathlib as _pl
+
+from ..models import Agreement as _Agreement, AgreementAcceptance as _AA
+from ..services import agreements as AG
+
+
+@router.get("/agreements")
+async def agreements_list(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"agreements": await AG.list_all(db), "current": await AG.current_out(db)}
+
+
+@router.post("/agreements", status_code=201)
+async def agreements_create(body: dict, auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    row = await AG.create_draft(db, uid=auth["uid"], title=b.get("title"),
+                                body=b.get("body"), effective_from=b.get("effectiveFrom"))
+    return {"agreement": AG.out(row)}
+
+
+@router.post("/agreements/{agreement_id}/publish")
+async def agreements_publish(agreement_id: str, body: dict, auth: dict = Depends(admin_dep),
+                             db: AsyncSession = Depends(get_db)):
+    row = await AG.publish(db, agreement_id, auth["uid"], reason=(body or {}).get("reason"))
+    return {"agreement": AG.out(row)}
+
+
+@router.post("/agreements/{agreement_id}/archive")
+async def agreements_archive(agreement_id: str, body: dict, auth: dict = Depends(admin_dep),
+                             db: AsyncSession = Depends(get_db)):
+    row = await AG.archive(db, agreement_id, auth["uid"], reason=(body or {}).get("reason"))
+    return {"agreement": AG.out(row)}
+
+
+@router.post("/agreements/file", status_code=201)
+async def agreements_upload_file(doc: UploadFile | None = File(None), title: str = Form(...),
+                                 effectiveFrom: str | None = Form(None),
+                                 auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    """Manual upload path (Phase 25): a scanned signed agreement (PDF) becomes a
+    published version of its own; the file is stored under uploads/agreements."""
+    from ..config import get_settings
+
+    if doc is None:
+        raise bad("Attach the signed agreement file")
+    data = await doc.read(get_settings().max_upload_mb * 1024 * 1024 + 1)
+    if len(data) > get_settings().max_upload_mb * 1024 * 1024:
+        raise bad("File too large")
+    claimed = doc.content_type or ""
+    if claimed == "application/pdf":
+        if data[:5] != b"%PDF-":
+            raise bad("File content does not match its type")
+    else:
+        from ..util import verify_upload
+        verify_upload(data, claimed)
+    ext = ".pdf" if claimed == "application/pdf" else "." + claimed.split("/")[-1]
+    file_name = rid(16) + ext
+    dest = _pl.Path(get_settings().upload_dir) / "agreements"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / file_name).write_bytes(data)
+    row = await AG.manual_upload(db, uid=auth["uid"], title=title, file_name=file_name,
+                                 data=data, effective_from=effectiveFrom)
+    return {"agreement": AG.out(row)}
+
+
+@router.get("/agreements/{agreement_id}/acceptances")
+async def agreements_acceptances(agreement_id: str, auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    if not await db.get(_Agreement, agreement_id):
+        raise not_found("Agreement not found")
+    return {"acceptances": await AG.acceptance_list(db, agreement_id)}
+
+
+@router.get("/agreements/{agreement_id}/file")
+async def agreements_file(agreement_id: str, auth: dict = Depends(admin_dep),
+                          db: AsyncSession = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    from ..config import get_settings
+
+    row = await db.get(_Agreement, agreement_id)
+    if not row:
+        raise not_found("Agreement not found")
+    if not row.file_name:
+        raise not_found("This version was published as text, not a file")
+    f = _pl.Path(get_settings().upload_dir) / "agreements" / _pl.Path(row.file_name).name
+    if not f.exists():
+        raise not_found("File missing")
+    return FileResponse(f)
+
+
 # --- samagri kits / prasad ------------------------------------------------------
 @router.post("/kits", status_code=201)
 async def create_kit(body: dict, auth: dict = Depends(admin_dep),

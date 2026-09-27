@@ -607,6 +607,47 @@ router.post('/pandits/:id/lifecycle', (req, res) => {
   res.json({ lifecycle: AS.currentLifecycle(p), pandit: S.pandit(p, { admin: true }) });
 });
 
+/* --- Agreements (Phases 23-25): versioned publishing + acceptance registry --- */
+const AG = require('../services/agreements');
+router.get('/agreements', (req, res) => res.json({ agreements: AG.list(), current: AG.current() }));
+router.post('/agreements', (req, res) => {
+  const b = req.body || {};
+  const row = AG.createDraft({ uid: req.auth.uid, title: b.title, body: b.body, effectiveFrom: b.effectiveFrom });
+  res.status(201).json({ agreement: AG.out(row) });
+});
+router.post('/agreements/:id/publish', (req, res) => {
+  const row = AG.publish(req.params.id, req.auth.uid, { reason: (req.body || {}).reason });
+  res.json({ agreement: AG.out(row) });
+});
+router.post('/agreements/:id/archive', (req, res) => {
+  const row = AG.archive(req.params.id, req.auth.uid, { reason: (req.body || {}).reason });
+  res.json({ agreement: AG.out(row) });
+});
+/* Manual upload path (Phase 25): a scanned signed agreement becomes a published
+   version of its own; the file is stored under uploads/agreements. */
+router.post('/agreements/file', upload.kyc.single('doc'), upload.verifyMagic(), (req, res) => {
+  const b = req.body || {};
+  const dest = path.join(upload.dirs.kyc, '..', 'agreements');
+  fs.mkdirSync(dest, { recursive: true });
+  fs.copyFileSync(req.file.path, path.join(dest, req.file.filename));
+  fs.unlinkSync(req.file.path);
+  const row = AG.manualUpload({ uid: req.auth.uid, title: b.title, fileName: req.file.filename,
+    fileBuffer: fs.readFileSync(path.join(dest, req.file.filename)), effectiveFrom: b.effectiveFrom });
+  res.status(201).json({ agreement: AG.out(row) });
+});
+router.get('/agreements/:id/acceptances', (req, res) => {
+  if (!AG.get(req.params.id)) throw notFound('Agreement not found');
+  res.json({ acceptances: AG.acceptanceList(req.params.id) });
+});
+router.get('/agreements/:id/file', (req, res) => {
+  const row = AG.get(req.params.id);
+  if (!row) throw notFound('Agreement not found');
+  if (!row.file_name) throw notFound('This version was published as text, not a file');
+  const file = path.join(upload.dirs.kyc, '..', 'agreements', path.basename(row.file_name));
+  if (!fs.existsSync(file)) throw notFound('File missing');
+  res.sendFile(file);
+});
+
 /* GET /admin/export/:report.xlsx — professional format: report title, generated-on
    (IST), applied filters, frozen + filterable header row, auto column widths,
    Indian-currency number formats, a totals row where useful — and an export_logs

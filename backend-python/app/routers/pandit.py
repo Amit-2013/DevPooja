@@ -3,7 +3,7 @@ profile and featured listing (media endpoints already live in routers/media.py;
 pandit registration arrives with KYC uploads)."""
 import json
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Request, UploadFile, File, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ from ..serialize import booking as s_booking
 from ..services import bookings as B
 from ..services import kyc as KYC
 from ..services.availability import check as av_check, config_of, resolve_place
+from ..services.otp import issue as otp_issue
 from ..util import bad, j, rid, v_date, v_int, v_one_of, v_str
 from ..pricing import SLOTS
 
@@ -203,6 +204,40 @@ async def kyc_upload(docType: str = Form(...), doc: UploadFile | None = File(Non
     row = await KYC.upload(db, pid=auth["pid"], uid=auth["uid"], doc_type=docType,
                            file_name=file_name, original_name=doc.filename or "")
     return {"document": KYC.out(row)}
+
+
+# --- My agreement (Phases 23-25) -------------------------------------------------
+@router.get("/agreement")
+async def my_agreement(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    from ..services import agreements as AG
+    return await AG.for_pandit(db, auth["pid"])
+
+
+@router.post("/agreement/send-otp")
+async def send_agreement_otp(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    """The acceptance OTP is issued SERVER-SIDE against the pandit's registered
+    mobile (pandits.mobile) — the portal never needs to know the number. Reuses
+    services.otp.issue (same otps table as /auth/otp/send; demo code 123456)."""
+    p = await db.get(Pandit, auth["pid"])
+    if not p or not p.mobile:
+        raise bad("Your account has no registered mobile number — add one before accepting")
+    return await otp_issue(db, p.mobile)
+
+
+@router.post("/agreement/accept")
+async def accept_agreement(body: dict, request: Request, auth: dict = Depends(pandit_dep),
+                           db: AsyncSession = Depends(get_db)):
+    """Digital acceptance: consent checkbox + OTP verified against the pandit's
+    registered mobile; the acceptance row records method/OTP flag/IP/device and
+    an enriched audit entry. Version-locked — a repeat is 409."""
+    from ..services import agreements as AG
+    b = body or {}
+    row = await AG.accept(db, pid=auth["pid"], uid=auth["uid"],
+                          agreement_id=b.get("agreementId"), consent=b.get("consent"),
+                          otp=b.get("otp"),
+                          ip=request.client.host if request.client else "",
+                          device=request.headers.get("user-agent", ""))
+    return {"acceptance": AG.out_acceptance(row)}
 
 
 @router.patch("/profile")

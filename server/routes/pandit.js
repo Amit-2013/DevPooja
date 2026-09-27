@@ -73,6 +73,36 @@ router.post('/kyc/documents', upload.kyc.single('doc'), upload.verifyMagic(), (r
     fileName: req.file.filename, originalName: req.file.originalname });
   res.status(201).json({ document: K.out(row) });
 });
+/* --- My agreement (Phases 23-25): read the published version, accept with consent + OTP --- */
+const AG = require('../services/agreements');
+router.get('/agreement', (req, res) => {
+  res.json(AG.forPandit(pid(req)));
+});
+/* The acceptance OTP is issued SERVER-SIDE against the pandit's registered
+   mobile (pandits.mobile) — the portal never needs to know the number. Reuses
+   the same otps table + hashing as auth.js (demo code 123456), so the accept
+   route's verifyOtp works unchanged and no parallel OTP path is created. */
+router.post('/agreement/send-otp', async (req, res) => {
+  const crypto = require('crypto');
+  const { sendOtp } = require('../services/notify');
+  const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(pid(req));
+  if (!p || !p.mobile) throw bad('Your account has no registered mobile number — add one before accepting');
+  const demoOn = () => String(process.env.DEMO_MODE || (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true';
+  const code = demoOn() ? '123456' : String(crypto.randomInt(100000, 1000000));
+  const hash = (m, c) => crypto.createHash('sha256').update(m + ':' + c + ':' + (process.env.JWT_SECRET || 'dev')).digest('hex');
+  db.prepare('INSERT INTO otps(mobile,code_hash,expires,attempts) VALUES(?,?,?,0) ON CONFLICT(mobile) DO UPDATE SET code_hash=excluded.code_hash, expires=excluded.expires, attempts=0')
+    .run(p.mobile, hash(p.mobile, code), Date.now() + 5 * 60 * 1000);
+  await sendOtp(p.mobile, code);
+  res.json({ ok: true, ...(process.env.NODE_ENV !== 'production' && demoOn() ? { devOtp: code } : {}) });
+});
+router.post('/agreement/accept', (req, res) => {
+  const b = req.body || {};
+  const row = AG.accept({ pid: pid(req), uid: req.auth.uid, agreementId: b.agreementId,
+    consent: b.consent, otp: b.otp,
+    ip: req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket && req.socket.remoteAddress) || '',
+    device: req.headers['user-agent'] || '' });
+  res.json({ acceptance: AG.outAcceptance(row) });
+});
 router.put('/calendar', (req, res) => {
   const b = req.body || {};
   const AV = require('../services/availability');

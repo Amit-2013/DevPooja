@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 36/36 (30 API + 4 security + 2 KYC/lifecycle),
-Python 90/90 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 37/37 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements),
+Python 98/98 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -26,7 +26,7 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | P models | 47 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 28 ids | 27 + `payout-audit`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 36 (30 API + 4 security + 2 KYC/lifecycle), Python 90 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `backend-python/tests/` |
+| Tests | Node 37 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements), Python 98 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -164,12 +164,12 @@ a parity exception.
 | Was | Login-level suspension only (009); no lifecycle with reasons/dates/payout linkage |
 | Now | Migration 015 adds account_reason/_from/_to/_review_date/_note to pandits. `services/accountStatus.js` + twin: ACTIVE/UNDER_REVIEW/SUSPENDED/TERMINATED (ACTIVE == 'verified'; onboarding states untouched). Suspension/termination block login immediately (existing tokens revoked by the 009 re-check), block booking via the availability engine (ACCOUNT code with the reason), and HOLD open payouts (Admin Hold + documented reason; legacy 'Pending' rows included). Termination is final (no reinstatement). Reinstatement clears the columns and releases held payouts to PROCESSING. Every transition audited old→new lifecycle + reason. Admin pandits tab shows lifecycle badges + Suspend/Reinstate/Terminate actions |
 
-### Phases 23–25 — Agreements
+### Phases 23–25 — Agreements — **IMPLEMENTED (Phases 23-25 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | No application code; `agreements` + `agreement_acceptances` TABLES ALREADY CREATED (migration 014, empty; unique index version-locks acceptance) |
-| Status | **MISSING** |
-| Required | **Activate** the scaffolded tables (versions, publish/archive, document hash, manual upload) + acceptance flow (OTP/IP/device/audit) + admin screens; never overwrite accepted versions |
+| Existing | `agreements` + `agreement_acceptances` TABLES ALREADY CREATED (migration 014, empty; unique index version-locks acceptance) |
+| Now | `services/agreements.js` + twin (`services/agreements.py`) activate both tables. Version rows, never mutated after publishing: drafts get version = max+1; publishing stamps published_at + document_hash = sha256(body) (manual upload hashes the file bytes); ARCHIVED/PUBLISHED cannot re-publish; versions WITH acceptances can never be archived — a new version supersedes instead, old acceptances stay queryable per pandit. Pandit flow: `GET /pandit/agreement` (current + my acceptance history) → consent checkbox → OTP issued via the existing `POST /auth/otp/send` to `pandits.mobile` → `POST /pandit/agreement/accept` verifies via auth.js `verifyOtp` (Python: services/otp.verify) and inserts method 'DIGITAL' + otp_verified + IP + device; the migration-014 unique index makes a repeat 409 (unknown and unpublished ids both 404). Manual upload path: admin posts a signed PDF/image to `POST /admin/agreements/file` (multer+magic-byte / %PDF-+verify_upload checks, stored under uploads/agreements) — published as its own version, no OTP row fabricated. Every action audited enriched: agreement.created/published (hash in new_value)/archived/accepted (OTP flag, version, hash, IP + device in the audit row). Admin Agreements tab (ANAV) with versions, acceptances drill-down, draft editor, manual upload; pandit portal Agreement tab (PNAV) with consent + OTP flow |
+| Status | **IMPLEMENTED** — `tests/agreements.test.js` (Node) + `backend-python/tests/test_agreements.py` (twin) |
 
 ### Phase 26 — Leads
 | Aspect | Finding |
