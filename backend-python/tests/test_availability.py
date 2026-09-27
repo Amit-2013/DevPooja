@@ -102,9 +102,10 @@ async def test_calendar_rules_block_and_restore(client):
                             headers=pa)).json()["verdict"]
     assert why["ok"] is False and why["code"] == "RADIUS"
 
-    # Customer-facing availability list respects the same rules.
+    # Customer-facing availability list respects the same rules. Date beyond any
+    # mock-booking range so randomly generated demo bookings cannot exclude p2.
     avail = (await client.get(
-        f"/api/pandits/available?date={day_plus(3)}&slot=10:00%20AM&mode=home&city=Chennai",
+        f"/api/pandits/available?date={day_plus(90)}&slot=10:00%20AM&mode=home&city=Chennai",
         headers=ca)).json()["pandits"]
     assert all(p["id"] != "p1" for p in avail), "p1 excluded outside its radius"
     assert any(p["id"] == "p2" for p in avail), "Chennai pandit available"

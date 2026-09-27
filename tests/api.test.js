@@ -990,8 +990,9 @@ test('availability calendar: weekly off, holidays, blocked dates, slots, flags, 
   assert.equal(why.ok, false);
   assert.equal(why.code, 'RADIUS');
 
-  /* customer-facing availability list respects the same rules */
-  const avail = (await call('GET', `/pandits/available?date=${dayPlus(3)}&slot=10:00%20AM&mode=home&city=Chennai`, { token: tc })).json.pandits;
+  /* customer-facing availability list respects the same rules. Date beyond the
+     mock-booking range (dayPlus 2..47) so random demo bookings cannot exclude p2. */
+  const avail = (await call('GET', `/pandits/available?date=${dayPlus(90)}&slot=10:00%20AM&mode=home&city=Chennai`, { token: tc })).json.pandits;
   assert.ok(avail.every((p) => p.id !== 'p1'), 'p1 excluded outside its radius');
   assert.ok(avail.some((p) => p.id === 'p2'), 'Chennai pandit available');
 
