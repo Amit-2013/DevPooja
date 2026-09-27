@@ -710,8 +710,12 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   assert.ok(credits.every((c) => c.pujaName));
   assert.equal((await call('GET', '/admin/media/credits', { token: await login('customer') })).status, 403);
 
-  /* public endpoint: pagination shape + thumbnail + cache header */
-  const pid = seedQ[0].pujaId;
+  /* public endpoint: pagination shape + thumbnail + cache header.
+     Pick a puja that actually owns a ritual/puja photo: seedQ[0] is order-dependent
+     (all seed rows share a created_at), and one-photo pujas of other categories
+     (seva, temple) would make the category-filter assertion below flaky. */
+  const pick = seedQ.find((m) => m.category === 'ritual' || m.category === 'puja') || seedQ[0];
+  const pid = pick.pujaId;
   const pg = (await call('GET', '/pujas/' + pid + '/photos?limit=1&page=1')).json;
   assert.equal(pg.limit, 1);
   assert.ok(pg.total >= 1);
