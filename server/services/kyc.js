@@ -74,7 +74,8 @@ function decide({ id, uid, status, reason, expiresAt, reverifyAt }) {
 }
 
 /* Expiry sweep: flips VERIFIED docs past their expiry to EXPIRED and notifies.
-   Called opportunistically on admin KYC reads (cheap, idempotent). */
+   Cheap and idempotent — runs opportunistically on admin KYC reads AND on a
+   schedule (startSweeper below) so reminders fire even with no admin traffic. */
 function sweep() {
   const now = Date.now();
   const stale = db.prepare("SELECT * FROM kyc_documents WHERE status='VERIFIED' AND expires_at IS NOT NULL AND expires_at < ?").all(now);
@@ -86,6 +87,22 @@ function sweep() {
   }
   return stale.length;
 }
+
+/* Scheduled sweep: one unref'd setInterval per process, armed at server boot
+   (server/index.js). KYC_SWEEP_MS env tunes the interval (default 6h); 0
+   disables. Tests drive tick() directly instead of waiting on the timer. */
+let sweepTimer = null;
+function startSweeper() {
+  if (sweepTimer) return sweepTimer;
+  const raw = Number(process.env.KYC_SWEEP_MS);
+  const ms = raw > 0 ? raw : (raw === 0 ? 0 : 21600000);
+  if (!ms) return null;
+  sweepTimer = setInterval(() => { try { tick(); } catch (e) { console.error('[kyc.sweeper]', e.message); } }, ms);
+  sweepTimer.unref(); // never keep the process alive just for the sweeper
+  return sweepTimer;
+}
+function stopSweeper() { if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; } }
+function tick() { return sweep(); }
 
 /* Admin KYC screen summary (master spec columns) + reminder list. */
 function summary() {
@@ -111,4 +128,4 @@ const out = (r) => ({
 });
 
 module.exports = { STATUSES, DOC_TYPES, OPEN_STATUSES, REMIND_AHEAD_DAYS,
-                   get, forPandit, upload, decide, sweep, summary, out };
+                   get, forPandit, upload, decide, sweep, tick, startSweeper, stopSweeper, summary, out };

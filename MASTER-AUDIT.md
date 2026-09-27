@@ -5,8 +5,8 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 37/37 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements),
-Python 98/98 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+Verification baseline at audit time: Node 38/38 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper),
+Python 102/102 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
 security + KYC/lifecycle + agreements suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
@@ -26,7 +26,7 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | P models | 47 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 28 ids | 27 + `payout-audit`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 37 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements), Python 98 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `backend-python/tests/` |
+| Tests | Node 38 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper), Python 102 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -45,7 +45,7 @@ a parity exception.
 | Aspect | Finding |
 |---|---|
 | Was | Binary approve/reject on `pandits.kyc` JSON; no per-document records, expiry or reminders |
-| Now | `kyc_documents` (014) activated: per-document upload (pandit portal Profile tab; magic-byte + PDF checks, 8 MB cap), full vocabulary PENDING/UNDER_REVIEW/VERIFIED/REJECTED/EXPIRED/REVERIFICATION_REQUIRED (+SUPERSEDED history), re-upload supersedes the open copy keeping history, admin decisions require reasons the pandit sees, expiry sweep + 30-day reminders surface in the admin KYC tab and notify the pandit, every decision audited with old→new status + reason, admin document download endpoint. `services/kyc.js` + twin `services/kyc.py`; closes the Python pandit-upload parity gap |
+| Now | `kyc_documents` (014) activated: per-document upload (pandit portal Profile tab; magic-byte + PDF checks, 8 MB cap), full vocabulary PENDING/UNDER_REVIEW/VERIFIED/REJECTED/EXPIRED/REVERIFICATION_REQUIRED (+SUPERSEDED history), re-upload supersedes the open copy keeping history, admin decisions require reasons the pandit sees, expiry sweep + 30-day reminders surface in the admin KYC tab and notify the pandit, the sweep also runs on a schedule (unref'd interval armed at boot, `KYC_SWEEP_MS` default 6h, 0 disables — reminders fire with zero admin traffic), every decision audited with old→new status + reason, admin document download endpoint. `services/kyc.js` + twin `services/kyc.py`; closes the Python pandit-upload parity gap |
 
 ### Phase 5 — Pandit profile
 | Aspect | Finding |

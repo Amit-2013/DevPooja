@@ -41,7 +41,13 @@ async def lifespan(_app: FastAPI):
         await seed_demo(db)
         await seed_kundali(db)
         await db.commit()
-    yield
+    # Background jobs (Node parity: server/index.js arms startSweeper at boot).
+    from .services.scheduler import start_sweeper, stop_sweeper
+    start_sweeper()  # KYC expiry sweep on a schedule (KYC_SWEEP_MS, default 6h; 0 disables)
+    try:
+        yield
+    finally:
+        stop_sweeper()
 
 
 app = FastAPI(title="DaivikPooja API (FastAPI)", version="1.0.0",

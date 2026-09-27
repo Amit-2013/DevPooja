@@ -103,6 +103,41 @@ test('kyc: per-document upload, decisions, expiry, reminders, supersede', async 
   assert.ok(audits.some((a) => a.action === 'kyc.decide' && a.detail.reason));
 });
 
+test('kyc expiry sweeper: boot wiring, env-tunable interval, tick flips past-due docs', async () => {
+  const fs = require('fs');
+  const KYC = require('../server/services/kyc');
+
+  /* drift-catchers: the scheduler must stay wired and must never pin the process */
+  assert.match(fs.readFileSync('server/index.js', 'utf8'), /startSweeper\(\)/,
+    'server boot must arm the KYC sweeper (reminders fire without admin traffic)');
+  assert.match(fs.readFileSync('server/services/kyc.js', 'utf8'), /\.unref\(\)/,
+    'the sweeper interval must be unref\'d so it never keeps the process alive');
+
+  /* interval env: 0 disables, arming is idempotent */
+  process.env.KYC_SWEEP_MS = '0';
+  assert.equal(KYC.startSweeper(), null, 'KYC_SWEEP_MS=0 disables the scheduler');
+  process.env.KYC_SWEEP_MS = '50';
+  const timer = KYC.startSweeper();
+  assert.ok(timer, 'sweeper armed with a positive interval');
+  assert.equal(KYC.startSweeper(), timer, 'idempotent: one timer per process');
+  KYC.stopSweeper();
+  delete process.env.KYC_SWEEP_MS;
+
+  /* tick() (the unit the interval calls) flips a past-due VERIFIED doc */
+  const tp = await login('pandit');
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const fd = new FormData();
+  fd.append('doc', new Blob([jpeg], { type: 'image/jpeg' }), 'sweep.jpg');
+  fd.append('docType', 'TRAINING');
+  const up = await fetch(base + '/api/pandit/kyc/documents', { method: 'POST', headers: { Authorization: 'Bearer ' + tp }, body: fd });
+  const doc = (await up.json()).document;
+  await call('POST', `/admin/kyc/${doc.id}/decide`, { token: admin, body: { status: 'VERIFIED', expiresAt: Date.now() - 86400000 } });
+  const flipped = KYC.tick();
+  assert.ok(flipped >= 1, 'tick expired the past-due document');
+  const audits = (await call('GET', '/admin/audit?limit=200', { token: admin })).json.entries.filter((a) => a.entityId === doc.id);
+  assert.ok(audits.some((a) => a.action === 'kyc.auto_expire'));
+});
+
 test('account lifecycle: suspend blocks login + holds payouts; terminate is final; reinstate restores', async () => {
   const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const tp = await login('pandit'); // p1 (demo seed gives p1 a PENDING payout)
