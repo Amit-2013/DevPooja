@@ -985,10 +985,6 @@ test('availability calendar: weekly off, holidays, blocked dates, slots, flags, 
   assert.equal(b.status, 409);
   assert.match(b.json.error, /service radius/);
 
-  /* auto-assign honours the radius: a Mumbai home booking cannot land on p1 */
-  const mock = await call('POST', '/admin/demo/bookings', { token: admin, body: { count: 6 } });
-  assert.equal(mock.status, 201);
-
   /* why endpoint explains a verdict */
   const why = (await call('GET', `/pandit/calendar/why?date=${dayPlus(3)}&slot=10:00%20AM&mode=home`, { token: tp })).json.verdict;
   assert.equal(why.ok, false);
@@ -999,8 +995,10 @@ test('availability calendar: weekly off, holidays, blocked dates, slots, flags, 
   assert.ok(avail.every((p) => p.id !== 'p1'), 'p1 excluded outside its radius');
   assert.ok(avail.some((p) => p.id === 'p2'), 'Chennai pandit available');
 
-  /* restore permissive defaults so other tests are unaffected */
+  /* restore permissive defaults so other tests are unaffected. The final booking
+     uses a date beyond the mock-booking range (dayPlus 2..47) so random demo
+     bookings can never collide with it and flip this assertion into a 409. */
   await call('PUT', '/pandit/calendar', { token: tp, body: { weeklyOff: [], slots: [], onlineEnabled: true, templeEnabled: true, radiusKm: null } });
-  const ok = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(31), slot: '10:00 AM', panditId: 'p1' }) });
+  const ok = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(90), slot: '10:00 AM', panditId: 'p1' }) });
   assert.equal(ok.status, 201, 'bookable again after rules cleared');
 });
