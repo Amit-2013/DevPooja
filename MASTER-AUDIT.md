@@ -13,17 +13,17 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 
 ---
 
-## 0. Inventory snapshot
+## 0. Inventory snapshot (refreshed after the foundation/availability/security rounds)
 
 | Layer | Count | Notes |
 |---|---|---|
-| N endpoints | 102 | admin 63, customer 15, kundali 9, pandit 9, auth 6 |
-| P endpoints | 58 | admin 12, media 11, customer 11, kundali 9, auth 7, pandit 5, reports 2, payments 1 |
-| N tables | ~50 | `server/db.js` + migrations 001–011 |
-| P models | 40 | `app/models.py`, mirrored incl. kundali set |
+| N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
+| P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
+| N tables | ~57 | `server/db.js` + migrations 001–014 (012 audit/payout, 013 availability, 014 scaffolding) |
+| P models | 47 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
-| Reports | 27 ids | `server/routes/admin.js:380` REPORTS + openpyxl port (`reports.py`, `xlsx.py`) |
-| Tests | Node 28, Python 82 | `tests/api.test.js`, `backend-python/tests/` |
+| Reports | 28 ids | 27 + `payout-audit`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
+| Tests | Node 34 (30 API + 4 security), Python 88 | `tests/api.test.js`, `tests/security.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -41,9 +41,9 @@ a parity exception.
 ### Phase 4 — Pandit KYC
 | Aspect | Finding |
 |---|---|
-| Existing | `pandits.kyc` JSON; `status` pending/verified/rejected; admin Approve/Reject (`akyc` act, portal-admin.js pandits tab); doc-view buttons (`adoc`); registration upload slots in `regPandit()` FE; N: no kyc_documents table (docs live in the JSON / uploads) |
+| Existing | `pandits.kyc` JSON; `status` pending/verified/rejected; admin Approve/Reject (`akyc` act, portal-admin.js pandits tab); doc-view buttons (`adoc`); registration upload slots in `regPandit()` FE; `kyc_documents` TABLE ALREADY CREATED (migration 014, empty) |
 | Status | **PARTIAL** — binary approve/reject only; no UNDER_REVIEW/EXPIRED/REVERIFICATION_REQUIRED, no expiry dates, no reminders, no per-document records |
-| Required | Extend: `kyc_documents` table (migration) + status vocabulary + admin KYC screen columns (verified-by/date, expiry, next-reverification) + reminder surface in notification engine; P gets the missing upload/verify endpoints |
+| Required | **Activate** the scaffolded `kyc_documents` table (per-document rows, status vocabulary, verified-by/date, expiry, next-reverification) + admin KYC screen + reminder surface in notification engine; P gets the missing upload/verify endpoints |
 
 ### Phase 5 — Pandit profile
 | Aspect | Finding |
@@ -68,16 +68,16 @@ a parity exception.
 ### Phase 9 — Commission tiers
 | Aspect | Finding |
 |---|---|
-| Existing | Single `commission` setting |
+| Existing | Single `commission` setting; `commission_tiers` TABLE ALREADY CREATED (migration 014, empty) |
 | Status | **MISSING** (tiers) |
-| Required | `commission_tiers` table (tier/category/pct/effective dates) + resolver service consulted by the payout engine; admin UI in finance tab; settings default stays fallback |
+| Required | **Activate** the scaffolded table: tier/category/pct/effective-dates resolver consulted by the payout engine; admin UI in finance tab; settings default stays fallback |
 
 ### Phase 10 — Dakshina
 | Aspect | Finding |
 |---|---|
-| Existing | `payments` table; bookings carry pay JSON; no transaction-type ledger |
+| Existing | `payments` table; bookings carry pay JSON; `transactions` TABLE ALREADY CREATED (migration 014, empty) |
 | Status | **MISSING** (typed ledger) |
-| Required | `transactions` table (SERVICE_PAYMENT/DAKSHINA/REFUND/COMMISSION/PAYOUT/ADJUSTMENT) written by the payment/payout paths; pandit dashboard + admin reports show Dakshina separately (+ report id) |
+| Required | **Activate** the scaffolded `transactions` table (SERVICE_PAYMENT/DAKSHINA/REFUND/COMMISSION/PAYOUT/ADJUSTMENT) written by the payment/payout paths; pandit dashboard + admin reports show Dakshina separately (+ report id) |
 
 ### Phase 11 — Puja pricing management
 | Aspect | Finding |
@@ -131,9 +131,9 @@ a parity exception.
 ### Phase 18 — Trial pooja
 | Aspect | Finding |
 |---|---|
-| Existing | Nothing (grep: 0 matches) |
+| Existing | No application code; `trial_poojas` TABLE ALREADY CREATED (migration 014, empty) |
 | Status | **MISSING** |
-| Required | `trial_poojas` table + admin form + result vocab (PENDING/PASSED/FAILED/REASSESSMENT_REQUIRED); gate activation flow |
+| Required | **Activate** the scaffolded table + admin form + result vocab (PENDING/PASSED/FAILED/REASSESSMENT_REQUIRED); gate activation flow |
 
 ### Phase 19 — Complaints
 | Aspect | Finding |
@@ -145,9 +145,9 @@ a parity exception.
 ### Phase 20 — Incident reporting
 | Aspect | Finding |
 |---|---|
-| Existing | Nothing |
+| Existing | No application code; `incidents` TABLE ALREADY CREATED (migration 014, empty) |
 | Status | **MISSING** |
-| Required | `incidents` table (categories as specified) + pandit "Report incident" + admin triage; link to booking/customer |
+| Required | **Activate** the scaffolded table (categories as specified) + pandit "Report incident" + admin triage; link to booking/customer |
 
 ### Phase 21 — RBAC
 | Aspect | Finding |
@@ -166,9 +166,9 @@ a parity exception.
 ### Phases 23–25 — Agreements
 | Aspect | Finding |
 |---|---|
-| Existing | Nothing (grep: 0 matches) |
+| Existing | No application code; `agreements` + `agreement_acceptances` TABLES ALREADY CREATED (migration 014, empty; unique index version-locks acceptance) |
 | Status | **MISSING** |
-| Required | `agreements` (versions, publish/archive, document hash, manual upload) + `agreement_acceptances` (OTP/IP/device/audit, version-locked) + admin screens + pandit acceptance flow; never overwrite accepted versions |
+| Required | **Activate** the scaffolded tables (versions, publish/archive, document hash, manual upload) + acceptance flow (OTP/IP/device/audit) + admin screens; never overwrite accepted versions |
 
 ### Phase 26 — Leads
 | Aspect | Finding |
@@ -228,22 +228,49 @@ suites — all must stay green after every phase.
 | Function | Single source | Duplication risk to avoid |
 |---|---|---|
 | Pricing/quote | `shared/pricing.js` | Never re-derive commission/discount in services |
-| Commission | `getSetting('commission')` | Do not introduce a second constant |
-| Availability | `is_free()` in bookings.js | New rules go INSIDE it, not beside it |
+| Commission | `getSetting('commission')` → payout engine | Do not introduce a second constant |
+| Availability | `services/availability.js` + Python twin `services/availability.py` | All bookable checks go INSIDE the engine; `is_free`/`auto_pick` are thin delegates |
+| Payout math/statuses | `services/payoutEngine.js` + Python twin | No inline commission math, no direct payouts UPDATE outside transitions |
 | Refunds | `cancelInternal()` | No parallel refund writer |
 | Excel export | REPORTS registry + xlsx port | New reports added to BOTH registries, not ad-hoc |
 | Notifications | `notify.js` | No per-module notification logic |
-| Audit | db.js audit helper | No direct audit_logs INSERTs scattered |
-| Media upload | multer+sharp pipeline | Photo gate wraps it, does not fork it |
+| Audit | `lib/audit.js` helper (N) / AuditLog writes (P) | No direct audit_logs INSERTs scattered; enriched fields via the helpers |
 
 ## 3. Migration safety (Phase 2)
 
-Migrations 001–011 exist and are idempotent-ordered. Baseline rules for 012+:
+Migrations 001–014 exist and are idempotent-ordered (012 audit/payout, 013
+availability, 014 scaffolding tables). Baseline rules going forward:
 1. Every new column/table checked against the inventory above first (`IF NOT EXISTS`).
 2. No destructive changes to users/pandits/bookings/payments/kundalis/coupons data.
 3. SQLite migration + mirrored SQLAlchemy models in the same commit; both test suites
    seeded/verified after each migration.
-4. Extension-first: `pandits`, `payouts`, `coupons`, `tickets`, `leads`, `campaigns`,
-   `audit_logs`, `reviews`, `temples` get columns — new tables only for genuinely new
-   entities: kyc_documents, commission_tiers, transactions, nri_packages, trial_poojas,
-   incidents, agreements, agreement_acceptances, qa_records, pandit_availability.
+4. Extension-first, as demonstrated: 013 added availability COLUMNS to `pandits`
+   rather than a parallel availability table (the once-planned `pandit_availability`
+   table is superseded by that decision). Remaining genuinely-new entities:
+   `nri_packages` [13] and possibly `qa_records` [17]; everything else already has a
+   scaffolded table from 014 or extends existing columns.
+
+## 4. Build order (confirmed — dependency-driven, always Node+Python+FE together)
+
+Sequencing decision: phases land in BOTH backends every time (no parity debt), in
+this order:
+
+```
+DONE:  31 audit → 7/8 payout engine → 3 availability → 34 harness + 014 scaffolding
+NEXT:  4 KYC ─┬→ 22 account status      (same screens; feeds the payout auto-hold
+              │                          that already checks pandit KYC)
+       5 profile ─→ 17 QA engine          (same pandit surfaces)
+       9 tiers + 10 transactions ledger   (engine consumes the tier resolver;
+                                           ledger exists before cancellation rewrites)
+       16 cancellation engine             (writes REFUND/ADJUSTMENT ledger entries)
+       18 trial ─→ 23-25 agreements       (completes onboarding: KYC→agreement→trial→activation)
+       20 incidents · 6 photo date gate   (small, standalone; audit ready for overrides)
+       12 temples · 11 puja pricing · 13 NRI · 14 coupons   (admin CRUD cluster)
+       26 leads · 27-29 comms/campaigns/notifications        (largest build)
+LAST:  15 polish · 30 reports (absorb all new modules) · 32 dashboard (aggregates all)
+       33/35/36/37 sweeps → 38 delivery report
+```
+
+Rationale: money-adjacent phases precede the onboarding chain because payout holds
+and the ledger are already wired; reports (30) and dashboard (32) go last because
+they aggregate every other phase — building them early guarantees rework.
