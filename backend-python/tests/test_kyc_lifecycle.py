@@ -56,6 +56,11 @@ async def test_kyc_documents_lifecycle(client):
                             json={"status": "REJECTED", "reason": "Blurry photo"}, headers=aa)
     assert rej.json()["document"]["rejectReason"] == "Blurry photo"
 
+    # Explicit PENDING -> UNDER_REVIEW (Begin review); a reason is not required.
+    b2r = await client.post(f"/api/admin/kyc/{doc['id']}/decide",
+                            json={"status": "UNDER_REVIEW"}, headers=aa)
+    assert b2r.json()["document"]["status"] == "UNDER_REVIEW"
+
     # Verify with expiry; the sweep then moves it to EXPIRED and reminders.
     dec = await client.post(f"/api/admin/kyc/{doc['id']}/decide",
                             json={"status": "VERIFIED", "expiresAt": int(time.time() * 1000) - 86400000},

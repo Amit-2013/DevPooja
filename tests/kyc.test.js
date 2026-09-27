@@ -47,9 +47,15 @@ test('kyc: per-document upload, decisions, expiry, reminders, supersede', async 
   assert.equal(doc.status, 'PENDING');
   assert.equal(doc.docType, 'AADHAAR');
 
+  /* explicit PENDING -> UNDER_REVIEW (Begin review); reason is not required */
+  const b2r = await call('POST', `/admin/kyc/${doc.id}/decide`, { token: admin, body: { status: 'UNDER_REVIEW' } });
+  assert.equal(b2r.json.document.status, 'UNDER_REVIEW');
+  const b2a = await call('POST', `/admin/kyc/${doc.id}/decide`, { token: admin, body: { status: 'VERIFIED', expiresAt: Date.now() + 30 * 86400000 } });
+  assert.equal(b2a.json.document.status, 'VERIFIED');
+
   /* admin summary sees it; verify with expiry */
   let sum = (await call('GET', '/admin/kyc', { token: admin })).json;
-  assert.equal(sum.counts.PENDING, 1);
+  assert.equal(sum.counts.PENDING, 0);
   const dec = await call('POST', `/admin/kyc/${doc.id}/decide`, { token: admin, body: { status: 'VERIFIED', expiresAt: Date.now() + 30 * 86400000 } });
   assert.equal(dec.json.document.status, 'VERIFIED');
   assert.ok(dec.json.document.expiresAt);
