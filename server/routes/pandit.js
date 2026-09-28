@@ -189,6 +189,11 @@ router.get('/me/ledger', (req, res) => {
   const L = require('../services/ledger');
   res.json({ entries: L.list({ panditId: pid(req), limit: 50 }) });
 });
+/* My activation trial (Phase 18): status the pandit can act on. */
+router.get('/me/trial', (req, res) => {
+  const T = require('../services/trial');
+  res.json({ trials: T.forPandit(pid(req)) });
+});
 router.post('/feature', (req, res) => {
   if ((process.env.PAYMENT_MODE || 'mock') !== 'mock') return res.status(501).json({ error: 'Featured-listing billing is not wired to the gateway yet. See README.' });
   db.prepare('UPDATE pandits SET featured=1 WHERE id=?').run(pid(req));

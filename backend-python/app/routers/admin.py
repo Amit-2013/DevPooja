@@ -328,6 +328,59 @@ async def kyc_file(doc_id: str, auth: dict = Depends(admin_dep),
     return FileResponse(file)
 
 
+# --- Trial poojas (Phase 18): schedule, assess + the activation gate ---
+from ..services import trial as TRIAL  # noqa: E402
+
+
+@router.get("/trials")
+async def trials_view(panditId: str | None = None, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    if panditId:
+        return {"trials": await TRIAL.for_pandit(db, panditId)}
+    return {"trials": await TRIAL.list_trials(db), "passMark": await TRIAL.pass_mark(db)}
+
+
+@router.post("/trials", status_code=201)
+async def trial_schedule(body: dict, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    r = await TRIAL.schedule(db, auth["uid"], body or {})
+    await db.commit()
+    return {"trial": r}
+
+
+@router.post("/trials/{trial_id}/record")
+async def trial_record(trial_id: str, body: dict, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    r = await TRIAL.record(db, auth["uid"], trial_id, body or {})
+    await db.commit()
+    return {"trial": r}
+
+
+@router.post("/pandits/{pandit_id}/kyc")
+async def pandit_kyc(pandit_id: str, body: dict, auth: dict = Depends(admin_dep),
+                     db: AsyncSession = Depends(get_db)):
+    """Node parity: flip a pandit to verified/rejected. Phase 18 gate: activation
+    (pending -> verified) requires a PASSED trial — KYC alone no longer verifies."""
+    b = body or {}
+    st = v_one_of(b.get("status"), ["verified", "rejected"], "Status")
+    p = await db.get(Pandit, pandit_id)
+    if not p:
+        raise not_found("Pandit not found")
+    gated = st == "verified" and p.status != "verified"
+    if gated:
+        await TRIAL.assert_activation_allowed(db, pandit_id)
+    old = p.status
+    p.status = st
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="pandit.kyc",
+                    entity="pandit", entity_id=pandit_id,
+                    detail=json.dumps({"from": old, "to": st, "reason": b.get("reason"),
+                                       "trialGate": "passed" if gated else "n/a"}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    return {"ok": True}
+
+
 # --- Pandit account lifecycle (Phase 22) ---------------------------------------
 @router.get("/pandit-lifecycle")
 async def pandit_lifecycle(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):

@@ -380,6 +380,16 @@ test('pandit registration needs OTP and an ID document; KYC approval', async () 
   assert.deepEqual(np.kyc, ['idDoc']);
   const doc = await fetch(base + `/api/admin/pandits/${np.id}/docs/idDoc`, { headers: { Authorization: 'Bearer ' + ta } });
   assert.equal(doc.status, 200);
+  /* Phase 18: activation is gated on a PASSED trial — a freshly registered
+     pandit is refused until the admin schedules and passes their trial. */
+  const gated = await call('POST', `/admin/pandits/${np.id}/kyc`, { token: ta, body: { status: 'verified' } });
+  assert.equal(gated.status, 409);
+  assert.match(gated.json.error, /No trial pooja has been assessed/);
+  const tr = await call('POST', '/admin/trials', { token: ta, body: { panditId: np.id, date: dayPlus(2), service: 'Ganesh Puja (home)' } });
+  assert.equal(tr.status, 201);
+  const ALL7 = { punctuality: 4, communication: 4, ritualCompliance: 4, presentation: 4, customerInteraction: 4, digitalCapability: 4, documentation: 4 };
+  const rec = await call('POST', `/admin/trials/${tr.json.trial.id}/record`, { token: ta, body: { scores: ALL7 } });
+  assert.equal(rec.json.trial.result, 'PASSED');
   assert.equal((await call('POST', `/admin/pandits/${np.id}/kyc`, { token: ta, body: { status: 'verified' } })).status, 200);
   assert.ok((await call('GET', '/state')).json.pandits.some((p) => p.id === np.id));
 });

@@ -74,13 +74,24 @@ router.get('/pandits/:id/qa', (req, res) => {
   res.json({ records: QA.forPandit(p.id).map(QA.out), derived: QA.derived(p.id), qaScore: p.qa_score });
 });
 
+/* Phase 18: activation is gated on a PASSED trial — KYC alone no longer
+   verifies a pandit. The gate is audited and its reason surfaces to the admin. */
+const TRIAL = require('../services/trial');
 router.post('/pandits/:id/kyc', (req, res) => {
   const st = v.oneOf(req.body.status, ['verified', 'rejected'], 'Status');
   const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound();
+  if (st === 'verified' && p.status !== 'verified') TRIAL.assertActivationAllowed(p.id);
   db.prepare('UPDATE pandits SET status=? WHERE id=?').run(st, p.id);
-  AUDIT.audit(req.auth.uid, 'pandit.kyc', 'pandit', p.id, { from: p.status, to: st, reason: req.body.reason || null });
+  AUDIT.audit(req.auth.uid, 'pandit.kyc', 'pandit', p.id, { from: p.status, to: st, reason: req.body.reason || null, trialGate: st === 'verified' && p.status !== 'verified' ? 'passed' : 'n/a' });
   res.json({ ok: true });
 });
+/* --- Trial poojas (Phase 18): schedule, assess, decide --- */
+router.get('/trials', (req, res) => {
+  if (req.query.panditId) return res.json({ trials: TRIAL.forPandit(String(req.query.panditId)) });
+  res.json({ trials: TRIAL.list(), passMark: TRIAL.passMark() });
+});
+router.post('/trials', (req, res) => res.status(201).json({ trial: TRIAL.schedule(req.auth.uid, req.body || {}) }));
+router.post('/trials/:id/record', (req, res) => res.json({ trial: TRIAL.record(req.auth.uid, req.params.id, req.body || {}) }));
 router.post('/pandits/:id/feature', (req, res) => { const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound(); db.prepare('UPDATE pandits SET featured=? WHERE id=?').run(p.featured ? 0 : 1, p.id); res.json({ ok: true }); });
 /* KYC documents are private: streamed only to admins */
 router.get('/pandits/:id/docs/:key', (req, res) => {

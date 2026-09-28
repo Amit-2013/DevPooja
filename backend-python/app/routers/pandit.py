@@ -320,6 +320,13 @@ async def my_ledger(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends
     return {"entries": await LEDGER.list_entries(db, pandit_id=auth["pid"], limit=50)}
 
 
+@router.get("/me/trial")
+async def my_trial(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    """My activation trial (Phase 18): status the pandit can act on."""
+    from ..services import trial as TRIAL
+    return {"trials": await TRIAL.for_pandit(db, auth["pid"])}
+
+
 @router.post("/feature")
 async def get_featured(auth: dict = Depends(pandit_dep),
                        db: AsyncSession = Depends(get_db)):

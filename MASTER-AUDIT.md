@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 51/51 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation),
-Python 115/115 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements + ledger + cancellation suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 53/53 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial),
+Python 117/117 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger + cancellation + trial suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -26,7 +26,7 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 51 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation), Python 115 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `backend-python/tests/` |
+| Tests | Node 53 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial), Python 117 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -130,12 +130,12 @@ a parity exception.
 | Now | `qa_records` (migration 016): one admin-scored observation per booking across the 7-dimension trial-pooja rubric (punctuality, communication, ritual_compliance, presentation, customer_interaction, digital_capability, documentation; each 1..5). `overall` is computed server-side as the mean of the supplied dimensions; `pandits.qa_score` is a cached average refreshed on every write (customer reviews keep driving `pandits.rating` unchanged). Endpoints (both backends): `GET /admin/qa`, `POST /admin/qa` (201), `DELETE /admin/qa/:id` (score recomputed), `GET /admin/pandits/:id/qa`; pandit self-view `GET /pandit/me/qa`. Every write audited (`qa.recorded`/`qa.deleted` with old/new values); the pandit is notified with the overall score. Admin portal: Service quality tab (records table + record form + per-pandit drill-down); pandit Growth tab shows QA score, derived cancellation/no-show % and own QA history |
 | Status | **IMPLEMENTED** |
 
-### Phase 18 — Trial pooja
+### Phase 18 — Trial pooja — **IMPLEMENTED (Phase 18 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | No application code; `trial_poojas` TABLE ALREADY CREATED (migration 014, empty) |
-| Status | **MISSING** |
-| Required | **Activate** the scaffolded table + admin form + result vocab (PENDING/PASSED/FAILED/REASSESSMENT_REQUIRED); gate activation flow |
+| Was | No application code; `trial_poojas` table scaffolded (migration 014, empty; model already mirrored) |
+| Now | `services/trial.js` + twin `app/services/trial.py` activate the SAME table (no schema change). Admin schedules a trial (pandit, date, service) → assesses it with ALL 7 rubric dimensions (same axes as qa_records; 1..5; partial scoring refused — an activation decision never rests on a partial picture) → `final_score` = mean; result vocabulary PENDING/PASSED/FAILED/REASSESSMENT_REQUIRED with the pass mark from the `trial_pass_mark` setting (default 3.5); PASSED is computed, never forced; REASSESSMENT_REQUIRED requires written feedback the pandit sees. THE ACTIVATION GATE: `POST /admin/pandits/:id/kyc` refuses status='verified' (Node, and the new Python-parity route) until the pandit has a PASSED trial — explicit 409 with the blocking reason (none assessed / pending / ended FAILED / ended REASSESSMENT_REQUIRED); already-verified pandits are grandfathered; gate decisions audited. Endpoints (both backends): `GET /admin/trials[?panditId]`, `POST /admin/trials` (201), `POST /admin/trials/:id/record`; pandit self-view `GET /pandit/me/trial`. Admin KYC tab: trials section with schedule form, record-assessment modal (7 inputs + notes), result badges + gate explainer; pandit Growth tab: latest trial result + feedback. Audits `trial.scheduled` / `trial.recorded` with old→new; the pandit is notified on schedule and on every result. `tests/trial.test.js` + `test_trial.py` cover the full gate matrix |
+| Status | **IMPLEMENTED** |
 
 ### Phase 19 — Complaints
 | Aspect | Finding |
