@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 53/53 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial),
-Python 117/117 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements + ledger + cancellation + trial suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 58/58 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 5 incident),
+Python 122/122 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -26,7 +26,7 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 53 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial), Python 117 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `backend-python/tests/` |
+| Tests | Node 58 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 5 incident), Python 122 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -144,12 +144,12 @@ a parity exception.
 | Status | **PARTIAL** — Open/Resolved only; master workflow OPEN→UNDER_REVIEW→PANDIT_RESPONSE→CUSTOMER_RESPONSE→DECISION→RESOLVED not implemented; no evidence attachments |
 | Required | Extend tickets status vocab + admin workflow controls + attachments (reuse media upload path) |
 
-### Phase 20 — Incident reporting
+### Phase 20 — Incident reporting — **IMPLEMENTED (Phase 20 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | No application code; `incidents` TABLE ALREADY CREATED (migration 014, empty) |
-| Status | **MISSING** |
-| Required | **Activate** the scaffolded table (categories as specified) + pandit "Report incident" + admin triage; link to booking/customer |
+| Was | No application code; `incidents` table scaffolded (migration 014, empty; model already mirrored) |
+| Now | `services/incidents.js` + twin `app/services/incidents.py` activate the SAME table (no schema change). The PANDIT assigned to a booking reports against it — booking reference optional but ownership-enforced (another pandit's booking → 400, unknown → 404; the customer is linked from the booking automatically). Fixed category vocabulary SAFETY_CONCERN / CUSTOMER_CONDUCT / PAYMENT_ISSUE / SAMAGRI_ISSUE / OTHER; description mandatory (≥10 chars). Evidence rides the EXISTING magic-checked media pipeline (images + video, 40 MB): multipart directly on `POST /pandit/incidents`, or the evidence-only `POST /pandit/incident-evidence` → `/media/` urls (the FE modal does the latter); the service keeps only `/media/` strings (max 8, 200 chars each) — client-supplied paths are never trusted. Admin triage OPEN → UNDER_REVIEW → RESOLVED \| DISMISSED: UNDER_REVIEW requires an admin note, RESOLVED requires the resolution the pandit sees (+ resolved_at), DISMISSED requires a reason; closed states are terminal (409 — the audit trail keeps the history). Endpoints (both backends): `GET /admin/incidents[?status]` (with per-status counts + categories), `PATCH /admin/incidents/:id`; pandit `GET /pandit/me/incidents` (own reports only), `POST /pandit/incidents`. Audits `incident.reported` / `incident.triage` (actor = the pandit's USER id so the role derives correctly; old→new); all admin users are notified in-app on a new report and the pandit on every triage decision. Admin Support tab: incident KPIs + gate explainer + triage table (Review/Resolve/Dismiss) above the tickets table; pandit Bookings card: "Report incident" on live bookings. `tests/incident.test.js` + `test_incident.py` cover reporting/ownership/validation, evidence upload + filtering, the full triage matrix with audits + notifications, and access control |
+| Status | **IMPLEMENTED** |
 
 ### Phase 21 — RBAC
 | Aspect | Finding |

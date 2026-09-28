@@ -327,6 +327,49 @@ async def my_trial(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(
     return {"trials": await TRIAL.for_pandit(db, auth["pid"])}
 
 
+# --- Incident reporting (Phase 20): the pandit's on-ground channel ---
+@router.get("/me/incidents")
+async def my_incidents(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    from ..services import incidents as INC
+    return {"incidents": await INC.for_pandit(db, auth["pid"]), "categories": INC.CATEGORIES}
+
+
+@router.post("/incidents", status_code=201)
+async def report_incident(body: dict, auth: dict = Depends(pandit_dep),
+                          db: AsyncSession = Depends(get_db)):
+    from ..services import incidents as INC
+    b = body or {}
+    inc = await INC.report(db, auth["pid"], {"bookingId": b.get("bookingId"),
+                                             "category": b.get("category"),
+                                             "description": b.get("description"),
+                                             "evidence": b.get("evidence") or []})
+    await db.commit()
+    return {"incident": inc}
+
+
+@router.post("/incident-evidence")
+async def incident_evidence(evidence: list[UploadFile] | None = File(None),
+                            auth: dict = Depends(pandit_dep)):
+    """Evidence-only upload for the report modal (Phase 20): verified bytes to
+    /media/, urls returned for the subsequent POST /incidents body. Mirrors the
+    Node POST /pandit/incident-evidence route."""
+    from ..config import get_settings
+    from ..util import rid, verify_media
+    from pathlib import Path
+    urls = []
+    for f in (evidence or [])[:8]:
+        data = await f.read()
+        real = verify_media(data, f.content_type or "")
+        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+               "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov"}[real]
+        d = Path(get_settings().upload_dir) / "media"
+        d.mkdir(parents=True, exist_ok=True)
+        name = rid(8) + ext
+        (d / name).write_bytes(data)
+        urls.append("/media/" + name)
+    return {"urls": urls}
+
+
 @router.post("/feature")
 async def get_featured(auth: dict = Depends(pandit_dep),
                        db: AsyncSession = Depends(get_db)):

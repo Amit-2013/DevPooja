@@ -194,6 +194,23 @@ router.get('/me/trial', (req, res) => {
   const T = require('../services/trial');
   res.json({ trials: T.forPandit(pid(req)) });
 });
+/* --- Incident reporting (Phase 20): the pandit's on-ground channel --- */
+const INC = require('../services/incidents');
+router.get('/me/incidents', (req, res) => {
+  res.json({ incidents: INC.forPandit(pid(req)), categories: INC.CATEGORIES });
+});
+router.post('/incidents', upload.media.array('evidence', 8), upload.verifyMagic(), (req, res) => {
+  const body = req.body || {};
+  /* FE contract: files upload straight through here; JSON evidence urls (from the
+     evidence-only endpoint) ride along — the service filters to /media/ anyway. */
+  const urls = [...(req.files || []).map((f) => '/media/' + f.filename), ...(Array.isArray(body.evidence) ? body.evidence : [])];
+  const inc = INC.report(pid(req), { bookingId: body.bookingId, category: body.category, description: body.description, evidence: urls });
+  res.status(201).json({ incident: inc });
+});
+/* Evidence-only upload (report first, attach while typing) — same pipeline. */
+router.post('/incident-evidence', upload.media.array('evidence', 8), upload.verifyMagic(), (req, res) => {
+  res.json({ urls: (req.files || []).map((f) => '/media/' + f.filename) });
+});
 router.post('/feature', (req, res) => {
   if ((process.env.PAYMENT_MODE || 'mock') !== 'mock') return res.status(501).json({ error: 'Featured-listing billing is not wired to the gateway yet. See README.' });
   db.prepare('UPDATE pandits SET featured=1 WHERE id=?').run(pid(req));

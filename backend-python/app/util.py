@@ -134,6 +134,30 @@ def verify_upload(data: bytes, claimed_mime: str) -> str:
     return real
 
 
+def sniff_media(head: bytes) -> str | None:
+    """Phase 20 parity with Node's `media` upload class: images + video.
+    Same magic bytes as server/lib/upload.js — MP4/MOV ('ftyp' at bytes 4-8,
+    'ftypqt  ' for QuickTime) and WebM (EBML 0x1A45DFA3)."""
+    img = sniff_image(head)
+    if img:
+        return img
+    if len(head) > 12 and head[4:8] == b"ftyp":
+        return "video/quicktime" if head[4:12] == b"ftypqt  " else "video/mp4"
+    if len(head) > 4 and head[0] == 0x1A and head[1] == 0x45 and head[2] == 0xDF and head[3] == 0xA3:
+        return "video/webm"
+    return None
+
+
+def verify_media(data: bytes, claimed_mime: str) -> str:
+    """verify_upload for the media class (images + video); 400 on mismatch."""
+    real = sniff_media(data[:16])
+    if not real:
+        raise bad("File content does not match its type")
+    if claimed_mime and claimed_mime != real:
+        raise bad("File content does not match its type")
+    return real
+
+
 def rid(n: int = 8) -> str:
     """Random hex id, same convention as Node's rid()."""
     return secrets.token_hex(n)

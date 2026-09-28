@@ -356,6 +356,25 @@ async def trial_record(trial_id: str, body: dict, auth: dict = Depends(admin_dep
     return {"trial": r}
 
 
+# --- Incident reporting (Phase 20): admin triage ---
+from ..services import incidents as INC  # noqa: E402
+
+
+@router.get("/incidents")
+async def incidents_view(status: str | None = None, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    return {"incidents": await INC.list_incidents(db, status), "counts": await INC.counts(db),
+            "categories": INC.CATEGORIES}
+
+
+@router.patch("/incidents/{incident_id}")
+async def incident_triage(incident_id: str, body: dict, auth: dict = Depends(admin_dep),
+                          db: AsyncSession = Depends(get_db)):
+    r = await INC.triage(db, auth["uid"], incident_id, body or {})
+    await db.commit()
+    return {"incident": r}
+
+
 @router.post("/pandits/{pandit_id}/kyc")
 async def pandit_kyc(pandit_id: str, body: dict, auth: dict = Depends(admin_dep),
                      db: AsyncSession = Depends(get_db)):

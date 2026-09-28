@@ -92,6 +92,10 @@ router.get('/trials', (req, res) => {
 });
 router.post('/trials', (req, res) => res.status(201).json({ trial: TRIAL.schedule(req.auth.uid, req.body || {}) }));
 router.post('/trials/:id/record', (req, res) => res.json({ trial: TRIAL.record(req.auth.uid, req.params.id, req.body || {}) }));
+/* --- Incident reporting (Phase 20): admin triage --- */
+const INC = require('../services/incidents');
+router.get('/incidents', (req, res) => res.json({ incidents: INC.list({ status: req.query.status }), counts: INC.counts(), categories: INC.CATEGORIES }));
+router.patch('/incidents/:id', (req, res) => res.json({ incident: INC.triage(req.auth.uid, req.params.id, req.body || {}) }));
 router.post('/pandits/:id/feature', (req, res) => { const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound(); db.prepare('UPDATE pandits SET featured=? WHERE id=?').run(p.featured ? 0 : 1, p.id); res.json({ ok: true }); });
 /* KYC documents are private: streamed only to admins */
 router.get('/pandits/:id/docs/:key', (req, res) => {
