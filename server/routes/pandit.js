@@ -176,6 +176,13 @@ router.get('/me/qa', (req, res) => {
   const Q = require('../services/qa');
   res.json({ records: Q.forPandit(pid(req)).map(Q.out), derived: Q.derived(pid(req)) });
 });
+
+/* My money ledger (Phase 10): DAKSHINA share rows and the negative PAYOUT rows
+   that settle them — the pandit-side view of the transactions ledger. */
+router.get('/me/ledger', (req, res) => {
+  const L = require('../services/ledger');
+  res.json({ entries: L.list({ panditId: pid(req), limit: 50 }) });
+});
 router.post('/feature', (req, res) => {
   if ((process.env.PAYMENT_MODE || 'mock') !== 'mock') return res.status(501).json({ error: 'Featured-listing billing is not wired to the gateway yet. See README.' });
   db.prepare('UPDATE pandits SET featured=1 WHERE id=?').run(pid(req));

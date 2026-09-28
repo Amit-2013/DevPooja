@@ -38,6 +38,15 @@ router.post('/bookings/:id/ops', (req, res) => {
 });
 router.post('/reviews/:id/toggle', (req, res) => { const r = B.getBooking(req.params.id); if (!r || !r.review) throw notFound(); db.prepare('UPDATE bookings SET review_hidden=? WHERE id=?').run(r.review_hidden ? 0 : 1, r.id); res.json({ ok: true }); });
 
+/* --- Transactions ledger + commission tiers (Phases 9-10) --- */
+const LEDGER = require('../services/ledger');
+router.get('/ledger', (req, res) => {
+  res.json({ entries: LEDGER.list(req.query), totals: LEDGER.totals(req.query) });
+});
+router.get('/commission-tiers', (req, res) => res.json({ tiers: LEDGER.tierList() }));
+router.post('/commission-tiers', (req, res) => res.status(201).json({ tier: LEDGER.tierCreate(req.auth.uid, req.body) }));
+router.patch('/commission-tiers/:id', (req, res) => res.json({ tier: LEDGER.tierUpdate(req.auth.uid, req.params.id, req.body) }));
+
 /* --- QA & rating engine (Phase 17) + profile enrichment read (Phase 5) --- */
 const QA = require('../services/qa');
 router.get('/qa', (req, res) => {
@@ -495,6 +504,29 @@ const REPORTS = {
     ['Payout ID', 'Pandit', 'Net (Rs)', 'Date', 'Status', 'Booking ID', 'Gross (Rs)', 'Commission (Rs)', 'Tax (Rs)', 'Refund (Rs)', 'Adjustment (Rs)', 'Hold reason', 'Processing date', 'Disbursement date', 'Payment ref', 'UTR']),
   'payout-audit': (f) => select('SELECT po.id, po.pandit_id, po.amount, po.status, po.hold_reason, po.hold_note, po.processing_date, po.disbursement_date, po.payment_ref, po.utr FROM payouts po ORDER BY po.date DESC', [],
     ['Payout ID', 'Pandit ID', 'Net (Rs)', 'Status', 'Hold reason', 'Hold note', 'Processing date', 'Disbursement date', 'Payment ref', 'UTR']),
+  dakshina: (f) => {
+    const w = [], a = [];
+    if (f.pandit) { w.push('t.pandit_id=?'); a.push(String(f.pandit)); }
+    if (f.from) { w.push('t.created_at >= ?'); a.push(Number(f.from)); }
+    if (f.to) { w.push('t.created_at <= ?'); a.push(Number(f.to)); }
+    const rows = db.prepare(`SELECT t.id, t.pandit_id, p.name AS pandit, t.booking_id, t.type, t.amount, t.note, t.created_at
+      FROM transactions t LEFT JOIN pandits p ON p.id=t.pandit_id
+      ${w.length ? 'WHERE ' + w.join(' AND ') + ' AND ' : 'WHERE '}t.type IN ('DAKSHINA','PAYOUT') ORDER BY t.created_at DESC, t.id DESC`).all(...a);
+    return { columns: ['Entry ID', 'Pandit ID', 'Pandit', 'Booking ID', 'Type', 'Amount (Rs)', 'Note', 'Recorded at'],
+             rows: rows.map((r) => [r.id, r.pandit_id, r.pandit || '-', r.booking_id || '-', r.type, r.amount, r.note || '', new Date(r.created_at).toISOString().slice(0, 10)]) };
+  },
+  transactions: (f) => {
+    const w = [], a = [];
+    if (f.type) { w.push('t.type=?'); a.push(String(f.type)); }
+    if (f.pandit) { w.push('t.pandit_id=?'); a.push(String(f.pandit)); }
+    if (f.from) { w.push('t.created_at >= ?'); a.push(Number(f.from)); }
+    if (f.to) { w.push('t.created_at <= ?'); a.push(Number(f.to)); }
+    const rows = db.prepare(`SELECT t.id, t.type, t.amount, u.name AS customer, p.name AS pandit, t.booking_id, t.kundali_id, t.ref_table, t.ref_id, t.note, t.created_at
+      FROM transactions t LEFT JOIN users u ON u.id=t.user_id LEFT JOIN pandits p ON p.id=t.pandit_id
+      ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY t.created_at DESC, t.id DESC LIMIT 5000`).all(...a);
+    return { columns: ['Entry ID', 'Type', 'Amount (Rs)', 'Customer', 'Pandit', 'Booking ID', 'Kundali ID', 'Ref', 'Note', 'Recorded at'],
+             rows: rows.map((r) => [r.id, r.type, r.amount, r.customer || '-', r.pandit || '-', r.booking_id || '-', r.kundali_id || '-', r.ref_table ? r.ref_table + ':' + r.ref_id : '-', r.note || '', new Date(r.created_at).toISOString().slice(0, 10)]) };
+  },
   revenue: (f) => {
     const rows = db.prepare("SELECT substr(b.date,1,7) ym, COUNT(*) n, SUM(CAST(json_extract(b.q,'$.total') AS INTEGER)) amt FROM bookings b WHERE json_extract(b.pay,'$.paid')=1 GROUP BY ym ORDER BY ym DESC").all();
     return { columns: ['Month', 'Paid bookings', 'Revenue (Rs)'], rows: rows.map((r) => [r.ym, r.n, r.amt || 0]) };
@@ -600,7 +632,7 @@ const REPORT_TITLES = {
   prasad: 'Prasad', orders: 'Order', payments: 'Payment', refunds: 'Refund', coupons: 'Coupon', campaigns: 'Campaign',
   payouts: 'Pandit Payout', 'payout-audit': 'Payout Ledger (holds, refs, UTR)', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
   'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
-  'audit-logs': 'Audit Log', media: 'Puja Media'
+  'audit-logs': 'Audit Log', media: 'Puja Media', dakshina: 'Dakshina (Pandit Earnings Ledger)', transactions: 'Transactions Ledger'
 };
 
 /* --- KYC documents (Phase 4): admin screen data + decisions --- */

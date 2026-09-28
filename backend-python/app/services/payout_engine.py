@@ -101,10 +101,18 @@ async def _get_setting_int(db: AsyncSession, key: str, default: int) -> int:
 
 
 async def create_for_booking(db: AsyncSession, row, pandit_id: str | None) -> str:
-    """One PENDING payout per booking completion. Commission from the 'commission'
+    """One PENDING payout per booking completion. Commission from the effective-
+    dated tier resolver (Phase 9) when a tier matches, else the 'commission'
     setting; a payout for an unverified pandit is auto-held with a visible reason."""
     q = json.loads(row.q or "{}") if row.q else {}
-    pct = await _get_setting_int(db, "commission", 20)
+    from .ledger import commission_pct, dedupe
+    puja_cat = None
+    if row.puja_id:
+        from ..models import Puja
+        puja = await db.get(Puja, row.puja_id)
+        puja_cat = puja.cat if puja else None
+    tier = await commission_pct(db, pandit_id=pandit_id, service_category=puja_cat or "ALL")
+    pct = tier["pct"]
     calc = calculate(q.get("svc") or 0, pct)
     n = (await db.execute(select(func.count()).select_from(Payout))).scalar_one() + 1
     pid = f"PO{n}-{row.id}"
@@ -114,6 +122,12 @@ async def create_for_booking(db: AsyncSession, row, pandit_id: str | None) -> st
                   tax_amt=calc["tax_amt"], refund_amt=calc["refund_amt"],
                   adjustment_amt=calc["adjustment_amt"], currency="INR"))
     await db.flush()
+    # Phase 10 ledger: the pandit's share is a DAKSHINA entry from day one,
+    # matched by the negative PAYOUT row when the money actually leaves.
+    if calc["net"] > 0:
+        await dedupe(db, type="DAKSHINA", amount=calc["net"], pandit_id=pandit_id,
+                     booking_id=row.id, ref_table="payouts", ref_id=pid,
+                     note=("Pandit share (tier " + tier["tier"] + ")" if tier["tier"] else "Pandit share"))
     # Creation-time hold evaluation (same rules the engine applies on transitions).
     rules = await payout_rules(db)
     if pandit_id:
@@ -179,6 +193,18 @@ async def transition(db: AsyncSession, payout_id: str, action: str, actor_user_i
             raise bad("A payment reference or UTR is required to disburse")
         to = "DISBURSED"
         patch = {"disbursement_date": _today(), "payment_ref": payment_ref, "utr": utr}
+        # Phase 10 ledger: commission realized + money out. Idempotent on payout id.
+        from .ledger import dedupe
+        commission = row.commission_amt if row.commission_amt is not None else 0
+        if commission > 0:
+            await dedupe(db, type="COMMISSION", amount=commission, pandit_id=row.pandit_id,
+                         booking_id=row.booking_id, ref_table="payouts",
+                         ref_id=payout_id + ":commission", note="Commission on " + payout_id)
+        if (row.amount or 0) > 0:
+            await dedupe(db, type="PAYOUT", amount=-(row.amount or 0), pandit_id=row.pandit_id,
+                         booking_id=row.booking_id, ref_table="payouts",
+                         ref_id=payout_id + ":payout",
+                         note="Disbursement" + (" UTR " + utr if utr else " ref " + payment_ref if payment_ref else ""))
     elif action == "hold":
         if src not in HOLDABLE:
             raise conflict("Cannot hold a payout in " + str(src))
@@ -236,8 +262,15 @@ async def set_adjustment(db: AsyncSession, payout_id: str, amt: int,
                      refund_amt=row.refund_amt or 0, adjustment_amt=amt or 0)
     net = gross - commission - calc["tax_amt"] - calc["refund_amt"] - calc["adjustment_amt"]
     old_adj = row.adjustment_amt or 0
+    old_amount = row.amount or 0
+    delta = net - old_amount
     row.amount = net
     row.adjustment_amt = calc["adjustment_amt"]
+    if delta:
+        from .ledger import dedupe
+        await dedupe(db, type="DAKSHINA", amount=delta, pandit_id=row.pandit_id,
+                     booking_id=row.booking_id, ref_table="payouts", ref_id=payout_id + ":adjust",
+                     note="Adjustment" + (": " + str(reason)[:100] if reason else ""))
     await _audit(db, actor_user_id, "payout.adjustment", "payout", payout_id,
                  {"from": old_adj, "to": calc["adjustment_amt"], "net": net},
                  reason=reason)

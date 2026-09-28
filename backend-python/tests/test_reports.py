@@ -18,7 +18,8 @@ pytestmark = pytest.mark.asyncio
 ALL_REPORTS = [
     "customers", "pandits", "temples", "pujas", "bookings", "payments", "orders",
     "kundalis", "kundali-payments", "family-members", "custom-requests",
-    "samagri", "prasad", "coupons", "campaigns", "payouts", "revenue",
+    "samagri", "prasad", "coupons", "campaigns", "payouts", "payout-audit",
+    "dakshina", "transactions", "revenue",
     "puja-performance", "commission", "customer-accounts", "pandit-accounts",
     "refunds", "pandit-performance", "customer-activity", "login-activity",
     "audit-logs", "media",

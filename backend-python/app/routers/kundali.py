@@ -224,6 +224,12 @@ async def pay_verify(body: dict, auth: dict = Depends(customer_dep),
     pid = (str(sig.get("razorpay_payment_id"))[:60] if pay.mode() == "razorpay" else "MOCK" + rid(4))
     await db.execute(update(Kundali).where(Kundali.id == kid)
                      .values(billing="PAID", payment_status="Paid", payment_id=pid))
+    # Phase 10 ledger: KUNDALI_PAYMENT (idempotent on the kundali id).
+    from ..services.ledger import dedupe
+    k = await db.get(Kundali, kid)
+    if k and (k.final_amount or 0) > 0:
+        await dedupe(db, type="KUNDALI_PAYMENT", amount=k.final_amount, user_id=k.customer_id,
+                     kundali_id=kid, ref_table="kundalis", ref_id=kid, note="Kundali payment")
     await KB.idem_put(db, b.get("idemKey"), "kundali.pay", info)
     await db.flush()
     return info
@@ -420,6 +426,14 @@ async def generate(body: dict, request: Request,
         except Exception as e:
             raise http_error(502, "Payment gateway error: " + str(e))
         await db.execute(update(Kundali).where(Kundali.id == kundali_id).values(order_id=payment["orderId"]))
+
+    # Phase 10: mock-gateway paid kundalis settle instantly — record the ledger
+    # row here; gateway-mode payments record it in /pay/verify instead.
+    if billing == "PAID":
+        from ..services.ledger import dedupe
+        await dedupe(db, type="KUNDALI_PAYMENT", amount=quote["final"], user_id=user_id,
+                     kundali_id=kundali_id, ref_table="kundalis", ref_id=kundali_id,
+                     note="Kundali payment (mock)")
 
     # 5. response: the full flow result for the result page
     order = {"high": 0, "medium": 1, "low": 2, "none": 3}

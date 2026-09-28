@@ -123,6 +123,7 @@ router.post('/pay/verify', (req, res) => {
     db.prepare("UPDATE kundalis SET billing='PAID', payment_status='Paid', payment_id=? WHERE id=?")
       .run(pay.mode() === 'razorpay' ? String(sig.razorpay_payment_id).slice(0, 60) : 'MOCK' + rid(4), id);
     KB.idemPut(req.body.idemKey, 'kundali.pay', info);
+    require('../services/ledger').dedupe({ type: 'KUNDALI_PAYMENT', amount: k.final_amount, userId: k.customer_id, kundaliId: id, refTable: 'kundalis', refId: id, note: 'Kundali payment' });
   })();
   res.json(info);
 });
@@ -259,6 +260,12 @@ router.post('/generate', wrap(async (req, res) => {
     return profileId;
   });
   dbtx();
+
+  /* Phase 10: mock-gateway paid kundalis settle instantly — record the ledger
+     row here; gateway-mode payments record it in /pay/verify instead. */
+  if (billing === 'PAID') {
+    require('../services/ledger').dedupe({ type: 'KUNDALI_PAYMENT', amount: quote.final, userId, kundaliId, refTable: 'kundalis', refId: kundaliId, note: 'Kundali payment (mock)' });
+  }
 
   /* Razorpay order for chargeable kundalis in gateway mode. */
   let payment = null;

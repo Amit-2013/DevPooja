@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 40/40 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile),
-Python 104/104 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 47/47 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers),
+Python 111/111 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -25,8 +25,8 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | N tables | ~58 | `server/db.js` + migrations 001–016 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA) |
 | P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
-| Reports | 28 ids | 27 + `payout-audit`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 40 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile), Python 104 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `backend-python/tests/` |
+| Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
+| Tests | Node 47 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers), Python 111 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -67,19 +67,19 @@ a parity exception.
 | Was | `payouts(id, pandit_id, amount, date, status, booking_id)`; Pending/Paid only; commission from `getSetting('commission', 20)` (settings-driven) |
 | Now | `server/services/payoutEngine.js` + Python twin `services/payout_engine.py`: canonical statuses PENDING/ON_HOLD/PROCESSING/DISBURSED/FAILED/REVERSED, hold reasons + notes (pandit-visible), money trail (gross/commission/tax/refund/adjustment → net), processing/disbursement dates, payment ref + UTR, settings-driven hold rules (`payout_holds`), auto-hold for unverified-pandit payouts, transitions audited with old→new status; migration 012; finance tab lifecycle UI; pandit earnings tab shows full breakdown + WHY on hold; `payout-audit` report id in both registries |
 
-### Phase 9 — Commission tiers
+### Phase 9 — Commission tiers — **IMPLEMENTED (Phase 9 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | Single `commission` setting; `commission_tiers` TABLE ALREADY CREATED (migration 014, empty) |
-| Status | **MISSING** (tiers) |
-| Required | **Activate** the scaffolded table: tier/category/pct/effective-dates resolver consulted by the payout engine; admin UI in finance tab; settings default stays fallback |
+| Was | Single `commission` setting; `commission_tiers` table scaffolded (migration 014, empty) |
+| Now | `services/ledger.js` + twin `app/services/ledger.py`: `resolveTier(panditId, category, date)` returns the active tier whose effective window covers the date (NULL = open), exact category before 'ALL', newest `effective_from` first; `commissionPct()` consults it on every payout creation with the settings knob as fallback — payouts only change rate when an admin defines a tier. Admin CRUD (`GET/POST/PATCH /admin/commission-tiers`) validates pct 0–90 and pct+share ≤ 100 and audits `commission.tier_created` / `commission.tier_updated` on entity `commission_tier`. Finance tab: tier table with activate toggles + create form. `tests/ledger.test.js` + `test_ledger.py` cover resolver precedence, windows, CRUD and the payout-engine consuming the tier |
+| Status | **IMPLEMENTED** |
 
-### Phase 10 — Dakshina
+### Phase 10 — Transactions ledger — **IMPLEMENTED (Phase 10 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | `payments` table; bookings carry pay JSON; `transactions` TABLE ALREADY CREATED (migration 014, empty) |
-| Status | **MISSING** (typed ledger) |
-| Required | **Activate** the scaffolded `transactions` table (SERVICE_PAYMENT/DAKSHINA/REFUND/COMMISSION/PAYOUT/ADJUSTMENT) written by the payment/payout paths; pandit dashboard + admin reports show Dakshina separately (+ report id) |
+| Was | `payments` table; bookings carry pay JSON; `transactions` table scaffolded (migration 014, empty) |
+| Now | `services/ledger.js` + twin `app/services/ledger.py` activate the SAME table: types SERVICE_PAYMENT / KUNDALI_PAYMENT / DAKSHINA / REFUND / COMMISSION / PAYOUT, signed from the platform's perspective (inflows +, REFUND/PAYOUT −), one row per (type, ref_table, ref_id) so payment retries and transition replays never double-count. Writes: booking payment confirmation (mock bookings settle at creation, gateway ones at /payments/verify), cancellation refunds (inside the cancel transaction), kundali payments (mock at generate, gateway at /pay/verify), payout engine — DAKSHINA (the pandit's share) at payout creation, COMMISSION + PAYOUT on disburse, DAKSHINA delta on adjustment. Admin `GET /admin/ledger` (entries + totals with inflow/outflow split), pandit `GET /pandit/me/ledger`, finance-tab ledger view + pandit earnings Dakshina KPIs, and report ids `dakshina` (earnings vs disbursements per pandit) + `transactions` (typed filter) in both registries. `tests/ledger.test.js` + `test_ledger.py` cover the money paths, dedupe idempotency and reports |
+| Status | **IMPLEMENTED** |
 
 ### Phase 11 — Puja pricing management
 | Aspect | Finding |

@@ -301,6 +301,14 @@ async def my_qa(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get
     return {"records": records, "derived": await QA.derived(db, auth["pid"])}
 
 
+@router.get("/me/ledger")
+async def my_ledger(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    """My money ledger (Phase 10): DAKSHINA share rows and the negative PAYOUT
+    rows that settle them — the pandit-side view of the transactions ledger."""
+    from ..services import ledger as LEDGER
+    return {"entries": await LEDGER.list_entries(db, pandit_id=auth["pid"], limit=50)}
+
+
 @router.post("/feature")
 async def get_featured(auth: dict = Depends(pandit_dep),
                        db: AsyncSession = Depends(get_db)):

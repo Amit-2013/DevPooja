@@ -202,6 +202,50 @@ async def report(db: AsyncSession, report_id: str, f: dict) -> dict | None:
                           r.hold_note or "", r.processing_date or "", r.disbursement_date or "",
                           r.payment_ref or "", r.utr or ""] for r in rows]}
 
+    if report_id == "dakshina":
+        w, p = [], {}
+        if f.get("pandit"):
+            w.append("t.pandit_id = :pandit")
+            p["pandit"] = str(f["pandit"])
+        if f.get("from"):
+            w.append("t.created_at >= :tfrom")
+            p["tfrom"] = int(f["from"])
+        if f.get("to"):
+            w.append("t.created_at <= :tto")
+            p["tto"] = int(f["to"])
+        cond = (" AND " + " AND ".join(w) if w else "")
+        rows = await _all(db, "SELECT t.id, t.pandit_id, p.name AS pandit, t.booking_id, t.type, t.amount, t.note, t.created_at "
+                              "FROM transactions t LEFT JOIN pandits p ON p.id = t.pandit_id "
+                              "WHERE t.type IN ('DAKSHINA','PAYOUT')" + cond + " ORDER BY t.created_at DESC, t.id DESC", p)
+        import datetime as _dt
+        return {"columns": ["Entry ID", "Pandit ID", "Pandit", "Booking ID", "Type", "Amount (Rs)", "Note", "Recorded at"],
+                "rows": [[r.id, r.pandit_id, r.pandit or "-", r.booking_id or "-", r.type, r.amount, r.note or "",
+                          _dt.datetime.fromtimestamp(r.created_at / 1000, _dt.timezone.utc).date().isoformat()] for r in rows]}
+
+    if report_id == "transactions":
+        w, p = [], {}
+        if f.get("type"):
+            w.append("t.type = :type")
+            p["type"] = str(f["type"])
+        if f.get("pandit"):
+            w.append("t.pandit_id = :pandit")
+            p["pandit"] = str(f["pandit"])
+        if f.get("from"):
+            w.append("t.created_at >= :tfrom")
+            p["tfrom"] = int(f["from"])
+        if f.get("to"):
+            w.append("t.created_at <= :tto")
+            p["tto"] = int(f["to"])
+        cond = (" WHERE " + " AND ".join(w) if w else "")
+        rows = await _all(db, "SELECT t.id, t.type, t.amount, u.name AS customer, p.name AS pandit, t.booking_id, t.kundali_id, t.ref_table, t.ref_id, t.note, t.created_at "
+                              "FROM transactions t LEFT JOIN users u ON u.id = t.user_id LEFT JOIN pandits p ON p.id = t.pandit_id" + cond +
+                              " ORDER BY t.created_at DESC, t.id DESC LIMIT 5000", p)
+        import datetime as _dt
+        return {"columns": ["Entry ID", "Type", "Amount (Rs)", "Customer", "Pandit", "Booking ID", "Kundali ID", "Ref", "Note", "Recorded at"],
+                "rows": [[r.id, r.type, r.amount, r.customer or "-", r.pandit or "-", r.booking_id or "-", r.kundali_id or "-",
+                          (r.ref_table + ":" + r.ref_id) if r.ref_table else "-", r.note or "",
+                          _dt.datetime.fromtimestamp(r.created_at / 1000, _dt.timezone.utc).date().isoformat()] for r in rows]}
+
     if report_id == "revenue":
         rows = await _all(db, "SELECT substr(b.date, 1, 7) AS ym, COUNT(*) AS n, b.pay, b.q FROM bookings b GROUP BY ym ORDER BY ym DESC")
         agg: dict = {}

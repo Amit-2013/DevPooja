@@ -225,6 +225,13 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
         await db.flush()
     except IntegrityError:
         raise conflict("That pandit was just booked for this slot. Choose another.")
+    # Phase 10: mock-gateway bookings settle at creation — record the ledger row
+    # here; gateway-mode payments record it in confirm_payment instead.
+    if not gateway:
+        from .ledger import dedupe
+        await dedupe(db, type="SERVICE_PAYMENT", amount=q["total"], user_id=user.id,
+                     pandit_id=row.pandit_id, booking_id=id, ref_table="bookings",
+                     ref_id=id, note="Puja booking payment (mock)")
     if not gateway:
         await _announce(db, row, user)
     return row
@@ -258,6 +265,13 @@ async def confirm_payment(db: AsyncSession, user: User, id: str, body: dict) -> 
     row.pay = json.dumps({**p, "paid": True, "ref": body.get("razorpay_payment_id")})
     row.log = _log_append(row, "Payment received")
     await db.flush()
+    # Phase 10 ledger: SERVICE_PAYMENT on every confirmed booking (idempotent).
+    from .ledger import dedupe
+    q = j(row.q, {})
+    if q.get("total"):
+        await dedupe(db, type="SERVICE_PAYMENT", amount=q["total"], user_id=row.user_id,
+                     pandit_id=row.pandit_id, booking_id=id, ref_table="bookings", ref_id=id,
+                     note="Puja booking payment")
     await _announce(db, row, user)
     return row
 
@@ -282,6 +296,12 @@ async def _cancel_internal(db: AsyncSession, row: Booking, pct: int, reason: str
     row.refund = json.dumps(refund) if refund else None
     row.log = _log_append(row, reason)
     await _release_resources(db, row)
+    if refund:
+        # Phase 10 ledger: REFUND as its own negative row (ledger is append-only).
+        from .ledger import dedupe
+        await dedupe(db, type="REFUND", amount=-refund["amt"], user_id=row.user_id,
+                     pandit_id=row.pandit_id, booking_id=row.id, ref_table="bookings",
+                     ref_id=row.id + ":refund", note=f"Cancellation refund ({pct}%)")
     await db.flush()
     if send_notice:
         from ..models import Notif

@@ -6,6 +6,7 @@ const { notify } = require('./notify');
 const pay = require('./payments');
 const PE = require('./payoutEngine');
 const AV = require('./availability');
+const LEDGER = require('./ledger');
 
 const STATUSES = ['New', 'Confirmed', 'Assigned', 'Started', 'Completed', 'Cancelled'];
 const OPEN = ['New', 'Confirmed', 'Assigned'];
@@ -97,6 +98,9 @@ function createBooking(user, body) {
         JSON.stringify(kits.map((k) => k.id)), JSON.stringify(prasad.map((k) => k.id)), notes, member, pr.coupon ? pr.coupon.code : '', JSON.stringify(q), status, JSON.stringify(payInfo),
         JSON.stringify({ sam: kits.length ? 'Packed' : '', pra: '' }), '[]', Date.now(), JSON.stringify([[gateway ? 'Awaiting payment' : 'Booking confirmed', today()]]));
     } catch (e) { if (String(e.code).startsWith('SQLITE_CONSTRAINT')) throw conflict('That pandit was just booked for this slot. Choose another.'); throw e; }
+    /* Phase 10: mock-gateway bookings settle at creation — record the ledger row
+       here; gateway-mode payments record it in confirmPayment instead. */
+    if (!gateway) LEDGER.dedupe({ type: 'SERVICE_PAYMENT', amount: q.total, userId: user.id, panditId: pandit ? pandit.id : null, bookingId: id, refTable: 'bookings', refId: id, note: 'Puja booking payment (mock)' });
     return getBooking(id);
   });
   const row = run();
@@ -118,6 +122,8 @@ function confirmPayment(user, id, { razorpay_order_id, razorpay_payment_id, razo
   if (row.status !== 'PendingPayment') throw bad('This booking is no longer awaiting payment');
   if (p.orderId !== razorpay_order_id || !pay.verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) throw bad('Payment verification failed');
   db.prepare('UPDATE bookings SET status=?, pay=?, log=? WHERE id=?').run(row.pandit_id ? 'Confirmed' : 'New', JSON.stringify({ ...p, paid: true, ref: razorpay_payment_id }), log(row, 'Payment received'), id);
+  const q = j(row.q, {});
+  if (q.total) LEDGER.dedupe({ type: 'SERVICE_PAYMENT', amount: q.total, userId: row.user_id, panditId: row.pandit_id, bookingId: id, refTable: 'bookings', refId: id, note: 'Puja booking payment' });
   const out = getBooking(id);
   announce(out, user);
   return out;
@@ -135,6 +141,7 @@ function cancelInternal(row, pct, reason, sendNotice = true) {
   tx(() => {
     db.prepare("UPDATE bookings SET status='Cancelled', refund=?, log=? WHERE id=?").run(refund && JSON.stringify(refund), log(row, reason), row.id);
     releaseResources(row);
+    if (refund) LEDGER.dedupe({ type: 'REFUND', amount: -refund.amt, userId: row.user_id, panditId: row.pandit_id, bookingId: row.id, refTable: 'bookings', refId: row.id + ':refund', note: 'Cancellation refund (' + pct + '%)' });
   })();
   if (sendNotice) notify(row.user_id, 'Email', `Booking ${row.id} cancelled.` + (refund ? ` Refund of Rs ${refund.amt} initiated.` : ''));
   return getBooking(row.id);

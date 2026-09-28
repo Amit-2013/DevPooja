@@ -157,6 +157,9 @@ const ACT={
   run(()=>api('/admin/pandits/'+d.id+'/lifecycle',{body}),'Account lifecycle updated').then(()=>{PAGE.lc=null;PAGE.accts=null;sync().then(()=>render(true))})},
  pfeat(){run(()=>api('/pandit/feature',{body:{}}),'Featured listing activated')},
  /* QA (Phases 5+17): admin records an observation; delete + drill-down */
+ atier(){const pct=+val('tcp'),share=+val('tps');if(!val('ttn'))return toast('Tier name is required');if(pct+share>100)return toast('Commission + pandit share cannot exceed 100%');run(()=>api('/admin/commission-tiers',{body:{tier:val('ttn'),serviceCategory:val('tsc'),commissionPct:pct,panditSharePct:share,effectiveFrom:val('tef')||undefined,effectiveTo:val('tet')||undefined}}),'Tier created').then(()=>{PAGE.tiers=null;PAGE.ledger=null;sync().then(()=>render(true))})},
+ atierdel(d){run(()=>api('/admin/commission-tiers/'+d.id,{method:'PATCH',body:{active:false}}),'Tier deactivated').then(()=>{PAGE.tiers=null;sync().then(()=>render(true))})},
+ atog(d,el){run(()=>api('/admin/commission-tiers/'+d.id,{method:'PATCH',body:{active:el.checked}}),'Tier '+(el.checked?'activated':'deactivated')).then(()=>{PAGE.tiers=null;sync().then(()=>render(true))})},
  qanew(){const p=PAGE.qaNew||{};const dims={};['punctuality','communication','ritualCompliance','presentation','customerInteraction','digitalCapability','documentation'].forEach(k=>{const v=val('qa_'+k);if(v)dims[k]=+v});
   run(()=>api('/admin/qa',{body:{panditId:p.panditId||val('qap'),bookingId:val('qab')||undefined,...dims,notes:val('qan')||undefined}}),'QA record saved').then(()=>{PAGE.qa=null;PAGE.pqa=null;sync().then(()=>render(true))})},
  qadel(d){if(!confirm('Delete this QA record? The score is recomputed.'))return;run(()=>api('/admin/qa/'+d.id,{method:'DELETE'}),'QA record deleted').then(()=>{PAGE.qa=null;PAGE.pqa=null;sync().then(()=>render(true))})},

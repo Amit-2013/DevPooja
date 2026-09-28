@@ -16,6 +16,7 @@
 const { db, tx, getSetting } = require('../db');
 const { bad, conflict, notFound, today } = require('../lib/util');
 const { audit } = require('../lib/audit');
+const LEDGER = require('./ledger');
 
 const STATUSES = ['PENDING', 'ON_HOLD', 'PROCESSING', 'DISBURSED', 'FAILED', 'REVERSED'];
 const HOLDABLE = new Set(['PENDING', 'ON_HOLD', 'PROCESSING']);
@@ -77,7 +78,11 @@ function calculate({ gross, commissionPct, taxAmt = 0, refundAmt = 0, adjustment
    changes apply to payouts created after the change, never retroactively. */
 function createForBooking(row, panditId) {
   const q = (() => { try { return JSON.parse(row.q || '{}'); } catch (e) { return {}; } })();
-  const pct = getSetting('commission', 20);
+  /* Phase 9: effective-dated commission tier wins; the 'commission' setting stays
+     the fallback so behaviour only changes when an admin defines tiers. */
+  const pujaCat = db.prepare('SELECT cat FROM pujas WHERE id=?').get(row.puja_id);
+  const tier = LEDGER.commissionPct({ panditId, serviceCategory: (pujaCat && pujaCat.cat) || 'ALL' });
+  const pct = tier.pct;
   const calc = calculate({ gross: q.svc || 0, commissionPct: pct });
   const n = db.prepare('SELECT COUNT(*) c FROM payouts').get().c + 1;
   const id = 'PO' + n + '-' + row.id;
@@ -86,6 +91,9 @@ function createForBooking(row, panditId) {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, panditId, calc.net, today(), 'PENDING', row.id, calc.gross_amount,
          calc.commission_amt, calc.tax_amt, calc.refund_amt, calc.adjustment_amt, 'INR');
+  /* Phase 10: the pandit's share is a DAKSHINA ledger entry from day one; it is
+     matched by the negative PAYOUT row when the money actually leaves. */
+  if (calc.net > 0) LEDGER.dedupe({ type: 'DAKSHINA', amount: calc.net, panditId, bookingId: row.id, refTable: 'payouts', refId: id, note: tier.tier ? 'Pandit share (tier ' + tier.tier + ')' : 'Pandit share' });
   const hold = findHold({ id, pandit_id: panditId, booking_id: row.id });
   if (hold) placeHold(id, hold.reason, hold.note, 'system');
   return id;
@@ -105,6 +113,8 @@ function setAdjustment(id, amt, actorUserId, reason) {
   const net = gross - commission - calc.tax_amt - calc.refund_amt - calc.adjustment_amt;
   db.prepare('UPDATE payouts SET amount=?, adjustment_amt=? WHERE id=?')
     .run(net, calc.adjustment_amt, id);
+  /* Phase 10 ledger: the DAKSHINA entry follows the payout's net amount. */
+  if (row.amount !== net) LEDGER.dedupe({ type: 'DAKSHINA', amount: net - (row.amount || 0), panditId: row.pandit_id, bookingId: row.booking_id, refTable: 'payouts', refId: id + ':adjust', note: 'Adjustment' + (reason ? ': ' + String(reason).slice(0, 100) : '') });
   audit(actorUserId, 'payout.adjustment', 'payout', id,
     { from: row.adjustment_amt || 0, to: calc.adjustment_amt, net, ...(reason ? { reason: String(reason).slice(0, 200) } : {}) });
   return get(id);
@@ -132,6 +142,11 @@ function transition(id, action, actorUserId, { reason, note, paymentRef, utr } =
     if (!paymentRef && !utr) throw bad('A payment reference or UTR is required to disburse');
     to = 'DISBURSED';
     patch = { disbursement_date: today(), payment_ref: paymentRef || null, utr: utr || null };
+    /* Phase 10 ledger: commission realized + money out. Idempotent on payout id. */
+    const gross = row.gross_amount != null ? row.gross_amount : row.amount;
+    const commission = row.commission_amt != null ? row.commission_amt : 0;
+    if (commission > 0) LEDGER.dedupe({ type: 'COMMISSION', amount: commission, panditId: row.pandit_id, bookingId: row.booking_id, refTable: 'payouts', refId: id + ':commission', note: 'Commission on ' + id });
+    if (row.amount > 0) LEDGER.dedupe({ type: 'PAYOUT', amount: -row.amount, panditId: row.pandit_id, bookingId: row.booking_id, refTable: 'payouts', refId: id + ':payout', note: 'Disbursement' + (utr ? ' UTR ' + utr : paymentRef ? ' ref ' + paymentRef : '') });
   } else if (action === 'hold') {
     if (!HOLDABLE.has(from)) throw conflict('Cannot hold a payout in ' + from);
     if (!reason) throw bad('A hold reason is required — pandits must see WHY a payout is on hold');

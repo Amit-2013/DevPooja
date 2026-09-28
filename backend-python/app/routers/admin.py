@@ -6,7 +6,7 @@ import json
 import re
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -203,6 +203,42 @@ async def kyc_decide(doc_id: str, body: dict, auth: dict = Depends(admin_dep),
                            reason=b.get("reason"), expires_at=b.get("expiresAt"),
                            reverify_at=b.get("reverifyAt"))
     return {"document": KYC.out(row)}
+
+
+# --- Transactions ledger + commission tiers (Phases 9-10) ---
+from ..services import ledger as LEDGER  # noqa: E402
+
+
+@router.get("/ledger")
+async def ledger_view(request: Request, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    f = {k: v for k, v in request.query_params.items() if v}
+    return {"entries": await LEDGER.list_entries(db, type=f.get("type"),
+                                                 pandit_id=f.get("pandit"),
+                                                 from_ts=f.get("from"), to_ts=f.get("to"),
+                                                 limit=int(f.get("limit") or 200)),
+            "totals": await LEDGER.totals(db, from_ts=f.get("from"), to_ts=f.get("to"))}
+
+
+@router.get("/commission-tiers")
+async def tier_list_view(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"tiers": await LEDGER.tier_list(db)}
+
+
+@router.post("/commission-tiers", status_code=201)
+async def tier_create_view(body: dict, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    r = await LEDGER.tier_create(db, auth["uid"], body or {})
+    await db.commit()
+    return {"tier": r}
+
+
+@router.patch("/commission-tiers/{tier_id}")
+async def tier_update_view(tier_id: int, body: dict, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    r = await LEDGER.tier_update(db, auth["uid"], tier_id, body or {})
+    await db.commit()
+    return {"tier": r}
 
 
 # --- QA & rating engine (Phase 17) + profile enrichment read (Phase 5) ---
