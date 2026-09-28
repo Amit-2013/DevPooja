@@ -45,6 +45,31 @@ async def set_status(booking_id: str, body: dict, auth: dict = Depends(admin_dep
                                                       (body or {}).get("status")))}
 
 
+# --- Phase 16: no-show handling + the settings-backed cancellation policy ---
+from ..services import cancellation as CX  # noqa: E402
+
+
+@router.post("/bookings/{booking_id}/noshow")
+async def noshow(booking_id: str, body: dict, auth: dict = Depends(admin_dep),
+                 db: AsyncSession = Depends(get_db)):
+    row = await CX.admin_no_show(db, booking_id, auth["uid"], (body or {}).get("reason"))
+    await db.commit()
+    return {"booking": s_booking(row)}
+
+
+@router.get("/cancellation-policy")
+async def policy_view(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"policy": await CX.get_policy(db)}
+
+
+@router.put("/cancellation-policy")
+async def policy_update(body: dict, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    pol = await CX.update_policy(db, auth["uid"], body or {})
+    await db.commit()
+    return {"policy": pol}
+
+
 @router.post("/bookings/{booking_id}/refund")
 async def process_refund(booking_id: str, auth: dict = Depends(admin_dep),
                          db: AsyncSession = Depends(get_db)):

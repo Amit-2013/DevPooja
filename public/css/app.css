@@ -19,7 +19,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 .util{background:var(--pri2);color:#dfeeea;font-size:.82rem}.util .wrap{display:flex;justify-content:space-between;gap:12px;padding-top:6px;padding-bottom:6px;flex-wrap:wrap}
 .util a,.util button{background:none;border:0;color:inherit;cursor:pointer;margin-left:16px;opacity:.9}.util a:hover,.util button:hover{opacity:1;text-decoration:underline}
 .nav{position:sticky;top:0;z-index:40;background:var(--card);border-bottom:1px solid var(--line)}
-.navin{display:flex;align-items:center;gap:22px;min-height:64px}
+.navin{display:flex;align-items:center;gap:22px;min-height:64px;min-width:0}
+.navr{flex-shrink:0}.logo{min-width:0}
+/* Ultra-narrow phones: tighten the header instead of overflowing (320-360px).
+   Login stays visible — the burger nav does not contain it. */
+@media(max-width:360px){.navin{gap:8px}.logo span{font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.logo small{display:none}.navr{gap:4px}}
 .logo{display:flex;align-items:center;gap:8px;font-family:'Yatra One',serif;font-size:1.55rem;color:var(--pri)}.logo svg{width:28px;height:28px}
 .logo small{font-family:'Hind';font-size:.7rem;color:var(--mut);display:block;margin-top:-6px}
 .links{display:flex;gap:4px;flex:1;flex-wrap:wrap}.links a{padding:6px 10px;border-radius:6px;font-weight:500;font-size:.95rem}.links a:hover{background:var(--bg2)}.links a.on{color:var(--pri);box-shadow:inset 0 -3px 0 var(--gold);border-radius:0}
@@ -88,7 +92,11 @@ input[type=checkbox],input[type=radio]{width:auto;accent-color:var(--pri)}textar
 /* dashboards */
 .dash{display:grid;grid-template-columns:230px 1fr;gap:24px;align-items:start}@media(max-width:900px){.dash{grid-template-columns:1fr}}
 .side{position:sticky;top:84px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:2px}.side a{padding:9px 12px;border-radius:6px;font-weight:500}.side a:hover{background:var(--bg2)}.side a.on{background:var(--pri);color:var(--priink)}
-@media(max-width:900px){.side{position:static;flex-direction:row;overflow-x:auto}.side a{white-space:nowrap}}
+@media(max-width:900px){.side{position:static;flex-direction:row;overflow-x:auto;min-width:0;max-width:100%}.side a{white-space:nowrap}}
+/* Grid items must be allowed to shrink below their content width, or nowrap
+   children (side-nav scroller, KPI grids) force the page wider than the
+   viewport on phones (responsive audit, Phase 16). */
+.dash>*{min-width:0}
 .kpi{border-left:4px solid var(--gold);background:var(--card);border-radius:0 10px 10px 0;padding:14px 16px;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.kpi b{font-family:'Yatra One';font-weight:400;font-size:1.7rem;display:block}.kpi span{color:var(--mut);font-size:.86rem}
 .bar{height:10px;background:var(--bg2);border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:var(--pri)}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cal .h{font-size:.75rem;text-align:center;color:var(--mut);padding:4px}.cal .d{min-height:64px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:.85rem;background:var(--card);cursor:default;position:relative;overflow:hidden}.cal .d.t{border-color:var(--pri);border-width:2px}.cal .d.x{background:var(--bg2);color:var(--mut)}.cal .d.off{background:var(--bad-bg)}.cal .d small{display:block;font-size:.68rem;line-height:1.2;color:var(--pri);font-weight:600}

@@ -111,7 +111,9 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["inv"] = {k.id: k.stock for k in kits}
         st["campaigns"] = []
         st["leads"] = []
-        st["set"] = {"comm": await get_setting(db, "commission", 20)}
+        st["set"] = {"comm": await get_setting(db, "commission", 20),
+                     # Phase 16: the cancellation policy rides along for the finance tab.
+                     "cxp": await get_setting(db, "cancellation_policy", None)}
         st["hidden"] = [r.id for r in (await db.execute(
             select(Booking).where(Booking.review_hidden == 1))).scalars().all()]
         st["banners"] = [{"id": b.id, "t": b.text, "on": bool(b.enabled)} for b in

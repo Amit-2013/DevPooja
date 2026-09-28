@@ -42,8 +42,9 @@ async def lifespan(_app: FastAPI):
         await seed_kundali(db)
         await db.commit()
     # Background jobs (Node parity: server/index.js arms startSweeper at boot).
-    from .services.scheduler import start_sweeper, stop_sweeper
+    from .services.scheduler import start_no_show_sweeper, start_sweeper, stop_sweeper
     start_sweeper()  # KYC expiry sweep on a schedule (KYC_SWEEP_MS, default 6h; 0 disables)
+    start_no_show_sweeper()  # Phase 16 no-show sweep (NOSHOW_SWEEP_MS, default 1h; 0 disables)
     try:
         yield
     finally:

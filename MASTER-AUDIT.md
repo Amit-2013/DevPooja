@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 47/47 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers),
-Python 111/111 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements + ledger suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 51/51 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation),
+Python 115/115 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger + cancellation suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -26,7 +26,7 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
 | FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 47 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers), Python 111 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `backend-python/tests/` |
+| Tests | Node 51 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation), Python 115 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -116,12 +116,12 @@ a parity exception.
 | Status | **WORKING** — linkage exists; needs only richer history view (filters) if desired |
 | Required | Small FE polish; no schema work |
 
-### Phase 16 — Cancellation/rescheduling engine
+### Phase 16 — Cancellation/rescheduling engine — **IMPLEMENTED (Phase 16 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | Tiered refunds in `cancelInternal()` (100/75/50% policy enforced server-side), refund states, reschedule in booking log, expire-unpaid sweep |
-| Status | **PARTIAL** — customer-side only; no pandit-cancel/no-show compensation, penalties not configurable (rules are in code, not settings) |
-| Required | Extract cancellation engine service; move windows/percentages to settings; add pandit-cancel + no-show paths with compensation; N+P |
+| Was | Tiered refunds in `cancelInternal()` (100/75/50% enforced server-side, customer-side only), refund states, reschedule in booking log, expire-unpaid sweep |
+| Now | `services/cancellation.js` + twin `app/services/cancellation.py` are the ONE cancellation writer (bookings.js/bookings.py keep aliases so expire-unpaid, admin status, gateway-rollback and customer-cancel call sites are unchanged). Refund windows/percentages are settings-backed policy `cancellation_policy` {full, part, fullPct, partPct, latePct, noshowPct, compPct, noticeHours} carrying the exact legacy defaults — behaviour only changes when an admin edits it; `cancellation_policy` rides the admin state payload (`set.cxp`). New: `POST /pandit/bookings/:id/cancel` (customer always refunded at the standard tier; pandit compensation `compPct` of their share via a real PENDING payout + deduped DAKSHINA ledger row only OUTSIDE the `noticeHours` window; booking keeps pandit_id so QA cancelPct attributes it; started pujas refuse), no-show sweep past-due active bookings (boot-armed via NOSHOW_SWEEP_MS default 1h in both backends — same scheduler contract as the KYC sweep; Python adds `noshow_sweep_tick` to the existing scheduler), `POST /admin/bookings/:id/noshow` (customer refunded `noshowPct`, pandit compensated, audited), `GET/PUT /admin/cancellation-policy` (pct fields 0–100, hour windows to a year, full>part enforced, audited old→new). Every cancellation — customer, admin, pandit, no-show, expire-unpaid — is audited through the single writer. `tests/cancellation.test.js` + `test_cancellation.py` cover policy bounds/audit, tier-from-policy, refund ledger, pandit-cancel compensation both ways, admin no-show and sweep idempotency |
+| Status | **IMPLEMENTED** |
 
 ### Phase 17 — QA & rating engine — **IMPLEMENTED (Phase 17 complete)**
 | Aspect | Finding |

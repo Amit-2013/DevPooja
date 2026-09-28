@@ -40,6 +40,12 @@ router.post('/bookings/:id/:action(accept|reject|start)', (req, res) => {
   if (p.status !== 'verified') throw bad('Your KYC is not verified yet');
   res.json({ booking: S.booking(B.panditAct(pid(req), req.params.id, req.params.action)) });
 });
+/* Phase 16: a pandit can cancel an assigned booking — customer refunded at the
+   standard tier; compensation only outside the notice window (services/cancellation). */
+router.post('/bookings/:id/cancel', (req, res) => {
+  const CX = require('../services/cancellation');
+  res.json({ booking: S.booking(CX.panditCancel(pid(req), req.params.id, req.body && req.body.reason)) });
+});
 router.post('/bookings/:id/complete', upload.media.array('media', 8), upload.verifyMagic(), (req, res) => {
   const urls = (req.files || []).map((f) => '/media/' + f.filename);
   res.json({ booking: S.booking(B.panditAct(pid(req), req.params.id, 'complete', urls)) });

@@ -123,6 +123,9 @@ const ACT={
   try{await api('/pandit/register',{form:f});location.hash='#/partner';toast('Application submitted. KYC review is in progress.')}catch(e){toast(e.message)}},
  /* pandit portal */
  pacc(d){run(()=>api('/pandit/bookings/'+d.id+'/accept',{body:{}}),'Booking accepted')},
+ pcancel(d){const why=prompt('Cancel this booking? The customer is refunded at the standard tier. Reason (optional):')||'';if(why===null)return;run(()=>api('/pandit/bookings/'+d.id+'/cancel',{body:{reason:why}}),'Booking cancelled')},
+ anoshow(d){if(!confirm('Record this booking as a NO-SHOW? The customer is refunded at the no-show rate and the pandit receives compensation.'))return;run(()=>api('/admin/bookings/'+d.id+'/noshow',{body:{reason:'Marked by admin'}}),'No-show recorded')},
+ acxp(){run(()=>api('/admin/cancellation-policy',{method:'PUT',body:{full:+val('cxf'),part:+val('cxp'),latePct:+val('cxl'),noshowPct:+val('cxn'),compPct:+val('cxc'),noticeHours:+val('cxh')}}),'Policy saved').then(()=>{PAGE.cxp=null;sync().then(()=>render(true))})},
  prej(d){run(()=>api('/pandit/bookings/'+d.id+'/reject',{body:{}}),'Booking declined. Admin will reassign.')},
  pstart(d){run(()=>api('/pandit/bookings/'+d.id+'/start',{body:{}}),'Puja started')},
  pdone(d){const b=B(d.id),p=PU(b.pujaId);modal('<h2>Completion update</h2><p class="sm mut">'+esc(p.n)+', '+b.id+'</p><div class="col mt">'+['Sankalp taken with names and gotra','Main worship and aarti completed','Samagri used and remaining handed over','Customer satisfied and blessings given'].map(x=>'<label><input type="checkbox" class="dck"> '+x+'</label>').join('')+'</div><label class="f mt">Upload photos or video (optional, up to 8 files)<input type="file" id="pmedia" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"></label><button class="btn mt" data-act="pdoneok" data-id="'+b.id+'">Mark completed</button>')},

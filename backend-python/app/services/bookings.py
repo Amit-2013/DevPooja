@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (Booking, Coupon, Kit, Pandit, Prasad, Payout,
                       Puja, Setting, Temple, User)
-from ..pricing import MODES, SLOTS, coupon_problem, hours_until, quote, refund_pct
+from ..pricing import MODES, SLOTS, coupon_problem, quote
 from ..util import (bad, conflict, j, not_found, v_arr, v_date, v_int,
                     v_mobile, v_one_of, v_str)
 from . import payments as pay
@@ -276,72 +276,23 @@ async def confirm_payment(db: AsyncSession, user: User, id: str, body: dict) -> 
     return row
 
 
-async def _release_resources(db: AsyncSession, row: Booking) -> None:
-    q = j(row.q, {})
-    ops = j(row.ops, {})
-    if q.get("pts"):
-        await db.execute(update(User).where(User.id == row.user_id).values(pts=User.pts + q["pts"]))
-    if ops.get("sam") != "Delivered":
-        for k in j(row.sam, []):
-            await db.execute(update(Kit).where(Kit.id == k).values(stock=Kit.stock + 1))
-
-
 async def _cancel_internal(db: AsyncSession, row: Booking, pct: int, reason: str,
-                           send_notice: bool = True) -> Booking:
-    q = j(row.q, {})
-    paid = j(row.pay, {}).get("paid")
-    refund = ({"amt": round(q.get("total", 0) * pct / 100), "pct": pct, "state": "Initiated"}
-              if paid and pct > 0 else None)
-    row.status = "Cancelled"
-    row.refund = json.dumps(refund) if refund else None
-    row.log = _log_append(row, reason)
-    await _release_resources(db, row)
-    if refund:
-        # Phase 10 ledger: REFUND as its own negative row (ledger is append-only).
-        from .ledger import dedupe
-        await dedupe(db, type="REFUND", amount=-refund["amt"], user_id=row.user_id,
-                     pandit_id=row.pandit_id, booking_id=row.id, ref_table="bookings",
-                     ref_id=row.id + ":refund", note=f"Cancellation refund ({pct}%)")
-    await db.flush()
-    if send_notice:
-        from ..models import Notif
-        msg = f"Booking {row.id} cancelled." + (f" Refund of Rs {refund['amt']} initiated." if refund else "")
-        db.add(Notif(user_id=row.user_id, channel="Email", message=msg, ts=now_ms()))
+                           send_notice: bool = True, by: str = "system") -> Booking:
+    """Phase 16: moved to services/cancellation.py (the ONE cancellation writer);
+    this alias keeps every existing call site unchanged."""
+    from .cancellation import _cancel_internal as _engine_cancel
+    return await _engine_cancel(db, row, pct, reason, send_notice, by)
     return row
 
 
 async def cancel_booking(db: AsyncSession, user: User, id: str) -> Booking:
-    row = await get_booking(db, id)
-    if not row or row.user_id != user.id:
-        raise not_found("Booking not found")
-    if row.status not in OPEN + ["PendingPayment"]:
-        raise bad("This booking can no longer be cancelled")
-    pct = refund_pct(hours_until(row.date, row.slot))
-    return await _cancel_internal(db, row, pct, "Cancelled by customer")
+    from .cancellation import customer_cancel
+    return await customer_cancel(db, user, id)
 
 
 async def reschedule_booking(db: AsyncSession, user: User, id: str, body: dict) -> Booking:
-    row = await get_booking(db, id)
-    if not row or row.user_id != user.id:
-        raise not_found("Booking not found")
-    if row.status not in OPEN:
-        raise bad("This booking can no longer be rescheduled")
-    date = v_date(body.get("date"))
-    if date < iso_offset(1):
-        raise bad("Choose a date from tomorrow onwards")
-    slot = v_one_of(body.get("slot"), SLOTS, "Time slot")
-    if row.pandit_id:
-        p = await db.get(Pandit, row.pandit_id)
-        verdict = await AV.check(db, p, date, slot, mode=row.mode, city=j(row.addr, {}).get("city"), skip_id=row.id)
-        if not verdict["ok"]:
-            raise conflict("Your pandit is not available then: " + verdict["reason"])
-    row.date, row.slot = date, slot
-    row.log = _log_append(row, "Rescheduled")
-    await db.flush()
-    from ..models import Notif
-    db.add(Notif(user_id=user.id, channel="SMS",
-                 message=f"Booking {id} rescheduled to {date}, {slot}.", ts=now_ms()))
-    return row
+    from .cancellation import reschedule
+    return await reschedule(db, user, id, body)
 
 
 async def review_booking(db: AsyncSession, user: User, id: str, body: dict) -> Booking:

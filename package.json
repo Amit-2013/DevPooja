@@ -20,7 +20,7 @@
     "db:status": "node server/migrate.js --status",
     "db:inspect": "node server/tools/inspect-db.js",
     "db:health": "node server/tools/db-health.js",
-    "test": "node --test tests/api.test.js tests/security.test.js tests/kyc.test.js tests/agreements.test.js tests/qa.test.js tests/ledger.test.js",
+    "test": "node --test tests/api.test.js tests/security.test.js tests/kyc.test.js tests/agreements.test.js tests/qa.test.js tests/ledger.test.js tests/cancellation.test.js",
     "test:ui": "node tests/ui-smoke.js",
     "build:pages": "node tools/build-pages.js",
     "build:netlify": "node tools/build-netlify.js",

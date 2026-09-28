@@ -17,6 +17,11 @@ const one = (b) => S.booking(B.getBooking(b));
 router.post('/bookings/manual', (req, res) => res.status(201).json({ booking: S.booking(B.adminManual(req.body)) }));
 router.post('/bookings/:id/assign', (req, res) => res.json({ booking: S.booking(B.adminAssign(req.params.id, req.body.panditId || null)) }));
 router.post('/bookings/:id/status', (req, res) => res.json({ booking: S.booking(B.adminStatus(req.params.id, req.body.status)) }));
+/* Phase 16: no-show handling + the settings-backed cancellation policy. */
+const CX = require('../services/cancellation');
+router.post('/bookings/:id/noshow', (req, res) => res.json({ booking: S.booking(CX.adminNoShow(req.params.id, req.auth.uid, req.body.reason)) }));
+router.get('/cancellation-policy', (req, res) => res.json({ policy: CX.getPolicy() }));
+router.put('/cancellation-policy', (req, res) => res.json({ policy: CX.updatePolicy(req.auth.uid, req.body) }));
 router.post('/bookings/:id/refund', (req, res) => {
   const r = B.getBooking(req.params.id); if (!r || !r.refund) throw notFound('No refund on this booking');
   const rf = j(r.refund, {}); rf.state = 'Processed';

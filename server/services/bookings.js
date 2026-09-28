@@ -7,6 +7,7 @@ const pay = require('./payments');
 const PE = require('./payoutEngine');
 const AV = require('./availability');
 const LEDGER = require('./ledger');
+const CX = require('./cancellation');
 
 const STATUSES = ['New', 'Confirmed', 'Assigned', 'Started', 'Completed', 'Cancelled'];
 const OPEN = ['New', 'Confirmed', 'Assigned'];
@@ -108,6 +109,11 @@ function createBooking(user, body) {
   return row;
 }
 
+/* Phase 16: the cancellation writer lives in services/cancellation.js — this
+   module keeps an alias so every existing call site (expire-unpaid, admin
+   status, gateway rollback, customer cancel) keeps working unchanged. */
+const cancelInternal = CX.cancelInternal;
+
 function announce(row, user) {
   const p = db.prepare('SELECT name FROM pujas WHERE id=?').get(row.puja_id);
   const msg = `Booking ${row.id} confirmed: ${p.name} on ${row.date}, ${row.slot}.`;
@@ -129,48 +135,9 @@ function confirmPayment(user, id, { razorpay_order_id, razorpay_payment_id, razo
   return out;
 }
 
-function releaseResources(row) {
-  const q = j(row.q, {}), ops = j(row.ops, {});
-  if (q.pts) db.prepare('UPDATE users SET pts=pts+? WHERE id=?').run(q.pts, row.user_id);
-  if (ops.sam !== 'Delivered') j(row.sam, []).forEach((id) => db.prepare('UPDATE kits SET stock=stock+1 WHERE id=?').run(id));
-}
+function cancelBooking(user, id) { return CX.customerCancel(user, id); }
 
-function cancelInternal(row, pct, reason, sendNotice = true) {
-  const q = j(row.q, {}), paid = j(row.pay, {}).paid;
-  const refund = paid && pct > 0 ? { amt: Math.round(q.total * pct / 100), pct, state: 'Initiated' } : null;
-  tx(() => {
-    db.prepare("UPDATE bookings SET status='Cancelled', refund=?, log=? WHERE id=?").run(refund && JSON.stringify(refund), log(row, reason), row.id);
-    releaseResources(row);
-    if (refund) LEDGER.dedupe({ type: 'REFUND', amount: -refund.amt, userId: row.user_id, panditId: row.pandit_id, bookingId: row.id, refTable: 'bookings', refId: row.id + ':refund', note: 'Cancellation refund (' + pct + '%)' });
-  })();
-  if (sendNotice) notify(row.user_id, 'Email', `Booking ${row.id} cancelled.` + (refund ? ` Refund of Rs ${refund.amt} initiated.` : ''));
-  return getBooking(row.id);
-}
-
-function cancelBooking(user, id) {
-  const row = getBooking(id);
-  if (!row || row.user_id !== user.id) throw notFound('Booking not found');
-  if (![...OPEN, 'PendingPayment'].includes(row.status)) throw bad('This booking can no longer be cancelled');
-  return cancelInternal(row, P.refundPct(P.hoursUntil(row.date, row.slot)), 'Cancelled by customer');
-}
-
-function rescheduleBooking(user, id, body) {
-  const row = getBooking(id);
-  if (!row || row.user_id !== user.id) throw notFound('Booking not found');
-  if (!OPEN.includes(row.status)) throw bad('This booking can no longer be rescheduled');
-  const date = v.date(body.date);
-  if (date < addDays(1)) throw bad('Choose a date from tomorrow onwards');
-  const slot = v.oneOf(body.slot, P.SLOTS, 'Time slot');
-  if (row.pandit_id) {
-    const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(row.pandit_id);
-    const vv = AV.check(p, date, slot, { mode: row.mode, city: j(row.addr, {}).city, skipId: row.id });
-    if (!vv.ok) throw conflict('Your pandit is not available then: ' + vv.reason);
-  }
-  try { db.prepare('UPDATE bookings SET date=?, slot=?, log=? WHERE id=?').run(date, slot, log(row, 'Rescheduled'), id); }
-  catch (e) { if (String(e.code).startsWith('SQLITE_CONSTRAINT')) throw conflict('Your pandit is not free then.'); throw e; }
-  notify(user.id, 'SMS', `Booking ${id} rescheduled to ${date}, ${slot}.`);
-  return getBooking(id);
-}
+function rescheduleBooking(user, id, body) { return CX.reschedule(user, id, body, v); }
 
 function reviewBooking(user, id, body) {
   const row = getBooking(id);

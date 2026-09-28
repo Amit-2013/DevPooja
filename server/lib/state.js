@@ -66,7 +66,9 @@ function buildState(auth) {
     st.inv = Object.fromEntries(kits.map((k) => [k.id, k.stock]));
     st.campaigns = db.prepare('SELECT * FROM campaigns').all().map((c) => ({ id: c.id, n: c.name, ch: c.channel, aud: c.audience, st: c.status, sent: c.sent }));
     st.leads = db.prepare('SELECT * FROM leads ORDER BY id DESC LIMIT 200').all().map((l) => ({ type: l.type, n: l.name, d: l.details, date: l.date }));
-    st.set = { comm: getSetting('commission', 20) };
+    st.set = Object.assign({ comm: getSetting('commission', 20) },
+      /* Phase 16: the cancellation policy rides along for the finance tab. */
+      (function () { try { const r = db.prepare("SELECT value FROM settings WHERE key='cancellation_policy'").get(); return { cxp: r ? JSON.parse(r.value) : null }; } catch (e) { return { cxp: null }; } })());
     st.hidden = db.prepare('SELECT id FROM bookings WHERE review_hidden=1').all().map((r) => r.id);
     st.banners = db.prepare('SELECT * FROM banners').all().map((b) => ({ id: b.id, t: b.text, on: !!b.enabled }));
   }

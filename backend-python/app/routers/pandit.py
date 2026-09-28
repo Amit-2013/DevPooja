@@ -62,6 +62,17 @@ async def pandit_complete(booking_id: str,
     return {"booking": s_booking(row)}
 
 
+@router.post("/bookings/{booking_id}/cancel")
+async def cancel_booking(booking_id: str, body: dict, auth: dict = Depends(pandit_dep),
+                         db: AsyncSession = Depends(get_db)):
+    """Phase 16: pandit-side cancellation — customer refunded at the standard
+    tier; compensation only outside the notice window (services/cancellation)."""
+    from ..services.cancellation import pandit_cancel
+    row = await pandit_cancel(db, auth["pid"], booking_id, (body or {}).get("reason"))
+    await db.commit()
+    return {"booking": s_booking(row)}
+
+
 @router.post("/bookings/{booking_id}/{action}")
 async def pandit_booking_action(booking_id: str, action: str,
                                 auth: dict = Depends(pandit_dep),
