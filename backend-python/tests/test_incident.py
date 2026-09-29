@@ -26,6 +26,11 @@ def _booking_body(o=None):
             "panditId": "p1", "sam": [], "pra": [], **o}
 
 
+def _day_plus(n: int) -> str:
+    import time
+    return time.strftime("%Y-%m-%d", time.localtime(time.time() + n * 86400))
+
+
 async def _paid_booking(client, tok, o=None):
     r = await client.post("/api/bookings", headers={"Authorization": "Bearer " + tok},
                           json=_booking_body(o))
@@ -215,3 +220,74 @@ async def test_access_and_dismissal(client, db_session):
     assert only and all(x["status"] == "DISMISSED" for x in only), "status filter works"
     uid = await _pandit_uid(db_session)
     assert any("not actionable" in n.message for n in await _notifs(db_session, uid)), "dismissal notified"
+
+
+async def test_reopen_dismissed_requires_reason_audited_resolved_final(client, db_session):
+    """Phase 20 follow-up: reopening path for dismissed incidents — mirrors
+    tests/incident.test.js 'reopen: dismissed incidents return to UNDER_REVIEW'."""
+    ct = await login(client, "customer")
+    pt = await login(client, "pandit")
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+    b = await _paid_booking(client, ct, {"date": _day_plus(25)})
+    inc = (await client.post("/api/pandit/incidents", headers={"Authorization": "Bearer " + pt},
+                             json={"bookingId": b["id"], "category": "SAFETY_CONCERN",
+                                   "description": "Unlit staircase to the entrance; customer denied access to the breaker panel."})).json()["incident"]
+    uid = await _pandit_uid(db_session)
+    before = len(await _notifs(db_session, uid))
+
+    # only DISMISSED can be reopened
+    assert (await client.post("/api/admin/incidents/" + inc["id"] + "/reopen", headers=aa,
+                              json={"reason": "too early"})).status_code == 400, "OPEN cannot be reopened"
+    await client.patch("/api/admin/incidents/" + inc["id"], headers=aa,
+                       json={"status": "UNDER_REVIEW", "notes": "Initial look."})
+    assert (await client.post("/api/admin/incidents/" + inc["id"] + "/reopen", headers=aa,
+                              json={"reason": "still too early"})).status_code == 400, "UNDER_REVIEW cannot be reopened"
+    d = await client.patch("/api/admin/incidents/" + inc["id"], headers=aa,
+                           json={"status": "DISMISSED", "reason": "Pandit retracted the report on call."})
+    assert d.status_code == 200, d.text
+
+    # reopen validation
+    assert (await client.post("/api/admin/incidents/" + inc["id"] + "/reopen",
+                              headers=aa, json={})).status_code == 400, "reason required"
+    assert (await client.post("/api/admin/incidents/INCNOPE1/reopen",
+                              headers=aa, json={"reason": "x"})).status_code == 404
+
+    # reopen succeeds: back to UNDER_REVIEW, counters + reason recorded, pandit notified
+    re = await client.post("/api/admin/incidents/" + inc["id"] + "/reopen", headers=aa,
+                           json={"reason": "Customer contradicts the retraction in writing; revisiting with the site log."})
+    assert re.status_code == 200, re.text
+    body = re.json()["incident"]
+    assert body["status"] == "UNDER_REVIEW"
+    assert body["reopenCount"] == 1
+    assert body["reopenReason"] == "Customer contradicts the retraction in writing; revisiting with the site log."
+    notifs = (await _notifs(db_session, uid))[before:]
+    assert any("reopened for review" in n.message for n in notifs), "reopening notified to the pandit"
+
+    # the reopened incident flows through normal triage again — a second
+    # dismiss → reopen increments the counter and keeps the latest reason
+    res = await client.patch("/api/admin/incidents/" + inc["id"], headers=aa,
+                             json={"status": "DISMISSED", "reason": "Site log confirms the retraction."})
+    assert res.status_code == 200, "triage works on the reopened incident"
+    re2 = await client.post("/api/admin/incidents/" + inc["id"] + "/reopen", headers=aa,
+                            json={"reason": "New photographic evidence supplied."})
+    assert re2.status_code == 200, re2.text
+    assert re2.json()["incident"]["reopenCount"] == 2, "reopen counter increments"
+    assert re2.json()["incident"]["reopenReason"] == "New photographic evidence supplied.", "latest reason wins"
+
+    # RESOLVED stays final — no reopening path
+    fin = await client.patch("/api/admin/incidents/" + inc["id"], headers=aa,
+                             json={"status": "RESOLVED", "resolution": "Permanent lighting installed by the host."})
+    assert fin.status_code == 200, fin.text
+    assert (await client.post("/api/admin/incidents/" + inc["id"] + "/reopen", headers=aa,
+                              json={"reason": "one more look"})).status_code == 400, "RESOLVED is final"
+
+    # audit trail keeps every hop: reported + reopens with old→new
+    audits = (await client.get("/api/admin/audit?limit=300", headers=aa)).json()["entries"]
+    reopens = [x for x in audits if x["action"] == "incident.reopened" and x["entityId"] == inc["id"]]
+    assert len(reopens) == 2, "both reopens audited"
+    assert reopens[0]["oldValue"] == {"status": "DISMISSED"}
+    assert reopens[0]["newValue"] == {"status": "UNDER_REVIEW"}
+    assert reopens[0]["role"] == "admin"
+    assert "photographic evidence" in reopens[0]["detail"]["reason"]
+    assert any(x for x in audits if x["action"] == "incident.reported" and x["entityId"] == inc["id"]), \
+        "the original reported audit is untouched"

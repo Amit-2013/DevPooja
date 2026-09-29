@@ -398,6 +398,15 @@ async def incident_triage(incident_id: str, body: dict, auth: dict = Depends(adm
     return {"incident": r}
 
 
+# Phase 20 follow-up: reopen a dismissed incident (reason required, audited)
+@router.post("/incidents/{incident_id}/reopen")
+async def incident_reopen(incident_id: str, body: dict, auth: dict = Depends(admin_dep),
+                          db: AsyncSession = Depends(get_db)):
+    r = await INC.reopen(db, auth["uid"], incident_id, body or {})
+    await db.commit()
+    return {"incident": r}
+
+
 @router.post("/pandits/{pandit_id}/kyc")
 async def pandit_kyc(pandit_id: str, body: dict, auth: dict = Depends(admin_dep),
                      db: AsyncSession = Depends(get_db)):

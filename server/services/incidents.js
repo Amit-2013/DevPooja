@@ -46,7 +46,9 @@ const out = (r) => r && ({
   id: r.id, panditId: r.pandit_id, bookingId: r.booking_id, customerId: r.customer_id,
   category: r.category, description: r.description, evidence: (() => { try { return JSON.parse(r.evidence || '[]'); } catch (e) { return []; } })(),
   status: r.status, adminNotes: r.admin_notes || '', resolution: r.resolution || '',
-  reportedAt: r.reported_at, resolvedAt: r.resolved_at
+  reportedAt: r.reported_at, resolvedAt: r.resolved_at,
+  /* Phase 20 follow-up (migration 018): dismissed incidents can be reopened */
+  reopenCount: r.reopen_count || 0, reopenReason: r.reopen_reason || ''
 });
 
 function list({ status } = {}) {
@@ -133,4 +135,27 @@ function triage(actorUserId, id, { status, notes, resolution, reason }) {
   return out(get(id));
 }
 
-module.exports = { CATEGORIES, STATUSES, get, list, forPandit, counts, report, triage, out };
+/* Phase 20 follow-up: reopen a DISMISSED incident. RESOLVED stays final — a
+   resolution recorded to the pandit is a committed outcome. The reopen reason
+   is mandatory (it is the new audit's core fact), the incident returns to
+   UNDER_REVIEW so the normal triage loop applies, and the trail keeps every
+   hop: the dismissal audit stays, the reopen adds its own entry. */
+function reopen(actorUserId, id, { reason } = {}) {
+  const row = get(id);
+  if (!row) throw notFound('Incident not found');
+  if (row.status !== 'DISMISSED') throw bad('Only dismissed incidents can be reopened');
+  const why = String(reason || '').trim();
+  if (!why) throw bad('A reopening reason is required');
+  tx(() => {
+    db.prepare('UPDATE incidents SET status=?, reopen_count=reopen_count+1, reopen_reason=? WHERE id=?')
+      .run('UNDER_REVIEW', why.slice(0, 1000), id);
+  })();
+  audit(actorUserId, 'incident.reopened', 'incident', id,
+    { from: 'DISMISSED', to: 'UNDER_REVIEW', reason: why.slice(0, 200) },
+    { oldValue: { status: 'DISMISSED' }, newValue: { status: 'UNDER_REVIEW' } });
+  const p = db.prepare('SELECT user_id FROM pandits WHERE id=?').get(row.pandit_id);
+  if (p && p.user_id) notify(p.user_id, 'In-App', `Your incident ${id} was reopened for review: ${why.slice(0, 160)}`);
+  return out(get(id));
+}
+
+module.exports = { CATEGORIES, STATUSES, get, list, forPandit, counts, report, triage, reopen, out };

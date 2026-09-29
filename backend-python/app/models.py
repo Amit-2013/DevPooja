@@ -721,6 +721,9 @@ class Incident(Base):
     resolution: Mapped[str | None] = mapped_column(Text)
     reported_at: Mapped[int] = mapped_column(MS)
     resolved_at: Mapped[int | None] = mapped_column(MS)
+    # Phase 20 follow-up (migration 018): reopening path for dismissed incidents
+    reopen_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reopen_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class Agreement(Base):

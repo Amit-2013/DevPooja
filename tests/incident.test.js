@@ -155,6 +155,57 @@ test('admin triage: required notes per state, closed terminal, audits old→new,
   assert.match(notifs[1].message, /resolved: /);
 });
 
+test('reopen: dismissed incidents return to UNDER_REVIEW with a mandatory audited reason; RESOLVED stays final', async () => {
+  const pt = await login('pandit'), at = await admin(), ct = await login('customer');
+  const b = (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(25) }) })).json.booking;
+  const inc = (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId: b.id, category: 'SAFETY_CONCERN', description: 'Unlit staircase to the entrance; customer denied access to the breaker panel.' } })).json.incident;
+  const p1uid = panditUid('p1');
+  const before = notifsFor(p1uid).length;
+
+  /* only DISMISSED can be reopened */
+  assert.equal((await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'too early' } })).status, 400, 'OPEN cannot be reopened');
+  await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'UNDER_REVIEW', notes: 'Initial look.' } });
+  assert.equal((await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'still too early' } })).status, 400, 'UNDER_REVIEW cannot be reopened');
+  await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'Pandit retracted the report on call.' } });
+
+  /* reopen validation */
+  assert.equal((await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: {} })).status, 400, 'reason required');
+  assert.equal((await call('POST', '/admin/incidents/INCNOPE1/reopen', { token: at, body: { reason: 'x' } })).status, 404);
+
+  /* reopen succeeds: back to UNDER_REVIEW, counters + reason recorded, pandit notified */
+  const re = await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'Customer contradicts the retraction in writing; revisiting with the site log.' } });
+  assert.equal(re.status, 200);
+  assert.equal(re.json.incident.status, 'UNDER_REVIEW');
+  assert.equal(re.json.incident.reopenCount, 1);
+  assert.equal(re.json.incident.reopenReason, 'Customer contradicts the retraction in writing; revisiting with the site log.');
+  const notifs = notifsFor(p1uid).slice(before);
+  assert.ok(notifs.some((n) => /reopened for review/.test(n.message)), 'reopening notified to the pandit');
+
+  /* the reopened incident flows through normal triage again — and a second
+     dismiss → reopen increments the counter */
+  const res = await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'Site log confirms the retraction.' } });
+  assert.equal(res.status, 200, 'triage works on the reopened incident');
+  const re2 = await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'New photographic evidence supplied.' } });
+  assert.equal(re2.status, 200);
+  assert.equal(re2.json.incident.reopenCount, 2, 'reopen counter increments');
+  assert.equal(re2.json.incident.reopenReason, 'New photographic evidence supplied.', 'latest reason wins');
+
+  /* RESOLVED stays final — no reopening path */
+  await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'RESOLVED', resolution: 'Permanent lighting installed by the host.' } });
+  assert.equal((await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'one more look' } })).status, 400, 'RESOLVED is final');
+
+  /* audit trail keeps every hop: reported + 3 triages + 2 reopens, each with old→new */
+  const audits = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries;
+  const reopens = audits.filter((x) => x.action === 'incident.reopened' && x.entityId === inc.id);
+  assert.equal(reopens.length, 2, 'both reopens audited');
+  assert.deepEqual(reopens[0].oldValue, { status: 'DISMISSED' });
+  assert.deepEqual(reopens[0].newValue, { status: 'UNDER_REVIEW' });
+  assert.equal(reopens[0].role, 'admin');
+  assert.match(reopens[0].detail.reason, /photographic evidence/);
+  const reported = audits.find((x) => x.action === 'incident.reported' && x.entityId === inc.id);
+  assert.ok(reported, 'the original reported audit is untouched');
+});
+
 test('access: admin-only reads and triage; pandit sees only own reports; dismissal needs a reason', async () => {
   const at = await admin(), pt = await login('pandit'), ct = await login('customer');
   assert.equal((await call('GET', '/admin/incidents', { token: ct })).status, 403);

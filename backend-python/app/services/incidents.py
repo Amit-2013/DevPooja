@@ -46,7 +46,10 @@ def out(r: Incident) -> dict:
             "customerId": r.customer_id, "category": r.category, "description": r.description,
             "evidence": evidence, "status": r.status, "adminNotes": r.admin_notes or "",
             "resolution": r.resolution or "", "reportedAt": r.reported_at,
-            "resolvedAt": r.resolved_at}
+            "resolvedAt": r.resolved_at,
+            # Phase 20 follow-up (migration 018): dismissed incidents can be reopened
+            "reopenCount": getattr(r, "reopen_count", 0) or 0,
+            "reopenReason": getattr(r, "reopen_reason", "") or ""}
 
 
 async def list_incidents(db, status: str | None = None) -> list[dict]:
@@ -169,4 +172,34 @@ async def triage(db, actor, iid: str, body: dict) -> dict:
                f"Your incident {iid} is resolved: {str(resolution)[:160]}" if status == "RESOLVED" else
                f"Your incident {iid} was reviewed and not actionable: {str(reason)[:160]}")
         db.add(Notif(user_id=p.user_id, channel="In-App", message=msg, ts=_now_ms()))
+    return out(row)
+
+
+async def reopen(db, actor, iid: str, body: dict) -> dict:
+    """Phase 20 follow-up: reopen a DISMISSED incident. RESOLVED stays final — a
+    resolution recorded to the pandit is a committed outcome. The reopen reason
+    is mandatory (it is the new audit's core fact), the incident returns to
+    UNDER_REVIEW so the normal triage loop applies, and the trail keeps every
+    hop: the dismissal audit stays, the reopen adds its own entry. Mirrors
+    server/services/incidents.js reopen()."""
+    row = await db.get(Incident, iid)
+    if not row:
+        raise not_found("Incident not found")
+    if row.status != "DISMISSED":
+        raise bad("Only dismissed incidents can be reopened")
+    why = str((body or {}).get("reason") or "").strip()
+    if not why:
+        raise bad("A reopening reason is required")
+    row.status = "UNDER_REVIEW"
+    row.reopen_count = (getattr(row, "reopen_count", 0) or 0) + 1
+    row.reopen_reason = why[:1000]
+    await db.flush()
+    await _audit(db, actor, "incident.reopened", "incident", iid,
+                 {"from": "DISMISSED", "to": "UNDER_REVIEW", "reason": why[:200]},
+                 old_value={"status": "DISMISSED"}, new_value={"status": "UNDER_REVIEW"})
+    p = await db.get(Pandit, row.pandit_id)
+    if p and p.user_id:
+        db.add(Notif(user_id=p.user_id, channel="In-App",
+                     message=f"Your incident {iid} was reopened for review: {why[:160]}",
+                     ts=_now_ms()))
     return out(row)
