@@ -90,13 +90,17 @@ async def test_customer_cancel_tiers_and_refund_ledger(client, db_session):
     refunds = (await db_session.execute(select(Transaction).where(
         Transaction.type == "REFUND", Transaction.booking_id == b["id"]))).scalars().all()
     assert len(refunds) == 1 and refunds[0].amount == -total
-    # late tier honours the POLICY
-    r = await client.put("/api/admin/cancellation-policy", headers=aa, json={"latePct": 33})
+    # late tier honours the POLICY. Widen BOTH windows so the late tier fires
+    # deterministically: day_plus(1) 06:00 AM is 24-30h away when the suite
+    # runs between midnight and 6 AM, which used to land in the part tier.
+    r = await client.put("/api/admin/cancellation-policy", headers=aa,
+                         json={"full": 8760, "part": 48, "latePct": 33})
     assert r.status_code == 200
     b2 = await _paid_booking(client, tok, {"date": _day_plus(1), "slot": "06:00 AM"})
     c2 = await client.post(f"/api/bookings/{b2['id']}/cancel", headers={"Authorization": "Bearer " + tok}, json={})
     assert c2.json()["booking"]["refund"]["pct"] == 33, "policy latePct applied"
-    await client.put("/api/admin/cancellation-policy", headers=aa, json={"latePct": 50})
+    await client.put("/api/admin/cancellation-policy", headers=aa,
+                     json={"full": 48, "part": 24, "latePct": 50})
 
 
 async def test_pandit_cancel_and_no_show(client, db_session):

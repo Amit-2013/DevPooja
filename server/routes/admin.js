@@ -107,6 +107,8 @@ router.post('/trials/:id/record', (req, res) => res.json({ trial: TRIAL.record(r
 /* --- Incident reporting (Phase 20): admin triage --- */
 const INC = require('../services/incidents');
 router.get('/incidents', (req, res) => res.json({ incidents: INC.list({ status: req.query.status }), counts: INC.counts(), categories: INC.CATEGORIES }));
+/* Repeat-reopen review queue for the Operations tab (?limit=N overrides the >2 threshold) */
+router.get('/incidents/reopen-digest', (req, res) => res.json({ incidents: INC.reopenDigest(req.query.limit ? +req.query.limit : undefined), threshold: INC.REOPEN_LIMIT }));
 router.patch('/incidents/:id', (req, res) => res.json({ incident: INC.triage(req.auth.uid, req.params.id, req.body || {}) }));
 /* Phase 20 follow-up: reopen a dismissed incident (reason required, audited) */
 router.post('/incidents/:id/reopen', (req, res) => res.json({ incident: INC.reopen(req.auth.uid, req.params.id, req.body || {}) }));

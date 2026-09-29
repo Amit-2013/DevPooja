@@ -75,12 +75,16 @@ test('customer cancel keeps the legacy tiers from policy; refund ledger still wr
   const rf = ledgerFor(b.id, 'REFUND');
   assert.equal(rf.length, 1);
   assert.equal(rf[0].amount, -total);
-  /* late tier honours the POLICY, not the hardcoded 50 */
-  await call('PUT', '/admin/cancellation-policy', { token: at, body: { latePct: 33 } });
+  /* late tier honours the POLICY, not the hardcoded 50. The late tier fires
+     when hours-to-puja <= part, so widen BOTH windows instead of betting on
+     the wall clock: dayPlus(1) 06:00 AM is 24–30h away when the suite runs
+     between midnight and 6 AM, which used to land in the part tier. With
+     part=48 every realistic lead time lands in the late tier deterministically. */
+  await call('PUT', '/admin/cancellation-policy', { token: at, body: { full: 8760, part: 48, latePct: 33 } });
   const b2 = await makePaid(ct, { date: dayPlus(1), slot: '06:00 AM' });
   const c2 = await call('POST', '/bookings/' + b2.id + '/cancel', { token: ct, body: {} });
   assert.equal(c2.json.booking.refund.pct, 33, 'policy latePct applied');
-  await call('PUT', '/admin/cancellation-policy', { token: at, body: { latePct: 50 } });
+  await call('PUT', '/admin/cancellation-policy', { token: at, body: { full: 48, part: 24, latePct: 50 } });
 });
 
 test('pandit cancel: customer refunded, compensation only outside the notice window', async () => {

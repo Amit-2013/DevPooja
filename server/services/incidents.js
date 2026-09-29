@@ -60,6 +60,16 @@ function list({ status } = {}) {
 function forPandit(panditId) {
   return db.prepare('SELECT * FROM incidents WHERE pandit_id=? ORDER BY reported_at DESC, id DESC').all(panditId).map(out);
 }
+/* Repeat-reopen review queue: an incident dismissed-and-reopened more than
+   REOPEN_LIMIT times is a systemic signal (recurring safety/cconduct issue,
+   disputed dismissals) that one-off triage keeps losing. Surfaces the live
+   queue — anything still OPEN/UNDER_REVIEW — on the Operations tab. */
+const REOPEN_LIMIT = 2;
+function reopenDigest(limit) {
+  const cap = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REOPEN_LIMIT;
+  const rows = db.prepare('SELECT * FROM incidents WHERE reopen_count > ? ORDER BY reopen_count DESC, reported_at DESC, id DESC').all(cap);
+  return rows.map(out);
+}
 function counts() {
   const rows = db.prepare('SELECT status, COUNT(*) n FROM incidents GROUP BY status').all();
   const c = { OPEN: 0, UNDER_REVIEW: 0, RESOLVED: 0, DISMISSED: 0 };
@@ -158,4 +168,4 @@ function reopen(actorUserId, id, { reason } = {}) {
   return out(get(id));
 }
 
-module.exports = { CATEGORIES, STATUSES, get, list, forPandit, counts, report, triage, reopen, out };
+module.exports = { CATEGORIES, STATUSES, get, list, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };

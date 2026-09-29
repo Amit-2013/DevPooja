@@ -437,6 +437,14 @@ async def incidents_view(status: str | None = None, auth: dict = Depends(admin_d
             "categories": INC.CATEGORIES}
 
 
+@router.get("/incidents/reopen-digest")
+async def incidents_reopen_digest(limit: int | None = None, auth: dict = Depends(admin_dep),
+                                  db: AsyncSession = Depends(get_db)):
+    # Repeat-reopen review queue for the Operations tab (?limit=N overrides the >2 threshold).
+    from ..services.reopen_digest import REOPEN_LIMIT, reopen_digest
+    return {"incidents": await reopen_digest(db, limit), "threshold": REOPEN_LIMIT}
+
+
 @router.patch("/incidents/{incident_id}")
 async def incident_triage(incident_id: str, body: dict, auth: dict = Depends(admin_dep),
                           db: AsyncSession = Depends(get_db)):
