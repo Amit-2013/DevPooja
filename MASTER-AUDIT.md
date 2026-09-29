@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 67/67 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing),
-Python 132/132 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate + temple + pricing suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 69/69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI),
+Python 134/134 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate + temple + pricing + NRI suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -22,11 +22,11 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
 | P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
-| N tables | ~58 | `server/db.js` + migrations 001–020 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA, 017 photo date gate, 018 incident reopen, 019 temple management, 020 puja mode pricing) |
-| P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
-| FE | 8 JS files, ~1111 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
+| N tables | ~60 | `server/db.js` + migrations 001–021 (…019 temple management, 020 puja mode pricing, 021 NRI packages) |
+| P models | 50 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) + temple columns (019) + puja mode pricing (020) + NRI packages/orders (021) |
+| FE | 8 JS files, ~1130 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 67 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing), Python 132 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `backend-python/tests/` |
+| Tests | Node 69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI), Python 134 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `tests/nri.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -95,12 +95,12 @@ a parity exception.
 | Now | Migration 019 extends the SAME temples row: `active` (delist flag), `timings`, `photo`. Admin CRUD `GET/POST/PATCH/DELETE /admin/temples` (Node + NEW Python routes — P had zero): create validates the puja set against the catalogue, PATCH is field-conditional, DELETE answers 409 when bookings reference the temple (`Deactivate it instead.`) — the active flag delists without breaking past bookings. Every write audited (`temple.create/update/delete`). Gating (both twins): the customer state payload lists only `active=1` temples, `priceRequest` counts only active temples for temple-mode availability, `createBooking` refuses delisted temples with the existing message. FE: admin pujas tab temples table gains status badge + Edit/Delist-Relist/Delete actions + an Add-temple form (name, city, deity, timings, description, puja chips); Edit modal carries all fields incl. listing toggle + photo URL; public temple directory shows timings (🕙) and the photo when set. `tests/temple.test.js` + `test_temple.py` cover CRUD + validation, audits, the active-flag gate (directory hidden + priceRequest unavailable + createBooking refused, relist restores), delete protection, and access control |
 | Status | **IMPLEMENTED** |
 
-### Phase 13 — NRI packages
+### Phase 13 — NRI packages — **IMPLEMENTED (Phase 13 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | Nothing |
-| Status | **MISSING** |
-| Required | `nri_packages` table + admin CRUD + checkout path honoring package pricing/currency (kundali billing already has currency — reuse patterns) |
+| Was | Nothing — MISSING |
+| Now | Migration 021 adds `nri_packages` (name, descr, price, currency USD/GBP/AED/INR, inr_equiv, includes JSON, active) + `nri_orders` (PENDING_PAYMENT→PAID, unique partial index on `idem`). Design decision (revised plan): NOT bookings — these are fixed-price currency packages with no pandit/slot, so booking semantics would mint phantom payouts; and NOT the cart `orders` table — separate table + dedicated `NRI_PAYMENT` ledger type (amount = inr_equiv so money reports stay single-currency), exactly the kundali-billing precedent. `services/nri.js` + twin `app/services/nri.py`: admin CRUD (deactivate-not-delete once sold — delete answers 400 when orders exist), public `GET /nri-packages` (anonymous), customer `GET /nri-orders` + idempotent `POST /nri-orders` through the shared idempotency_keys store (replay returns the original order; the partial unique index backs the guard); every admin write audited (`nri.package_create/update/delete`). FE: public packages page (currency symbols, ₹ equivalent, includes bullets, purchases for logged-in customers, order history table) linked from the footer; admin Finance tab gains the packages table (price, INR equiv., on-sale badge, order count, Edit/Delete), a New-package form and the recent orders table. `tests/nri.test.js` + `test_nri.py` cover CRUD + validation + audits, currency/INR ledger assertions, idempotent replay, delisted refusal, delete protection and access |
+| Status | **IMPLEMENTED** |
 
 ### Phase 14 — Coupons
 | Aspect | Finding |

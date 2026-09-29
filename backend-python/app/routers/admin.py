@@ -730,6 +730,33 @@ async def patch_puja(puja_id: str, body: dict, auth: dict = Depends(admin_dep),
     return {"ok": True}
 
 
+# --- Phase 13: NRI packages — admin CRUD (deactivate-not-delete once sold)
+from ..services import nri as NRI  # noqa: E402
+
+
+@router.get("/nri-packages")
+async def nri_packages_view(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"packages": await NRI.list_all(db), "orders": await NRI.all_orders(db)}
+
+
+@router.post("/nri-packages", status_code=201)
+async def create_nri_package(body: dict, auth: dict = Depends(admin_dep),
+                             db: AsyncSession = Depends(get_db)):
+    return {"package": await NRI.create_package(db, auth["uid"], body or {})}
+
+
+@router.patch("/nri-packages/{package_id}")
+async def patch_nri_package(package_id: str, body: dict, auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    return {"package": await NRI.update_package(db, auth["uid"], package_id, body or {})}
+
+
+@router.delete("/nri-packages/{package_id}")
+async def delete_nri_package(package_id: str, auth: dict = Depends(admin_dep),
+                             db: AsyncSession = Depends(get_db)):
+    return await NRI.delete_package(db, auth["uid"], package_id)
+
+
 # --- Phase 12: temple management. DELETE answers 409 when bookings reference
 # the temple (the audit trail keeps the history) — deactivate instead; the
 # active flag delists it from the customer directory and refuses new temple

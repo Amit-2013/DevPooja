@@ -98,6 +98,16 @@ function nf(){return'<div class="page"><div class="wrap"><h1>Page not found</h1>
 
 /* Customized Puja request page (public, guest-friendly). The request lands in the
    admin "Puja requests" queue; admins can convert it into a bookable catalogue puja. */
+/* Phase 13: NRI packages — fixed-price service packages in the diaspora's own
+   currency; checkout is one idempotent POST (the FE generates the idem key). */
+function nriPackagesPage(){
+  if(!PAGE.nriPkgs){api('/nri-packages').then(x=>{PAGE.nriPkgs=x.packages;render(true)}).catch(()=>{PAGE.nriPkgs=[];render(true)});return'<div class="page"><div class="wrap"><h1>Puja packages for the diaspora</h1><p class="mut mt">Loading…</p></div></div>'}
+  if(session&&session.role==='customer'&&!PAGE.nriOrders){api('/nri-orders').then(x=>{PAGE.nriOrders=x.orders;render(true)}).catch(()=>{PAGE.nriOrders=[];render(true)})}
+  const pkgs=PAGE.nriPkgs;
+  const cur=c=>c==='USD'?'$':c==='GBP'?'£':c==='AED'?'AED ':'₹';
+  const cards=pkgs.length?pkgs.map(p=>'<article class="card"><h3>'+esc(p.name)+'</h3><p class="sm mut">'+esc(p.descr||'')+'</p><ul class="sm mt" style="padding-left:18px">'+(p.includes||[]).map(i=>'<li>'+esc(i)+'</li>').join('')+'</ul><div class="row sp mt"><b style="font-size:1.2rem">'+cur(p.currency)+p.price+'</b><span class="sm mut">≈ '+inr(p.inrEquiv)+'</span></div>'+(session&&session.role==='customer'?'<button class="btn mt" data-act="nribuy" data-id="'+esc(p.id)+'">Purchase — '+cur(p.currency)+p.price+'</button>':'')+'</article>').join(''):'<div class="card">No packages are on sale right now.</div>';
+  const mine=(PAGE.nriOrders&&PAGE.nriOrders.length)?'<h2 class="mt2 mb">Your package orders</h2>'+TB(['Order','Package amount','Paid (INR)','Status','When'],PAGE.nriOrders.map(o=>['<b>'+o.id+'</b>',cur(o.currency)+o.amount,inr(o.inrEquiv),o.status==='PAID'?'<span class="badge ok">Paid</span>':'<span class="badge">'+o.status+'</span>',new Date(o.created).toLocaleDateString('en-IN')])):'';
+  return'<div class="page"><div class="wrap"><h1>Puja packages for the diaspora</h1><p class="mut mb">Living abroad? Book a complete, fixed-price puja for your family back home — performed by a verified pandit, with photos and prasad dispatch included. Pay in your own currency; the rupee equivalent is booked at checkout.</p>'+(session&&session.role==='customer'?'':'<div class="note mb"><a href="#/account">Log in</a> as a customer to purchase a package.</div>')+'<div class="grid g3">'+cards+'</div>'+mine+'</div></div>'}
 function customPujaPage(){const L=lang==='hi';
  return'<div class="page"><div class="wrap" style="max-width:720px"><h1>'+(L?'अनुकूलित पूजा अनुरोध':'Customised Puja')+'</h1><p class="mut mb">'+(L?'चाहते हैं कोई विशेष पूजा — अपनी परंपरा, विधि या सामग्री के अनुसार? अपनी आवश्यकता बताएँ; हमारी टीम आपसे संपर्क कर उचित पूजा, पंडित और मूल्य व्यवस्थित करेगी।':'Tell us the puja you need — your tradition, method or specific samagri. Our team calls you back, arranges the right pandit and sends a quote. Your request becomes a bookable puja.')+'</p>'+
  '<div class="card"><div class="frm mt"><label class="f">'+(L?'आपका नाम':'Your name')+'<input id="cun" autocomplete="name"></label>'+

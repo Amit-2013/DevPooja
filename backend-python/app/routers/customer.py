@@ -134,6 +134,29 @@ async def payments_verify(body: dict, auth: dict = Depends(customer_dep),
     return {"booking": s_booking(row)}
 
 
+# --- Phase 13: NRI packages — public catalogue + idempotent checkout.
+# Deliberately NOT under /bookings: these are fixed-price currency packages
+# (kundali-billing pattern), not pandit bookings — no slot, no payout engine.
+from ..services import nri as NRI  # noqa: E402
+
+
+@router.get("/nri-packages")
+async def nri_packages(db: AsyncSession = Depends(get_db)):
+    return {"packages": await NRI.list_active(db)}
+
+
+@router.get("/nri-orders")
+async def my_nri_orders(auth: dict = Depends(customer_dep), db: AsyncSession = Depends(get_db)):
+    return {"orders": await NRI.orders_for(db, auth["uid"])}
+
+
+@router.post("/nri-orders", status_code=201)
+async def checkout_nri(body: dict, auth: dict = Depends(customer_dep),
+                       db: AsyncSession = Depends(get_db)):
+    u = await _me(db, auth)
+    return {"order": await NRI.checkout(db, auth["uid"], u.id, body or {})}
+
+
 @router.post("/bookings/{booking_id}/cancel")
 async def cancel_booking(booking_id: str, auth: dict = Depends(customer_dep),
                          db: AsyncSession = Depends(get_db)):

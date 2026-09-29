@@ -19,7 +19,7 @@ from ..db import SessionLocal  # noqa: F401
 from ..models import AuditLog, CommissionTier, Transaction
 from ..util import bad
 
-TYPES = ["SERVICE_PAYMENT", "KUNDALI_PAYMENT", "DAKSHINA", "REFUND", "COMMISSION", "PAYOUT"]
+TYPES = ["SERVICE_PAYMENT", "KUNDALI_PAYMENT", "NRI_PAYMENT", "DAKSHINA", "REFUND", "COMMISSION", "PAYOUT"]
 
 
 def out(r: Transaction, user_name: str | None = None, pandit_name: str | None = None) -> dict:

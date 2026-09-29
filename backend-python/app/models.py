@@ -124,6 +124,34 @@ class Prasad(Base):
     active: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class NriPackage(Base):
+    """Phase 13: fixed-price puja packages for the diaspora (USD default)."""
+    __tablename__ = "nri_packages"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    descr: Mapped[str] = mapped_column(Text, default="")
+    price: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(10), default="USD")
+    inr_equiv: Mapped[int] = mapped_column(Integer)
+    includes: Mapped[str] = mapped_column(Text, default="[]")
+    active: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created: Mapped[int] = mapped_column(MS)
+
+
+class NriOrder(Base):
+    """Phase 13: one purchase of an NRI package (PENDING_PAYMENT -> PAID)."""
+    __tablename__ = "nri_orders"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    package_id: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[str] = mapped_column(String(40), index=True)
+    amount: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(10), default="USD")
+    inr_equiv: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="PENDING_PAYMENT")
+    idem: Mapped[str | None] = mapped_column(String(80))
+    created: Mapped[int] = mapped_column(MS)
+
+
 class Temple(Base):
     __tablename__ = "temples"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)

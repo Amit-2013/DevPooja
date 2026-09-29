@@ -27,7 +27,7 @@ const { db, tx, getSetting } = require('../db');
 const { bad } = require('../lib/util');
 const { audit } = require('../lib/audit');
 
-const TYPES = ['SERVICE_PAYMENT', 'KUNDALI_PAYMENT', 'DAKSHINA', 'REFUND', 'COMMISSION', 'PAYOUT'];
+const TYPES = ['SERVICE_PAYMENT', 'KUNDALI_PAYMENT', 'NRI_PAYMENT', 'DAKSHINA', 'REFUND', 'COMMISSION', 'PAYOUT'];
 
 /* One ledger row. Signed amount expected (call sites pass the sign). */
 function record({ type, amount, userId, panditId, bookingId, kundaliId, refTable, refId, note }) {

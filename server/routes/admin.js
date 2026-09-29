@@ -160,6 +160,13 @@ router.patch('/pujas/:id', (req, res) => {
     { oldValue: { price: p.price }, newValue: { price: after.price } });
   res.json({ ok: true });
 });
+/* --- Phase 13: NRI packages — admin CRUD (deactivate-not-delete once sold) */
+const NRI = require('../services/nri');
+router.get('/nri-packages', (req, res) => res.json({ packages: NRI.list(), orders: NRI.allOrders() }));
+router.post('/nri-packages', (req, res) => res.status(201).json({ package: NRI.createPackage(req.auth.uid, req.body || {}) }));
+router.patch('/nri-packages/:id', (req, res) => res.json({ package: NRI.updatePackage(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/nri-packages/:id', (req, res) => res.json(NRI.deletePackage(req.auth.uid, req.params.id)));
+
 /* --- Phase 12: temple management. DELETE answers 409 when bookings reference
    the temple (the audit trail keeps the history) — deactivate instead; the
    active flag delists it from the customer directory and refuses new temple

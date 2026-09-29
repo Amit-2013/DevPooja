@@ -149,6 +149,8 @@ app.get('/api/media/:id/download', (req, res) => {
 /* public API */
 app.get('/api/health', (_q, r) => r.json({ ok: true }));
 app.get('/api/state', (req, res) => res.json(buildState(req.auth)));
+/* Phase 13: the NRI catalogue is public (anonymous browsing, authed checkout) */
+app.get('/api/nri-packages', (req, res) => res.json({ packages: require('./services/nri').listActive() }));
 app.post('/api/quote', (req, res) => {
   const user = req.auth && req.auth.role === 'customer' ? db.prepare('SELECT * FROM users WHERE id=?').get(req.auth.uid) : null;
   const r = B.priceRequest(user, req.body, { strictCoupon: false });
@@ -164,7 +166,7 @@ app.use('/api/kundali', require('./routes/kundali'));
 app.use('/api/pandit', require('./routes/pandit'));
 app.use('/api/admin', require('./routes/admin'));
 const customer = require('./routes/customer');
-const customerPaths = ['/me', '/bookings', '/payments', '/orders', '/tickets', '/pandits/available'];
+const customerPaths = ['/me', '/bookings', '/payments', '/orders', '/tickets', '/pandits/available', '/nri-packages', '/nri-orders'];
 app.use('/api', (req, res, next) => (customerPaths.some((p) => req.path === p || req.path.startsWith(p + '/')) ? customer(req, res, next) : next()));
 app.use('/api', (_q, _r, next) => next(new HttpError(404, 'Not found')));
 

@@ -126,6 +126,16 @@ router.post('/bookings', wrap(async (req, res) => {
   res.status(201).json({ booking: S.booking(B.getBooking(row.id)), payment });
 }));
 router.post('/payments/verify', (req, res) => { const row = B.confirmPayment(me(req), String(req.body.bookingId || ''), req.body); res.json({ booking: S.booking(row) }); });
+/* --- Phase 13: NRI packages — public catalogue + idempotent checkout.
+   Deliberately NOT under /bookings: these are fixed-price currency packages
+   (kundali-billing pattern), not pandit bookings — no slot, no payout engine. */
+const NRI = require('../services/nri');
+router.get('/nri-packages', (req, res) => res.json({ packages: NRI.listActive() }));
+router.get('/nri-orders', (req, res) => res.json({ orders: NRI.ordersFor(req.auth.uid) }));
+router.post('/nri-orders', (req, res) => {
+  const order = NRI.checkout(req.auth.uid, me(req).id, req.body || {});
+  res.status(201).json({ order });
+});
 router.post('/bookings/:id/cancel', (req, res) => res.json({ booking: S.booking(B.cancelBooking(me(req), req.params.id)) }));
 router.post('/bookings/:id/reschedule', (req, res) => res.json({ booking: S.booking(B.rescheduleBooking(me(req), req.params.id, req.body)) }));
 router.post('/bookings/:id/review', (req, res) => res.json({ booking: S.booking(B.reviewBooking(me(req), req.params.id, req.body)) }));
