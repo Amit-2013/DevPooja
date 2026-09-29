@@ -30,6 +30,9 @@ function priceRequest(userRow, body, { strictCoupon = true } = {}) {
   const puja = db.prepare('SELECT * FROM pujas WHERE id=? AND hidden=0').get(body.pujaId);
   if (!puja) throw notFound('Puja not found');
   const mode = v.oneOf(body.mode, Object.keys(P.MODES), 'Puja type');
+  /* Phase 11: a puja only offers the modes in its `modes` list */
+  const allowedModes = j(puja.modes, null);
+  if (Array.isArray(allowedModes) && allowedModes.length && !allowedModes.includes(mode)) throw bad(P.MODES[mode].n + ' is not offered for this puja');
   if (mode === 'temple') {
     const ok = db.prepare('SELECT pujas FROM temples WHERE active=1').all().some((t) => j(t.pujas, []).includes(puja.id));
     if (!ok) throw bad('Temple puja is not available for this puja');
@@ -44,7 +47,9 @@ function priceRequest(userRow, body, { strictCoupon = true } = {}) {
     const c = db.prepare('SELECT * FROM coupons WHERE code=?').get(String(body.coupon).toUpperCase());
     coupon = c ? { code: c.code, type: c.type, val: c.val, max: c.max, min: c.min, active: !!c.active } : null;
   }
-  const base = { puja: { price: puja.price }, pandit: pandit ? { pf: pandit.pf } : null, plus: !!(userRow && userRow.plus), kits: kits.map((k) => ({ price: k.price })), prasad: prasad.map((k) => ({ price: k.price })), points: userRow ? userRow.pts : 0, usePoints: !!body.usePoints && !!userRow };
+  const base = { puja: { price: puja.price }, pandit: pandit ? { pf: pandit.pf } : null, plus: !!(userRow && userRow.plus), kits: kits.map((k) => ({ price: k.price })), prasad: prasad.map((k) => ({ price: k.price })), points: userRow ? userRow.pts : 0, usePoints: !!body.usePoints && !!userRow,
+    /* Phase 11: explicit per-mode price (NULL = legacy formula) — flat, pf does not apply */
+    modePrice: puja['price_' + mode] != null ? puja['price_' + mode] : null };
   if (body.coupon) {
     const svc = P.quote(mode, { ...base, coupon: null, usePoints: false }).svc;
     couponError = P.couponProblem(coupon, svc);

@@ -89,6 +89,10 @@ async def price_request(db: AsyncSession, user: User | None, body: dict, *, stri
     if not puja:
         raise not_found("Puja not found")
     mode = v_one_of(body.get("mode"), list(MODES.keys()), "Puja type")
+    # Phase 11: a puja only offers the modes in its `modes` list
+    allowed_modes = j(puja.modes, None)
+    if isinstance(allowed_modes, list) and allowed_modes and mode not in allowed_modes:
+        raise bad(MODES[mode]["n"] + " is not offered for this puja")
     if mode == "temple":
         temples = (await db.execute(select(Temple.pujas).where(Temple.active == 1))).scalars().all()
         if not any(puja.id in j(t, []) for t in temples):
@@ -130,7 +134,9 @@ async def price_request(db: AsyncSession, user: User | None, body: dict, *, stri
             "kits": [{"price": k.price or 0} for k in kits],
             "prasad": [{"price": k.price or 0} for k in prasad],
             "points": user.pts if user else 0,
-            "usePoints": bool(body.get("usePoints")) and user is not None}
+            "usePoints": bool(body.get("usePoints")) and user is not None,
+            # Phase 11: explicit per-mode price (None = legacy formula) — flat, pf does not apply
+            "modePrice": getattr(puja, "price_" + mode, None)}
     if body.get("coupon"):
         svc = quote(mode, {**base, "coupon": None, "usePoints": False})["svc"]
         coupon_error = coupon_problem(coupon, svc)

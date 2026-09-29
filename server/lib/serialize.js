@@ -24,7 +24,9 @@ const booking = (r) => {
     created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc, mediaOverride: !!r.media_override
   };
 };
-const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, benHi: r.ben_hi || '', kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [] });
+const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, benHi: r.ben_hi || '', kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [],
+  /* Phase 11: per-mode prices (null = legacy formula) + bookable modes */
+  priceHome: r.price_home != null ? r.price_home : null, priceOnline: r.price_online != null ? r.price_online : null, priceTemple: r.price_temple != null ? r.price_temple : null, priceCustom: r.price_custom != null ? r.price_custom : null, modes: (() => { try { const m = JSON.parse(r.modes || '[]'); return Array.isArray(m) && m.length ? m : ['home', 'online', 'temple', 'custom']; } catch (e) { return ['home', 'online', 'temple', 'custom']; } })() });
 const kit = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, items: j(r.items, []), active: r.active === undefined ? 1 : r.active });
 const prasad = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, d: r.descr, stock: r.stock === undefined ? null : r.stock, active: r.active === undefined ? 1 : r.active });
 const temple = (r) => ({ id: r.id, n: r.name, city: r.city, deity: r.deity, ic: r.icon, pujas: j(r.pujas, []), off: r.offering, d: r.descr, active: r.active === undefined || r.active === null ? 1 : r.active, timings: r.timings || '', photo: r.photo || '' });

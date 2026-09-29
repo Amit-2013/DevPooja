@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 64/64 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple),
-Python 128/128 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate + temple suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 67/67 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing),
+Python 132/132 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate + temple + pricing suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -22,11 +22,11 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
 | P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
-| N tables | ~58 | `server/db.js` + migrations 001–019 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA, 017 photo date gate, 018 incident reopen, 019 temple management) |
+| N tables | ~58 | `server/db.js` + migrations 001–020 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA, 017 photo date gate, 018 incident reopen, 019 temple management, 020 puja mode pricing) |
 | P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
-| FE | 8 JS files, ~1110 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
+| FE | 8 JS files, ~1111 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 64 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple), Python 128 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `backend-python/tests/` |
+| Tests | Node 67 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing), Python 132 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -81,12 +81,12 @@ a parity exception.
 | Now | `services/ledger.js` + twin `app/services/ledger.py` activate the SAME table: types SERVICE_PAYMENT / KUNDALI_PAYMENT / DAKSHINA / REFUND / COMMISSION / PAYOUT, signed from the platform's perspective (inflows +, REFUND/PAYOUT −), one row per (type, ref_table, ref_id) so payment retries and transition replays never double-count. Writes: booking payment confirmation (mock bookings settle at creation, gateway ones at /payments/verify), cancellation refunds (inside the cancel transaction), kundali payments (mock at generate, gateway at /pay/verify), payout engine — DAKSHINA (the pandit's share) at payout creation, COMMISSION + PAYOUT on disburse, DAKSHINA delta on adjustment. Admin `GET /admin/ledger` (entries + totals with inflow/outflow split), pandit `GET /pandit/me/ledger`, finance-tab ledger view + pandit earnings Dakshina KPIs, and report ids `dakshina` (earnings vs disbursements per pandit) + `transactions` (typed filter) in both registries. `tests/ledger.test.js` + `test_ledger.py` cover the money paths, dedupe idempotency and reports |
 | Status | **IMPLEMENTED** |
 
-### Phase 11 — Puja pricing management
+### Phase 11 — Puja pricing management — **IMPLEMENTED (Phase 11 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | Admin pujas tab: per-puja price edit, hide/show, add-puja form, categories, Hindi names (007); P parity gap on editing |
-| Status | **PARTIAL** — price+visibility only; no per-mode (home/online/customized) pricing/duration/samagri config, no commission/pandit-share per service |
-| Required | Extend pujas with mode-priced columns or a `puja_mode_pricing` table; admin form sections; P endpoint parity |
+| Was | Admin pujas tab: per-puja price edit, hide/show, add-puja form, categories, Hindi names (007) — price+visibility only, no per-mode pricing or mode availability; Python had NO puja admin routes at all |
+| Now | Migration 020 adds `pujas.price_home/online/temple/custom` (NULL = legacy formula `round(price × modeFactor × pf / 10) × 10`; explicit values are FLAT — the pf multiplier does not apply) + `pujas.modes` (JSON list of bookable types). Both pricing engines (`shared/pricing.js` + `app/pricing.py`) take an optional `modePrice` in the quote ctx — existing call sites unchanged. `priceRequest` (both twins) resolves `price_{mode}` and refuses modes outside the list. Admin: Node PATCH extended + `puja.create`/`puja.update` audits ADDED (were missing); Python gains POST/GET/PATCH `/admin/pujas` from scratch with the same audits. Serializer exposes `priceHome/Online/Temple/Custom` + `modes` (both twins). FE: puja edit modal gains four per-mode price inputs (blank = auto) + bookable-type checkboxes; add-puja form gains the mode chips. `tests/pricing.test.js` + `test_pricing.py` pin engine parity (flat override, pf ignored, null parity), quote/booking resolution, mode gating (quote + create), clear-back-to-formula, serializer fields and the audits |
+| Status | **IMPLEMENTED** |
 
 ### Phase 12 — Temple management — **IMPLEMENTED (Phase 12 complete)**
 | Aspect | Finding |

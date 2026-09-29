@@ -32,11 +32,16 @@ def js_round(x: float) -> int:
 
 def quote(mode: str, ctx: dict) -> dict:
     """ctx: { puja:{price}, pandit:{pf}|None, plus:bool, kits:[{price}],
-    prasad:[{price}], coupon|None, points:int, usePoints:bool }"""
+    prasad:[{price}], coupon|None, points:int, usePoints:bool,
+    modePrice:int|None (Phase 11: explicit per-mode price — FLAT, the pandit
+    pf multiplier does not apply) }"""
     if mode not in MODES:
         raise ValueError("Unknown mode")
     puja, pd = ctx["puja"], ctx.get("pandit")
-    svc = js_round((puja["price"] * MODES[mode]["f"] * (pd["pf"] if pd else 1)) / 10) * 10
+    if ctx.get("modePrice") is not None:
+        svc = js_round(ctx["modePrice"])
+    else:
+        svc = js_round((puja["price"] * MODES[mode]["f"] * (pd["pf"] if pd else 1)) / 10) * 10
     tmp = TEMPLE_OFFERING if mode == "temple" else 0
     plus = bool(ctx.get("plus"))
     conv = 0 if plus else CONVENIENCE_FEE

@@ -94,6 +94,12 @@ class Puja(Base):
     pop: Mapped[int] = mapped_column(Integer, default=0)
     tags: Mapped[str] = mapped_column(Text, default="")
     hidden: Mapped[int] = mapped_column(Integer, default=0)
+    # Phase 11 (migration 020): per-mode prices (NULL = legacy formula) + bookable modes
+    price_home: Mapped[int | None] = mapped_column(Integer)
+    price_online: Mapped[int | None] = mapped_column(Integer)
+    price_temple: Mapped[int | None] = mapped_column(Integer)
+    price_custom: Mapped[int | None] = mapped_column(Integer)
+    modes: Mapped[str] = mapped_column(Text, default='["home","online","temple","custom"]', nullable=False)
 
 
 class Kit(Base):

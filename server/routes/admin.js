@@ -125,6 +125,7 @@ router.post('/pujas', (req, res) => {
   if (!db.prepare('SELECT 1 FROM kits WHERE id=?').get(b.kit)) throw bad('Choose a samagri kit');
   db.prepare('INSERT INTO pujas(id,name,hindi,cat,icon,dur,price,deity,ben,kit,pop,tags) VALUES(?,?,?,?,?,?,?,?,?,?,0,?)')
     .run(id, v.str(b.name, 'Name', { max: 80 }), v.str(b.hindi || b.name, 'Hindi name', { max: 80 }), v.str(b.cat, 'Category', { max: 40 }), '🕉️', v.int(b.dur, 'Duration', { min: 15, max: 720 }), v.int(b.price, 'Price', { min: 100, max: 1000000 }), 'Custom', 'Custom puja added by admin.', b.kit, String(b.name).toLowerCase());
+  AUDIT.audit(req.auth.uid, 'puja.create', 'puja', id, { name: b.name, price: b.price });
   res.status(201).json({ id });
 });
 router.patch('/pujas/:id', (req, res) => {
@@ -140,6 +141,23 @@ router.patch('/pujas/:id', (req, res) => {
   if (b.kit !== undefined) { if (!db.prepare('SELECT 1 FROM kits WHERE id=?').get(b.kit)) throw bad('Choose a samagri kit'); db.prepare('UPDATE pujas SET kit=? WHERE id=?').run(b.kit, p.id); }
   if (b.price !== undefined) db.prepare('UPDATE pujas SET price=? WHERE id=?').run(v.int(b.price, 'Price', { min: 100, max: 1000000 }), p.id);
   if (b.hidden !== undefined) db.prepare('UPDATE pujas SET hidden=? WHERE id=?').run(b.hidden ? 1 : 0, p.id);
+  /* Phase 11: per-mode prices (null clears back to the legacy formula) + bookable modes */
+  const modePriceFields = { priceHome: 'price_home', priceOnline: 'price_online', priceTemple: 'price_temple', priceCustom: 'price_custom' };
+  for (const [k, col] of Object.entries(modePriceFields)) {
+    if (b[k] !== undefined) {
+      if (b[k] === null || b[k] === '') db.prepare('UPDATE pujas SET ' + col + '=NULL WHERE id=?').run(p.id);
+      else db.prepare('UPDATE pujas SET ' + col + '=? WHERE id=?').run(v.int(b[k], 'Per-mode price', { min: 100, max: 1000000 }), p.id);
+    }
+  }
+  if (b.modes !== undefined) {
+    const modes = (Array.isArray(b.modes) ? b.modes : []).filter((m) => P.MODES[m]);
+    if (!modes.length) throw bad('Choose at least one puja type');
+    db.prepare('UPDATE pujas SET modes=? WHERE id=?').run(JSON.stringify([...new Set(modes)]), p.id);
+  }
+  const after = db.prepare('SELECT * FROM pujas WHERE id=?').get(p.id);
+  AUDIT.audit(req.auth.uid, 'puja.update', 'puja', p.id,
+    { from: { price: p.price, hidden: p.hidden }, to: { price: after.price, hidden: after.hidden } },
+    { oldValue: { price: p.price }, newValue: { price: after.price } });
   res.json({ ok: true });
 });
 /* --- Phase 12: temple management. DELETE answers 409 when bookings reference

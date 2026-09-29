@@ -14,10 +14,13 @@
   const TEMPLE_OFFERING = 251, CONVENIENCE_FEE = 99, DELIVERY_FEE = 49, FREE_DELIVERY_ABOVE = 999;
   const GST_SERVICE = 0.18, GST_GOODS = 0.05, POINT_VALUE = 0.5, MAX_POINTS_SHARE = 0.3;
 
-  /* ctx: { puja, pandit|null, plus:boolean, kits:[{price}], prasad:[{price}], coupon|null, points:number(user balance), usePoints:boolean } */
+  /* ctx: { puja, pandit|null, plus:boolean, kits:[{price}], prasad:[{price}], coupon|null, points:number(user balance), usePoints:boolean,
+     modePrice:number|null (Phase 11: explicit per-mode price — FLAT, the pandit pf multiplier does not apply) } */
   function quote(mode, ctx) {
     const puja = ctx.puja, pd = ctx.pandit;
-    const svc = Math.round((puja.price * MODES[mode].f * (pd ? pd.pf : 1)) / 10) * 10;
+    const svc = ctx.modePrice != null
+      ? Math.round(ctx.modePrice)
+      : Math.round((puja.price * MODES[mode].f * (pd ? pd.pf : 1)) / 10) * 10;
     const tmp = mode === 'temple' ? TEMPLE_OFFERING : 0;
     const plus = !!ctx.plus;
     const conv = plus ? 0 : CONVENIENCE_FEE;

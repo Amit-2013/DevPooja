@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..models import (AuditLog, Booking, Coupon, KycDocument, Kit, Order, Pandit,
                       Prasad, Puja, Setting, Temple, User)
+from ..pricing import MODES
 from ..security import require_role
 from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout, temple as s_temple
 from ..services import bookings as B
@@ -635,6 +636,98 @@ async def _item_used(db: AsyncSession, id: str) -> int:
     od = (await db.execute(select(func.count()).select_from(Order).where(
         Order.items.like(_like(id))))).scalar_one()
     return bk + od
+
+
+# --- Phase 11: puja catalogue management (Node had POST/PATCH; Python gains
+# the full CRUD). Per-mode prices are flat (NULL = legacy formula); `modes`
+# restricts which puja types can be booked. Every write is audited.
+MODE_PRICE_FIELDS = {"priceHome": "price_home", "priceOnline": "price_online",
+                     "priceTemple": "price_temple", "priceCustom": "price_custom"}
+
+
+def _mode_price(b: dict, key: str):
+    raw = b.get(key)
+    if raw is None or raw == "":
+        return None
+    return v_int(raw, "Per-mode price", min_val=100, max_val=1000000)
+
+
+@router.post("/pujas", status_code=201)
+async def create_puja(body: dict, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    if not await db.get(Kit, b.get("kit")):
+        raise bad("Choose a samagri kit")
+    pid = "c" + rid(3)
+    db.add(Puja(id=pid, name=v_str(b.get("name"), "Name", max_len=80),
+                hindi=v_str(b.get("hindi") or b.get("name"), "Hindi name", max_len=80),
+                cat=v_str(b.get("cat"), "Category", max_len=40), icon="🕉️",
+                dur=v_int(b.get("dur"), "Duration", min_val=15, max_val=720),
+                price=v_int(b.get("price"), "Price", min_val=100, max_val=1000000),
+                deity="Custom", ben="Custom puja added by admin.", kit=b.get("kit"),
+                pop=0, tags=str(b.get("name") or "").lower()))
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="puja.create",
+                    entity="puja", entity_id=pid,
+                    detail=json.dumps({"name": b.get("name"), "price": b.get("price")}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    return {"id": pid}
+
+
+@router.get("/pujas")
+async def pujas_view(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    from ..serialize import puja as s_puja
+    rows = (await db.execute(select(Puja).order_by(Puja.id))).scalars().all()
+    return {"pujas": [s_puja(p) for p in rows]}
+
+
+@router.patch("/pujas/{puja_id}")
+async def patch_puja(puja_id: str, body: dict, auth: dict = Depends(admin_dep),
+                     db: AsyncSession = Depends(get_db)):
+    p = await db.get(Puja, puja_id)
+    if not p:
+        raise not_found("Puja not found")
+    b = body or {}
+    if "name" in b:
+        p.name = v_str(b["name"], "Name", max_len=80)
+    if "hindi" in b:
+        p.hindi = v_str(b["hindi"], "Hindi name", max_len=80, optional=True)
+    if "cat" in b:
+        p.cat = v_str(b["cat"], "Category", max_len=40)
+    if "deity" in b:
+        p.deity = v_str(b["deity"], "Deity", max_len=60, optional=True)
+    if "ben" in b:
+        p.ben = v_str(b["ben"], "Benefits", max_len=500, optional=True)
+    if "benHi" in b:
+        p.ben_hi = v_str(b["benHi"], "Hindi benefits", max_len=500, optional=True)
+    if "dur" in b:
+        p.dur = v_int(b["dur"], "Duration", min_val=15, max_val=720)
+    if "kit" in b:
+        if not await db.get(Kit, b["kit"]):
+            raise bad("Choose a samagri kit")
+        p.kit = b["kit"]
+    if "price" in b:
+        p.price = v_int(b["price"], "Price", min_val=100, max_val=1000000)
+    if "hidden" in b:
+        p.hidden = 1 if b["hidden"] else 0
+    for key, col in MODE_PRICE_FIELDS.items():
+        if key in b:
+            setattr(p, col, _mode_price(b, key))
+    if "modes" in b:
+        modes = [m for m in (b["modes"] if isinstance(b["modes"], list) else []) if m in MODES]
+        if not modes:
+            raise bad("Choose at least one puja type")
+        p.modes = json.dumps(sorted(set(modes), key=list(MODES).index))
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="puja.update",
+                    entity="puja", entity_id=p.id,
+                    detail=json.dumps({"from": {"price": None}, "to": {"price": p.price}}),
+                    old_value=json.dumps({"price": None}),
+                    new_value=json.dumps({"price": p.price}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    return {"ok": True}
 
 
 # --- Phase 12: temple management. DELETE answers 409 when bookings reference

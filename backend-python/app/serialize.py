@@ -48,10 +48,23 @@ def booking(r) -> dict:
 
 
 def puja(r, kit_items=None) -> dict:
+    default_modes = ["home", "online", "temple", "custom"]
+    try:
+        modes = json.loads(r.modes or "[]")
+        if not isinstance(modes, list) or not modes:
+            modes = default_modes
+    except (TypeError, ValueError):
+        modes = default_modes
     return {"id": r.id, "n": r.name, "h": r.hindi, "cat": r.cat, "ic": r.icon, "dur": r.dur,
             "price": r.price, "deity": r.deity, "ben": r.ben, "benHi": r.ben_hi or "",
             "kit": r.kit, "pop": r.pop, "tags": r.tags, "hidden": bool(r.hidden),
-            "sam": kit_items or []}
+            "sam": kit_items or [],
+            # Phase 11: per-mode prices (None = legacy formula) + bookable modes
+            "priceHome": getattr(r, "price_home", None),
+            "priceOnline": getattr(r, "price_online", None),
+            "priceTemple": getattr(r, "price_temple", None),
+            "priceCustom": getattr(r, "price_custom", None),
+            "modes": modes}
 
 
 def kit(r) -> dict:
