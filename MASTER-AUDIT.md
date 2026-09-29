@@ -5,9 +5,9 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 58/58 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 5 incident),
-Python 122/122 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
-security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
+Verification baseline at audit time: Node 61/61 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 5 incident + 3 media date-gate),
+Python 125/125 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
 
@@ -22,11 +22,11 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
 | P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
-| N tables | ~58 | `server/db.js` + migrations 001–016 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA) |
+| N tables | ~58 | `server/db.js` + migrations 001–017 (012 audit/payout, 013 availability, 014 scaffolding, 015 account lifecycle, 016 profile+QA, 017 photo date gate) |
 | P models | 48 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) |
-| FE | 8 JS files, ~924 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
+| FE | 8 JS files, ~1103 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 58 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 5 incident), Python 122 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `backend-python/tests/` |
+| Tests | Node 61 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 5 incident + 3 media date-gate), Python 125 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -54,12 +54,12 @@ a parity exception.
 | Now | Migration 016 extends the SAME pandits row: `photo_file` (magic-checked image upload, stored under media/ so it is publicly served from /media like catalogue photos; KYC files stay private), `gotra`, `qualifications`, `veda_school`, cached `qa_score`. Profile PATCH accepts gotra/quals/veda (length-capped); pandit profile tab has photo upload + the new fields; public pandit profile shows photo, gotra/tradition/qualifications card and QA score. Cancellation% (cancelled while assigned to this pandit) and no-show% (past scheduled date, assigned, never Started/Completed) are DERIVED from bookings on read — never stored — and surface on the QA endpoints (`GET /admin/pandits/:id/qa`, `GET /pandit/me/qa`) and the growth tab. `services/qa.js` + twin `app/services/qa.py` |
 | Status | **IMPLEMENTED** |
 
-### Phase 6 — Service photo date gate
+### Phase 6 — Service photo date gate — **IMPLEMENTED (Phase 6 complete)**
 | Aspect | Finding |
 |---|---|
-| Existing | Pandit photos tab: upload against own assigned booking, admin moderation, delete-own-pending; `puja_media` + metadata (010) + variants (011); sharp pipeline |
-| Status | **PARTIAL** — booking linkage exists; **no scheduled-date validation** (upload any time), no admin override concept |
-| Required | Server-side gate: upload allowed only when `booking.date == today` (admin override flag + audit log entry); admin view shows upload timestamp/actor |
+| Was | Pandit photos tab: upload against own assigned booking, admin moderation, delete-own-pending; `puja_media` + metadata (010) + variants (011); sharp pipeline — but **no scheduled-date validation** (upload any time), no admin override concept |
+| Now | Migration 017 adds `bookings.media_override` (admin-granted exception; lives on the BOOKING because it must exist before the upload) and `puja_media.upload_date` (server-computed booking.date snapshot for the admin view). `services/pujaMedia.js` + twin `app/services/media.py`: pandit upload throws 400 `Photos can only be uploaded on the scheduled puja date — ask the admin for an override` unless `booking.date == today` or the booking is overridden; upload audit detail gains `dateGate: on_date\|admin_override`. Admin route `POST /admin/bookings/:id/media-override` (`{enable}`; default true, `enable:false` revokes) audits `media.date_gate_override` with old→new mediaOverride. Admin photo manager shows pandit uploads with upload timestamp, actor (uploadedBy) and the puja-date snapshot; pandit photos tab marks each booking `uploadable today / not yet / override ✓` and the admin bookings row carries an Allow/Revoke-photo-override action. `tests/mediagate.test.js` + `test_mediagate.py` pin the gate message, the override round-trip, both audits, ownership/role and the attribution view |
+| Status | **IMPLEMENTED** |
 
 ### Phase 7/8 — Earnings & payout engine — **FOUNDATION COMPLETE (Phase 31-adjacent, done first)**
 | Aspect | Finding |

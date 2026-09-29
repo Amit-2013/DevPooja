@@ -169,6 +169,8 @@ class PujaMedia(Base):
     webp: Mapped[str] = mapped_column(String(200), default="")
     thumb_webp: Mapped[str] = mapped_column(String(200), default="")
     reject_reason: Mapped[str] = mapped_column(String(220), default="")
+    # Phase 6 (migration 017): booking.date snapshot stamped at upload time
+    upload_date: Mapped[str] = mapped_column(String(10), default="", nullable=False)
 
     __table_args__ = (
         CheckConstraint("status IN ('PENDING_ADMIN_REVIEW','APPROVED','REJECTED')", name="ck_puja_media_status"),
@@ -208,6 +210,8 @@ class Booking(Base):
     refund: Mapped[str | None] = mapped_column(Text)
     esc: Mapped[int] = mapped_column(Integer, default=0)
     review_hidden: Mapped[int] = mapped_column(Integer, default=0)
+    # Phase 6 (migration 017): admin-granted photo-upload date-gate override
+    media_override: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class AuditLog(Base):

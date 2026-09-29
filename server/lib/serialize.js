@@ -21,7 +21,7 @@ const booking = (r) => {
     id: r.id, userId: r.user_id, pujaId: r.puja_id, mode: r.mode, date: r.date, slot: r.slot, addr: j(r.addr, null), templeId: r.temple_id,
     panditId: r.pandit_id, pst: r.pst, sam: j(r.sam, []), pra: j(r.pra, []), notes: r.notes || '', member: r.member || 'Self', coupon: r.coupon || '',
     q: j(r.q, {}), status: r.status, pay: j(r.pay, {}), ops: j(r.ops, {}), media: media.length, mediaUrls: media, review: j(r.review, null),
-    created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc
+    created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc, mediaOverride: !!r.media_override
   };
 };
 const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, benHi: r.ben_hi || '', kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [] });

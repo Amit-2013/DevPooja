@@ -45,6 +45,29 @@ async def set_status(booking_id: str, body: dict, auth: dict = Depends(admin_dep
                                                       (body or {}).get("status")))}
 
 
+# --- Phase 6: date-gate override — grant (or revoke) a booking an exception to
+# the "photos only on the puja date" rule. Audited with old→new so the trail
+# shows who opened the gate; the pandit portal surfaces the flag on the booking.
+@router.post("/bookings/{booking_id}/media-override")
+async def media_override(booking_id: str, body: dict, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    b = await B.get_booking(db, booking_id)
+    if not b:
+        raise not_found("Booking not found")
+    enabled = (body or {}).get("enable") is not False
+    before = bool(b.media_override)
+    b.media_override = 1 if enabled else 0
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="media.date_gate_override",
+                    entity="booking", entity_id=b.id,
+                    detail=json.dumps({"enabled": enabled}),
+                    old_value=json.dumps({"mediaOverride": before}),
+                    new_value=json.dumps({"mediaOverride": enabled}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    await db.refresh(b)
+    return {"booking": s_booking(b)}
+
+
 # --- Phase 16: no-show handling + the settings-backed cancellation policy ---
 from ..services import cancellation as CX  # noqa: E402
 

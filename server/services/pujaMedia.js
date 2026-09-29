@@ -13,7 +13,7 @@ const { db } = require('../db');
 const upload = require('../lib/upload');
 const variants = require('./mediaVariants');
 const auditMod = require('../lib/audit');
-const { bad, notFound, forbidden, rid } = require('../lib/util');
+const { bad, notFound, forbidden, rid, today } = require('../lib/util');
 
 const mediaDir = upload.dirs.media;
 const MAX_PHOTOS_PER_PUJA = 24;
@@ -32,7 +32,9 @@ const out = (r) => ({
   /* WebP variants (migration 011); empty when not generated yet */
   webp: r.webp ? '/media/' + encodeURIComponent(r.webp) : '',
   thumbWebp: r.thumb_webp ? '/media/' + encodeURIComponent(r.thumb_webp) : '',
-  rejectReason: r.reject_reason || ''
+  rejectReason: r.reject_reason || '',
+  /* Phase 6 (migration 017): booking.date snapshot stamped at upload time */
+  uploadDate: r.upload_date || ''
 });
 
 /* Public catalogue photos: approved AND published only, primary first.
@@ -97,7 +99,14 @@ function creditsList() {
     .map((r) => Object.assign(out(r), { pujaName: r.puja_name || '' }));
 }
 
-/* Pandit upload: booking must exist, belong to THIS pandit, and be a real assignment.
+/* Phase 6 gate: pandit photos may only be uploaded ON the scheduled puja date.
+   Admins can grant a per-booking override (media_override, audited via
+   media.date_gate_override) for reschedules / late evidence; the flag must be
+   set BEFORE the upload, which is why it lives on the booking, not the media. */
+const GATE_MESSAGE = 'Photos can only be uploaded on the scheduled puja date — ask the admin for an override';
+
+/* Pandit upload: booking must exist, belong to THIS pandit, be a real assignment,
+   and pass the date gate (booking.date == today, unless admin-overridden).
    Status is forced to PENDING_ADMIN_REVIEW — pandit uploads never publish directly.
    Alt text is required (spec); category defaults to 'seva'. */
 function panditUpload({ pid, uid, bookingId, files, altText }) {
@@ -106,6 +115,7 @@ function panditUpload({ pid, uid, bookingId, files, altText }) {
   if (b.pandit_id !== pid) throw forbidden('You can only upload photos for your own assigned bookings');
   const puja = db.prepare('SELECT id FROM pujas WHERE id=?').get(b.puja_id);
   if (!puja) throw notFound('Puja not found');
+  if (b.date !== today() && !b.media_override) throw bad(GATE_MESSAGE);
   const inserted = [];
   for (const f of files) {
     if (db.prepare('SELECT COUNT(*) c FROM puja_media WHERE puja_id=?').get(b.puja_id).c >= MAX_PHOTOS_PER_PUJA) {
@@ -115,13 +125,13 @@ function panditUpload({ pid, uid, bookingId, files, altText }) {
     const id = 'pm' + rid(5);
     const alt = String(altText || f.originalname || 'Puja photo').slice(0, 160);
     db.prepare(`INSERT INTO puja_media(id,puja_id,booking_id,pandit_id,uploaded_by,orig_name,filename,mime,size,status,is_primary,is_published,display_order,created_at,
-                source,alt_text,category)
-                VALUES(?,?,?,?,?,?,?,?,?, 'PENDING_ADMIN_REVIEW',0,0,0,?, 'pandit',?, 'seva')`)
-      .run(id, b.puja_id, b.id, pid, uid || null, String(f.originalname || '').slice(0, 120), f.filename, f.mimetype, f.size, Date.now(), alt);
+                source,alt_text,category,upload_date)
+                VALUES(?,?,?,?,?,?,?,?,?, 'PENDING_ADMIN_REVIEW',0,0,0,?, 'pandit',?, 'seva',?)`)
+      .run(id, b.puja_id, b.id, pid, uid || null, String(f.originalname || '').slice(0, 120), f.filename, f.mimetype, f.size, Date.now(), alt, b.date);
     inserted.push(row(id));
   }
   if (!inserted.length) throw bad('Photo limit reached for this puja');
-  auditMod.audit(uid, 'media.pandit_upload', 'puja_media', inserted[0].id, { count: inserted.length, bookingId: b.id, pujaId: b.puja_id });
+  auditMod.audit(uid, 'media.pandit_upload', 'puja_media', inserted[0].id, { count: inserted.length, bookingId: b.id, pujaId: b.puja_id, dateGate: b.date === today() ? 'on_date' : 'admin_override' });
   return inserted.map(out);
 }
 

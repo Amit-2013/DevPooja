@@ -639,9 +639,14 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   const pandit = await login('pandit');
   const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
   assert.ok(mine.length, 'pandit has assigned bookings');
+  /* Phase 6 date gate: uploads are only accepted for TODAY-dated bookings —
+     seed gives p1 one (satyanarayan, day 0). mine[0] is a completed day -30
+     booking and would now (correctly) be refused. */
+  const tb = mine.find((b) => b.date === dayPlus(0));
+  assert.ok(tb, 'a today-dated seeded booking exists for the date gate');
   const photosOf = async (id) => (await call('GET', '/pujas/' + id + '/photos')).json.photos || [];
-  const baseline = (await photosOf(mine[0].pujaId)).length; // seed photos may exist
-  const upRes = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: form(png, 'photo.png', mine[0].id) });
+  const baseline = (await photosOf(tb.pujaId)).length; // seed photos may exist
+  const upRes = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: form(png, 'photo.png', tb.id) });
   const up = await upRes.json().catch(() => ({}));
   assert.equal(upRes.status, 201, 'pandit upload accepted: ' + JSON.stringify(up).slice(0, 200));
   assert.ok(up.media && up.media.length === 1, 'pandit upload accepted');
@@ -654,7 +659,7 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   assert.equal(bad.status, 400, 'fake image content is rejected');
 
   /* hidden from the public catalogue while pending */
-  assert.equal((await photosOf(mine[0].pujaId)).length, baseline);
+  assert.equal((await photosOf(tb.pujaId)).length, baseline);
 
   /* pandit cannot moderate or touch admin media endpoints */
   assert.equal((await call('PATCH', '/admin/media/' + m.id, { token: pandit, body: { status: 'APPROVED' } })).status, 403);
@@ -666,7 +671,7 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   /* admin moderation: approve -> publish -> public */
   const ap = await call('PATCH', '/admin/media/' + m.id, { token: admin, body: { status: 'APPROVED', published: true } });
   assert.equal(ap.status, 200);
-  const pub = (await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos;
+  const pub = (await call('GET', '/pujas/' + tb.pujaId + '/photos')).json.photos;
   assert.equal(pub.length, baseline + 1);
   assert.ok(pub.some((p) => p.id === m.id));
 
@@ -683,7 +688,7 @@ test('puja media: ownership-scoped uploads, magic bytes, approval workflow, secu
   await call('PATCH', '/admin/media/' + m.id, { token: admin, body: { status: 'REJECTED' } });
   const rej = await fetch(base + '/api/media/' + m.id + '/download');
   assert.equal(rej.status, 404, 'rejected media is not downloadable anonymously');
-  assert.equal((await photosOf(mine[0].pujaId)).length, baseline);
+  assert.equal((await photosOf(tb.pujaId)).length, baseline);
 
   /* admin upload to a puja: instantly approved + published, primary when asked */
   const gBefore = (await photosOf('ganesh')).length; // seed photo present
@@ -753,11 +758,14 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   /* pandit upload requires alt text */
   const pandit = await login('pandit');
   const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
+  /* Phase 6 date gate: use the seeded TODAY-dated booking (see first media test) */
+  const tb = mine.find((b) => b.date === dayPlus(0));
+  assert.ok(tb, 'a today-dated seeded booking exists for the date gate');
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c626001000000ffff03000006000557bfabd40000000049454e44ae426082', 'hex');
-  const fdNoAlt = new FormData(); fdNoAlt.append('media', new Blob([png], { type: 'image/png' }), 'x.png'); fdNoAlt.append('bookingId', mine[0].id);
+  const fdNoAlt = new FormData(); fdNoAlt.append('media', new Blob([png], { type: 'image/png' }), 'x.png'); fdNoAlt.append('bookingId', tb.id);
   const noAlt = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fdNoAlt });
   assert.equal(noAlt.status, 400, 'alt text is required for pandit uploads');
-  const fdAlt = new FormData(); fdAlt.append('media', new Blob([png], { type: 'image/png' }), 'x.png'); fdAlt.append('bookingId', mine[0].id); fdAlt.append('altText', 'Rudrabhishek performed at a home shrine');
+  const fdAlt = new FormData(); fdAlt.append('media', new Blob([png], { type: 'image/png' }), 'x.png'); fdAlt.append('bookingId', tb.id); fdAlt.append('altText', 'Rudrabhishek performed at a home shrine');
   const withAlt = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fdAlt });
   assert.equal(withAlt.status, 201);
   const pm = (await withAlt.json()).media[0];
@@ -770,7 +778,7 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   assert.equal(bulk1.json.changed, 1);
   const bulk2 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'publish' } });
   assert.equal(bulk2.json.changed, 1);
-  assert.equal((await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos.some((p) => p.id === pm.id), true, 'published after bulk publish');
+  assert.equal((await call('GET', '/pujas/' + tb.pujaId + '/photos')).json.photos.some((p) => p.id === pm.id), true, 'published after bulk publish');
   const bulk3 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'delete' } });
   assert.equal(bulk3.json.changed, 1);
   assert.equal((await call('GET', '/admin/media?source=pandit', { token: admin })).json.media.some((m) => m.id === pm.id), false, 'bulk delete removes the row');
@@ -797,7 +805,7 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   assert.equal(again.webp, wv.webp, 'variant path is stable across boot repairs');
 
   /* rejection reason: written on reject, cleared on approve, visible to the pandit */
-  const fdR = new FormData(); fdR.append('media', new Blob([png], { type: 'image/png' }), 'r.png'); fdR.append('bookingId', mine[0].id); fdR.append('altText', 'Second seva photo for moderation');
+  const fdR = new FormData(); fdR.append('media', new Blob([png], { type: 'image/png' }), 'r.png'); fdR.append('bookingId', tb.id); fdR.append('altText', 'Second seva photo for moderation');
   const upR = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fdR });
   const pm2 = (await upR.json()).media[0];
   const rej = await call('PATCH', '/admin/media/' + pm2.id, { token: admin, body: { status: 'REJECTED', rejectReason: 'Blurry photo, retake in daylight' } });
@@ -810,7 +818,7 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   await call('PATCH', '/admin/media/' + pm2.id, { token: admin, body: { published: 1 } }); // separate publish step
 
   /* public payload never includes moderation internals (reason is admin/pandit only) */
-  const pub = (await call('GET', '/pujas/' + mine[0].pujaId + '/photos')).json.photos.find((p) => p.id === pm2.id);
+  const pub = (await call('GET', '/pujas/' + tb.pujaId + '/photos')).json.photos.find((p) => p.id === pm2.id);
   assert.ok(pub, 'approved photo is public');
   assert.equal(pub.rejectReason, '', 'no rejection reason on public payload');
 });
@@ -837,6 +845,9 @@ test('excel upgrade: new report ids exist, filters are honoured, professional he
 test('media delete removes every stored artifact: original + thumb + webp + thumb_webp', async () => {
   const pandit = await login('pandit');
   const mine = (await call('GET', '/state', { token: pandit })).json.bookings;
+  /* Phase 6 date gate: use the seeded TODAY-dated booking (see first media test) */
+  const tb = mine.find((b) => b.date === dayPlus(0));
+  assert.ok(tb, 'a today-dated seeded booking exists for the date gate');
   const jpeg = fs.readFileSync(path.join(__dirname, '..', 'shared', 'seed-photos', 'durga.jpg')); // real decodable image for sharp
   const dbh = require('../server/db').db;
   const V = require('../server/services/mediaVariants');
@@ -851,7 +862,7 @@ test('media delete removes every stored artifact: original + thumb + webp + thum
   const gone = (n) => assert.equal(fs.existsSync(path.join(updir, n)), false, 'artifact removed on delete: ' + n);
 
   /* case A — pandit upload: original + full WebP (no JPEG thumb is made for uploads) */
-  const fd = new FormData(); fd.append('media', new Blob([jpeg], { type: 'image/jpeg' }), 'cleanup.jpg'); fd.append('bookingId', mine[0].id); fd.append('altText', 'Deletion completeness check photo');
+  const fd = new FormData(); fd.append('media', new Blob([jpeg], { type: 'image/jpeg' }), 'cleanup.jpg'); fd.append('bookingId', tb.id); fd.append('altText', 'Deletion completeness check photo');
   const up = await fetch(base + '/api/pandit/media', { method: 'POST', headers: { Authorization: 'Bearer ' + pandit }, body: fd });
   assert.equal(up.status, 201);
   const pm = (await up.json()).media[0];

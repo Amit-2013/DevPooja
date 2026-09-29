@@ -24,6 +24,9 @@ from ..models import AuditLog, Booking, Pandit, Puja, PujaMedia
 from ..util import (MEDIA_MIME, THUMB_SUFFIX, THUMB_WEBP_SUFFIX, WEBP_SUFFIX,
                     bad, base_name, forbidden, not_found, rid, verify_upload)
 
+# Phase 6: same gate message as the Node twin (tests pin it byte-for-byte).
+GATE_MESSAGE = "Photos can only be uploaded on the scheduled puja date — ask the admin for an override"
+
 settings = get_settings()
 MEDIA_DIR = Path(settings.upload_dir) / "media"
 MAX_PHOTOS_PER_PUJA = 24
@@ -48,6 +51,7 @@ def out(r: PujaMedia) -> dict:
         "source": r.source, "license": r.license, "credit": r.credit,
         "creator": r.creator, "creditUrl": r.credit_url,
         "altText": r.alt_text, "category": r.category, "rejectReason": r.reject_reason,
+        "uploadDate": getattr(r, "upload_date", "") or "",
         "createdAt": r.created_at,
     }
 
@@ -116,11 +120,19 @@ async def admin_list(db: AsyncSession, *, status: str | None = None,
     return [out(r) for r in (await db.execute(q)).scalars().all()]
 
 
+"""Phase 6 gate: pandit photos may only be uploaded ON the scheduled puja date.
+Admins can grant a per-booking override (media_override, audited via
+media.date_gate_override) for reschedules / late evidence; the flag must be set
+BEFORE the upload, which is why it lives on the booking, not the media. Mirrors
+server/services/pujaMedia.js."""
+
+
 # --- pandit upload -------------------------------------------------------------
 async def pandit_upload(db: AsyncSession, *, pid: str, uid: str | None, booking_id: str,
                         files: list[tuple[bytes, str, str]], alt_text: str) -> list[dict]:
     """files: [(data, claimed_mime, original_name), ...] — every file is magic-byte
-    verified BEFORE this call. Booking must belong to THIS pandit."""
+    verified BEFORE this call. Booking must belong to THIS pandit and pass the
+    Phase 6 date gate (booking.date == today, unless admin-overridden)."""
     b = (await db.execute(select(Booking).where(Booking.id == (booking_id or "")))).scalar_one_or_none()
     if not b:
         raise not_found("Booking not found")
@@ -128,6 +140,9 @@ async def pandit_upload(db: AsyncSession, *, pid: str, uid: str | None, booking_
         raise forbidden("You can only upload photos for your own assigned bookings")
     if not str(alt_text or "").strip():
         raise bad("Describe the photo (alt text is required)")
+    from ..services.bookings import today as booking_today
+    if b.date != booking_today() and not b.media_override:
+        raise bad(GATE_MESSAGE)
     count = (await db.execute(select(func.count()).select_from(PujaMedia).where(PujaMedia.puja_id == b.puja_id))).scalar_one()
     inserted = []
     for data, claimed, orig_name in files:
@@ -143,7 +158,8 @@ async def pandit_upload(db: AsyncSession, *, pid: str, uid: str | None, booking_
             uploaded_by=uid, orig_name=str(orig_name or "")[:120], filename=filename,
             mime=real, size=len(data), status="PENDING_ADMIN_REVIEW",
             is_primary=0, is_published=0, display_order=0, created_at=int(time.time() * 1000),
-            source="pandit", alt_text=str(alt_text).strip()[:160], category="seva")
+            source="pandit", alt_text=str(alt_text).strip()[:160], category="seva",
+            upload_date=b.date)
         db.add(m)
         inserted.append(m)
         count += 1
@@ -152,7 +168,8 @@ async def pandit_upload(db: AsyncSession, *, pid: str, uid: str | None, booking_
     await db.flush()
     db.add(AuditLog(actor_user_id=uid, actor_role="pandit", action="media.pandit_upload",
                     entity="puja_media", entity_id=inserted[0].id,
-                    detail=json.dumps({"count": len(inserted), "bookingId": b.id, "pujaId": b.puja_id}),
+                    detail=json.dumps({"count": len(inserted), "bookingId": b.id, "pujaId": b.puja_id,
+                                       "dateGate": "on_date" if b.date == booking_today() else "admin_override"}),
                     created_at=int(time.time() * 1000)))
     for m in inserted:
         await ensure_variants(db, m)

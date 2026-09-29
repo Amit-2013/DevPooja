@@ -17,6 +17,18 @@ const one = (b) => S.booking(B.getBooking(b));
 router.post('/bookings/manual', (req, res) => res.status(201).json({ booking: S.booking(B.adminManual(req.body)) }));
 router.post('/bookings/:id/assign', (req, res) => res.json({ booking: S.booking(B.adminAssign(req.params.id, req.body.panditId || null)) }));
 router.post('/bookings/:id/status', (req, res) => res.json({ booking: S.booking(B.adminStatus(req.params.id, req.body.status)) }));
+/* Phase 6: date-gate override — grant (or revoke) a booking an exception to the
+   "photos only on the puja date" rule. Audited with old→new so the trail shows
+   who opened the gate; the pandit portal surfaces the flag on the booking. */
+router.post('/bookings/:id/media-override', (req, res) => {
+  const b = B.getBooking(req.params.id);
+  if (!b) throw notFound();
+  db.prepare('UPDATE bookings SET media_override=? WHERE id=?').run(req.body.enable === false ? 0 : 1, b.id);
+  AUDIT.audit(req.auth.uid, 'media.date_gate_override', 'booking', b.id,
+    { enabled: req.body.enable !== false },
+    { oldValue: { mediaOverride: !!b.media_override }, newValue: { mediaOverride: req.body.enable !== false } });
+  res.json({ booking: one(b.id) });
+});
 /* Phase 16: no-show handling + the settings-backed cancellation policy. */
 const CX = require('../services/cancellation');
 router.post('/bookings/:id/noshow', (req, res) => res.json({ booking: S.booking(CX.adminNoShow(req.params.id, req.auth.uid, req.body.reason)) }));

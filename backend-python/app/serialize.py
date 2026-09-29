@@ -43,7 +43,8 @@ def booking(r) -> dict:
             "notes": r.notes or "", "member": r.member or "Self", "coupon": r.coupon or "",
             "q": j(r.q, {}), "status": r.status, "pay": j(r.pay, {}), "ops": j(r.ops, {}),
             "media": len(media), "mediaUrls": media, "review": j(r.review, None),
-            "created": r.created, "log": j(r.log, []), "refund": j(r.refund, None), "esc": bool(r.esc)}
+            "created": r.created, "log": j(r.log, []), "refund": j(r.refund, None), "esc": bool(r.esc),
+            "mediaOverride": bool(getattr(r, "media_override", 0))}
 
 
 def puja(r, kit_items=None) -> dict:

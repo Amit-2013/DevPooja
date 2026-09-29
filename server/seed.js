@@ -214,8 +214,12 @@ function resetAll() {
        Order matters: children are deleted before the parents they reference. */
     'puja_recommendations', 'dosh_analysis', 'kundalis', 'kundali_recommendations',
     'kundali_analysis', 'kundali_profiles', 'kundali_activity',
-    'booking_status_history', 'payments', 'reviews', 'payouts', 'ticket_messages',
-    'tickets', 'cart_items', 'order_items', 'orders', 'bookings',
+    'booking_status_history', 'payments', 'transactions', 'commission_tiers', 'reviews',
+    'payouts', 'ticket_messages',
+    'tickets', 'cart_items', 'order_items', 'orders',
+    /* qa_records + incidents reference bookings AND pandits — they must go
+       before bookings; the rest of the pandit children go before pandits. */
+    'qa_records', 'incidents', 'bookings',
     'notifs', 'campaigns', 'leads', 'audit_logs',
     'puja_kunds', 'puja_samagri', 'condition_puja_rules', 'temple_pujas',
     'coupons', 'banners', 'otps', 'settings',
@@ -223,6 +227,7 @@ function resetAll() {
     'custom_requests',
     'family_members', 'export_logs', 'idempotency_keys',
     'puja_media', 'login_activity', 'password_resets',
+    'kyc_documents', 'trial_poojas', 'agreement_acceptances', 'agreements',
     'pandits', 'pujas', 'users'
   ];
   tx(() => {
