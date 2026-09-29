@@ -10,6 +10,7 @@
 'use strict';
 const { db, getSetting } = require('../db');
 const { bad, conflict } = require('../lib/util');
+const P = require('../../shared/pricing');
 const DEFAULTS = {
   active: true,
   currency: 'INR',
@@ -50,13 +51,17 @@ function classify(user, relationship) {
 function quoteFor(user, { relationship, coupon } = {}) {
   const p = pricing();
   const c = classify(user, relationship);
-  let discount = Math.round(c.base * (p.discountPct || 0) / 100);
+  let discount = Math.round(c.base * (p.discountPct) / 100);
   let couponInfo = null;
   if (coupon && c.base > 0) {
     if (!p.couponEligible) throw bad('Coupons do not apply to kundali purchases');
-    const cp = db.prepare('SELECT * FROM coupons WHERE code=? AND active=1').get(String(coupon).toUpperCase());
-    if (!cp) throw bad('Coupon code is not valid');
-    if (cp.min && c.base < cp.min) throw bad('Coupon requires a minimum amount of Rs ' + cp.min);
+    const cp = db.prepare('SELECT * FROM coupons WHERE code=?').get(String(coupon).toUpperCase());
+    /* Phase 14: same wording and rules as every other surface — the shared
+       couponProblem adds KUNDALI scope, validity window and per-user cap on
+       top of the active + minimum checks this function used to do inline. */
+    const C = require('./coupons');
+    const problem = P.couponProblem(C.couponForProblem(cp), c.base, { scope: 'KUNDALI', usedByUser: C.usedByUser(coupon, user && user.id) });
+    if (problem) throw bad(problem);
     const raw = cp.type === 'pct' ? Math.round((c.base - discount) * cp.val / 100) : cp.val;
     discount += Math.min(raw, cp.max || raw);
     couponInfo = cp.code;

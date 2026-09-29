@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Coupon, Kundali, Setting, User
+from ..pricing import coupon_problem
 from ..util import bad
 
 DEFAULTS = {
@@ -91,11 +92,16 @@ async def quote_for(db: AsyncSession, user: User, relationship: str | None = Non
         if not p.get("couponEligible"):
             raise bad("Coupons do not apply to kundali purchases")
         cp = (await db.execute(select(Coupon).where(
-            Coupon.code == str(coupon).upper(), Coupon.active == 1))).scalar_one_or_none()
-        if not cp:
-            raise bad("Coupon code is not valid")
-        if cp.min and c["base"] < cp.min:
-            raise bad("Coupon requires a minimum amount of Rs " + str(cp.min))
+            Coupon.code == str(coupon).upper()))).scalar_one_or_none()
+        # Phase 14: same wording and rules as every other surface — the shared
+        # coupon_problem adds KUNDALI scope, validity window and per-user cap
+        # on top of the active + minimum checks this function used to do inline.
+        from . import coupons as C
+        problem = coupon_problem(C.coupon_for_problem(cp), c["base"], {
+            "scope": "KUNDALI",
+            "usedByUser": await C.used_by_user(db, coupon, user.id if user else None)})
+        if problem:
+            raise bad(problem)
         raw = round((c["base"] - discount) * cp.val / 100) if cp.type == "pct" else cp.val
         discount += min(raw, cp.max if cp.max else raw)
         coupon_info = cp.code

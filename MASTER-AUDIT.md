@@ -5,8 +5,8 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 69/69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI),
-Python 134/134 (incl. CI-wiring guards + audit-claim guards + foundation + availability +
+Verification baseline at audit time: Node 69/69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI; **74/74 after Phase 14 coupons**),
+Python 134/134 at audit time (incl. CI-wiring guards + audit-claim guards + foundation + availability +
 security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate + temple + pricing + NRI suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
 silently drift apart.
@@ -22,11 +22,11 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
 | P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
-| N tables | ~60 | `server/db.js` + migrations 001–021 (…019 temple management, 020 puja mode pricing, 021 NRI packages) |
-| P models | 50 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) + temple columns (019) + puja mode pricing (020) + NRI packages/orders (021) |
+| N tables | ~61 | `server/db.js` + migrations 001–022 (…020 puja mode pricing, 021 NRI packages, 022 coupon scope + redemptions) |
+| P models | 51 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) + temple columns (019) + puja mode pricing (020) + NRI packages/orders (021) + coupon scope/redemptions (022) |
 | FE | 8 JS files, ~1130 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI), Python 134 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `tests/nri.test.js`, `backend-python/tests/` |
+| Tests | Node 74 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI + 5 coupons), Python 138 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `tests/nri.test.js`, `tests/coupons.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -106,7 +106,7 @@ a parity exception.
 | Aspect | Finding |
 |---|---|
 | Existing | `coupons(code, type, val, max, min, active, used)`; validated in `priceRequest()` via `shared/pricing.couponProblem()`; admin create/toggle in finance tab |
-| Status | **PARTIAL** — global scope only; no applicability (PUJA/KUNDALI/PRASAD/service targeting), no date window, no per-customer limit |
+| Status | **IMPLEMENTED** — migration 022 adds `scope` (ALL | PUJA | KUNDALI), `puja_id` per-puja restriction, `starts`/`expires` epoch-ms window, `per_user` cap and a `coupon_redemptions(code, user_id, source, ref_id, amount)` ledger of money-moment redemptions. The shared `couponProblem()` (both twins) now enforces window, scope, per-puja and per-user on top of active+minimum; kundali `quoteFor` reuses it (identical wording, KUNDALI scope) instead of its inline checks; cart `POST /orders` gains ALL-scope redemption (`orders.coupon`/`discount`, delivery computed on the post-coupon subtotal) plus a `POST /orders/coupon` live check; redemptions are recorded at the money moment in all three surfaces (booking creation, kundali PAID settle + gateway /pay/verify, order placement) and per_user counts them. Admin: `GET /admin/coupons` (Node NEW), create with scope/window/per-user fields, toggle (Python gains PATCH); audited `coupon.create`/`coupon.toggle`. FE: finance-tab coupon form (scope, per-puja, dates, per-user) + extended table; cart modal coupon field with check-and-apply. `tests/coupons.test.js` + `test_coupons.py` cover scoping both ways, window, per-user cap across surfaces, cart discount, kundali redemption, audits and access |
 | Required | Add scope columns to existing coupons table + validation in all three checkout paths (booking, kundali, orders); admin form fields |
 
 ### Phase 15 — Kundali history

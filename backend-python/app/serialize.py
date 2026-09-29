@@ -90,7 +90,8 @@ def festival(r) -> dict:
 
 def order(r) -> dict:
     return {"id": r.id, "userId": r.user_id, "items": j(r.items, []), "total": r.total,
-            "date": r.date, "st": r.status, "city": r.city}
+            "date": r.date, "st": r.status, "city": r.city, "coupon": r.coupon or "",
+            "discount": r.discount or 0}
 
 
 def ticket(r) -> dict:
@@ -115,7 +116,9 @@ def payout(r) -> dict:
 
 def coupon(r) -> dict:
     return {"code": r.code, "type": r.type, "val": r.val, "max": r.max, "min": r.min,
-            "active": bool(r.active), "used": r.used}
+            "active": bool(r.active), "used": r.used, "scope": r.scope or "ALL",
+            "pujaId": r.puja_id or None, "starts": r.starts or None,
+            "expires": r.expires or None, "per_user": r.per_user or 0}
 
 
 def notif(r) -> dict:

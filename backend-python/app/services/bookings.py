@@ -26,6 +26,7 @@ from ..util import (bad, conflict, j, not_found, v_arr, v_date, v_int,
                     v_mobile, v_one_of, v_str)
 from . import payments as pay
 from . import availability as AV
+from . import coupons as coupons
 
 STATUSES = ["New", "Confirmed", "Assigned", "Started", "Completed", "Cancelled"]
 OPEN = ["New", "Confirmed", "Assigned"]
@@ -126,8 +127,7 @@ async def price_request(db: AsyncSession, user: User | None, body: dict, *, stri
     if body.get("coupon"):
         c = (await db.execute(select(Coupon).where(
             Coupon.code == str(body["coupon"]).upper()))).scalar_one_or_none()
-        coupon = ({"code": c.code, "type": c.type, "val": c.val, "max": c.max,
-                   "min": c.min, "active": bool(c.active)} if c else None)
+        coupon = coupons.coupon_for_problem(c)
     base = {"puja": {"price": puja.price},
             "pandit": {"pf": pandit.pf} if pandit else None,
             "plus": bool(user and user.plus),
@@ -139,7 +139,11 @@ async def price_request(db: AsyncSession, user: User | None, body: dict, *, stri
             "modePrice": getattr(puja, "price_" + mode, None)}
     if body.get("coupon"):
         svc = quote(mode, {**base, "coupon": None, "usePoints": False})["svc"]
-        coupon_error = coupon_problem(coupon, svc)
+        # Phase 14: scope (PUJA-surface coupon), per-puja restriction, validity
+        # window and per-user cap are checked here, at quote time.
+        used_by_user = (await coupons.used_by_user(db, coupon["code"] if coupon else None, user.id if user else None))
+        coupon_error = coupon_problem(coupon, svc, {
+            "scope": "PUJA", "pujaId": puja.id, "usedByUser": used_by_user})
         if coupon_error:
             if strict_coupon:
                 raise bad(coupon_error)
@@ -212,6 +216,9 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
                          .values(used=Coupon.used + 1))
     seq = await next_seq(db, "booking_seq", 2401)
     id = "DP" + str(seq)
+    if pr["coupon"] and q["disc"]:
+        # Phase 14: the money moment — per-user cap counts these
+        await coupons.record_redemption(db, pr["coupon"]["code"], user.id, "booking", id, q["disc"])
     status = "PendingPayment" if gateway else ("Confirmed" if pandit else "New")
     pay_info = {"method": "razorpay" if gateway else str(body.get("payMethod") or "UPI")[:20],
                 "ref": "" if gateway else "MOCK" + str(random.randint(100000, 999999)),

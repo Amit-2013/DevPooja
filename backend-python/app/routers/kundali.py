@@ -230,6 +230,10 @@ async def pay_verify(body: dict, auth: dict = Depends(customer_dep),
     if k and (k.final_amount or 0) > 0:
         await dedupe(db, type="KUNDALI_PAYMENT", amount=k.final_amount, user_id=k.customer_id,
                      kundali_id=kid, ref_table="kundalis", ref_id=kid, note="Kundali payment")
+        # Phase 14: gateway redemption records at verify, same as the mock path.
+        if k.coupon:
+            from ..services.coupons import record_redemption
+            await record_redemption(db, k.coupon, k.customer_id, "kundali", kid, k.final_amount)
     await KB.idem_put(db, b.get("idemKey"), "kundali.pay", info)
     await db.flush()
     return info
@@ -395,7 +399,8 @@ async def generate(body: dict, request: Request,
         payment_status=("Paid" if billing == "PAID" else "Pending") if chargeable
         else ("Free" if billing == "FREE" else ""),
         payment_id=("MOCK" + rid(4)) if billing == "PAID" else "",
-        idem_key=idem_key, created_at=KB.now_ms()))
+        idem_key=idem_key, created_at=KB.now_ms(),
+        coupon=qd.get("coupon") or ""))
 
     for r in results:
         cond = await db.get(KundaliCondition, r["code"])
@@ -434,6 +439,12 @@ async def generate(body: dict, request: Request,
         await dedupe(db, type="KUNDALI_PAYMENT", amount=quote["final"], user_id=user_id,
                      kundali_id=kundali_id, ref_table="kundalis", ref_id=kundali_id,
                      note="Kundali payment (mock)")
+        # Phase 14: the money moment — count the kundali redemption here so
+        # the per-user cap holds even if the gateway flow is abandoned.
+        if quote.get("coupon"):
+            from ..services.coupons import record_redemption
+            await record_redemption(db, quote["coupon"], user_id, "kundali",
+                                    kundali_id, quote["final"])
 
     # 5. response: the full flow result for the result page
     order = {"high": 0, "medium": 1, "low": 2, "none": 3}

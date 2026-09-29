@@ -311,6 +311,9 @@ class Order(Base):
     status: Mapped[str | None] = mapped_column(String(30))
     city: Mapped[str | None] = mapped_column(String(80))
     address: Mapped[str | None] = mapped_column(Text)
+    # Phase 14: cart orders can redeem ALL-scope coupons
+    coupon: Mapped[str | None] = mapped_column(String(20), default="")
+    discount: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Ticket(Base):
@@ -374,6 +377,23 @@ class Coupon(Base):
     min: Mapped[int | None] = mapped_column(Integer)
     active: Mapped[int] = mapped_column(Integer, default=1)
     used: Mapped[int] = mapped_column(Integer, default=0)
+    # Phase 14: where the coupon may be redeemed, validity window, per-user cap
+    scope: Mapped[str] = mapped_column(String(10), default="ALL")   # ALL | PUJA | KUNDALI
+    puja_id: Mapped[str | None] = mapped_column(String(40))
+    starts: Mapped[int | None] = mapped_column(Integer)
+    expires: Mapped[int | None] = mapped_column(Integer)
+    per_user: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CouponRedemption(Base):
+    # One row per redemption at the money moment; per_user counts these.
+    __tablename__ = "coupon_redemptions"
+    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source: Mapped[str] = mapped_column(String(10), primary_key=True)  # booking | kundali | order
+    ref_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    amount: Mapped[int] = mapped_column(Integer, default=0)
+    created: Mapped[int] = mapped_column(Integer)
 
 
 class Banner(Base):
@@ -487,6 +507,8 @@ class Kundali(Base):
     order_id: Mapped[str] = mapped_column(String(40), default="")
     payment_status: Mapped[str] = mapped_column(String(20), default="")
     idem_key: Mapped[str] = mapped_column(String(120), default="")
+    # Phase 14: which coupon produced the discount on this purchase
+    coupon: Mapped[str] = mapped_column(String(20), default="")
 
     __table_args__ = (
         Index("idx_kundali_idem", "idem_key", unique=True, sqlite_where=(text("idem_key != ''"))),

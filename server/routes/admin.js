@@ -236,13 +236,26 @@ router.post('/payout-rules', (req, res) => {
     { from: prev ? j(prev.value, null) : null, to: holds });
   res.json({ ok: true, holds });
 });
+/* Phase 14: the finance tab lists coupons straight from the DB (with the new
+   scope/window/per-user fields) instead of relying on the state snapshot. */
+router.get('/coupons', (req, res) => {
+  res.json({ coupons: db.prepare('SELECT * FROM coupons ORDER BY code').all().map(S.coupon) });
+});
 router.post('/coupons', (req, res) => {
   const b = req.body, code = v.str(b.code, 'Code', { max: 20 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!code) throw bad('Code is required');
   if (db.prepare('SELECT 1 FROM coupons WHERE code=?').get(code)) throw conflict('That code already exists');
   const type = v.oneOf(b.type, ['pct', 'flat'], 'Type'), val = v.int(b.val, 'Value', { min: 1, max: type === 'pct' ? 90 : 100000 });
-  db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(code, type, val, v.int(b.max || val, 'Maximum', { min: 1 }), v.int(b.min || 1000, 'Minimum', { min: 0 }));
-  AUDIT.audit(req.auth.uid, 'coupon.create', 'coupon', code, { type, val, max: b.max || val, min: b.min || 1000 });
+  const scope = v.oneOf(b.scope || 'ALL', ['ALL', 'PUJA', 'KUNDALI'], 'Scope');
+  const pujaId = scope === 'PUJA' && b.pujaId ? String(b.pujaId) : null;
+  if (pujaId && !db.prepare('SELECT 1 FROM pujas WHERE id=?').get(pujaId)) throw bad('Unknown puja');
+  const starts = b.starts ? new Date(b.starts).getTime() : null;
+  const expires = b.expires ? new Date(b.expires).getTime() : null;
+  if (starts && expires && starts >= expires) throw bad('The coupon cannot expire before it starts');
+  const perUser = v.int(b.perUser || 0, 'Per-user limit', { min: 0, max: 100 });
+  db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used,scope,puja_id,starts,expires,per_user) VALUES(?,?,?,?,?,1,0,?,?,?,?,?)')
+    .run(code, type, val, v.int(b.max || val, 'Maximum', { min: 1 }), v.int(b.min || 1000, 'Minimum', { min: 0 }), scope, pujaId, starts, expires, perUser);
+  AUDIT.audit(req.auth.uid, 'coupon.create', 'coupon', code, { type, val, max: b.max || val, min: b.min || 1000, scope, pujaId, starts, expires, perUser });
   res.status(201).json({ ok: true });
 });
 router.patch('/coupons/:code', (req, res) => {

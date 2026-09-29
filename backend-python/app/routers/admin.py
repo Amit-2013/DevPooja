@@ -5,6 +5,7 @@ admin routes live in their own modules / arrive with their milestones."""
 import json
 import re
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select, update
@@ -109,6 +110,14 @@ async def process_refund(booking_id: str, auth: dict = Depends(admin_dep),
     return {"booking": s_booking(await B.get_booking(db, booking_id))}
 
 
+@router.get("/coupons")
+async def list_coupons(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    # Phase 14: the finance tab lists coupons straight from the DB (with the
+    # new scope/window/per-user fields) instead of relying on the state snapshot.
+    rows = (await db.execute(select(Coupon).order_by(Coupon.code))).scalars().all()
+    return {"coupons": [s_coupon(r) for r in rows]}
+
+
 @router.post("/coupons", status_code=201)
 async def create_coupon(body: dict, auth: dict = Depends(admin_dep),
                         db: AsyncSession = Depends(get_db)):
@@ -120,12 +129,49 @@ async def create_coupon(body: dict, auth: dict = Depends(admin_dep),
         raise conflict("That code already exists")
     ctype = v_one_of(b.get("type"), ["pct", "flat"], "Type")
     val = v_int(b.get("val"), "Value", min_val=1, max_val=90 if ctype == "pct" else 100000)
+    # Phase 14: scope, per-puja restriction, validity window, per-user cap
+    scope = v_one_of(b.get("scope") or "ALL", ["ALL", "PUJA", "KUNDALI"], "Scope")
+    puja_id = str(b.get("pujaId")) if scope == "PUJA" and b.get("pujaId") else None
+    if puja_id and not await db.get(Puja, puja_id):
+        raise bad("Unknown puja")
+    starts = int(datetime.fromisoformat(str(b["starts"])).timestamp() * 1000) if b.get("starts") else None
+    expires = int(datetime.fromisoformat(str(b["expires"])).timestamp() * 1000) if b.get("expires") else None
+    if starts and expires and starts >= expires:
+        raise bad("The coupon cannot expire before it starts")
+    per_user = v_int(b.get("perUser") or 0, "Per-user limit", min_val=0, max_val=100)
     db.add(Coupon(code=code, type=ctype, val=val,
                   max=v_int(b.get("max"), "Max", min_val=1, max_val=100000) if b.get("max") is not None else None,
                   min=v_int(b.get("min"), "Min", min_val=0, max_val=1000000) if b.get("min") is not None else 0,
-                  active=1, used=0))
+                  active=1, used=0, scope=scope, puja_id=puja_id,
+                  starts=starts, expires=expires, per_user=per_user))
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="coupon.create",
+                    entity="coupon", entity_id=code,
+                    detail=json.dumps({"type": ctype, "val": val, "scope": scope,
+                                       "pujaId": puja_id, "starts": starts,
+                                       "expires": expires, "perUser": per_user}),
+                    created_at=int(time.time() * 1000)))
     await db.flush()
     return {"ok": True, "code": code}
+
+
+@router.patch("/coupons/{code}")
+async def toggle_coupon(code: str, body: dict, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    # Phase 14: the finance tab's On/Off switch, same as the Node twin.
+    row = await db.get(Coupon, code)
+    if not row:
+        raise not_found()
+    active = 1 if (body or {}).get("active") else 0
+    prev = bool(row.active)
+    row.active = active
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="coupon.toggle",
+                    entity="coupon", entity_id=code,
+                    detail=json.dumps({"from": prev, "to": bool(active)}),
+                    created_at=int(time.time() * 1000)))
+    await db.flush()
+    return {"ok": True}
 
 
 @router.post("/settings")

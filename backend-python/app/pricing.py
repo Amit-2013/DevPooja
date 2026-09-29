@@ -6,6 +6,7 @@ banker's rounding. Every Math.round here goes through js_round() so totals
 match the Node engine (and the frontend, which shares pricing.js) exactly."""
 import math
 import re
+import time
 from datetime import datetime, timedelta
 
 MODES = {
@@ -64,11 +65,29 @@ def quote(mode: str, ctx: dict) -> dict:
             "earn": (total // 100) * (2 if plus else 1)}
 
 
-def coupon_problem(c, svc: int) -> str:
+def coupon_problem(c, svc: int, x: dict | None = None) -> str:
+    # Phase 14: validity beyond active+minimum — scope, per-puja, time window,
+    # per-user cap. x (all optional): scope/pujaId = which surface is asking,
+    # now = wall clock, usedByUser = redemptions this user already has.
     if not c or not c.get("active"):
         return "Coupon not found or inactive."
+    x = x or {}
+    now = x.get("now") or int(time.time() * 1000)
+    if c.get("starts") and now < c["starts"]:
+        return "This coupon is not active yet."
+    if c.get("expires") and now >= c["expires"]:
+        return "This coupon has expired."
+    scope = c.get("scope") or "ALL"
+    if x.get("scope") and scope != "ALL" and scope != x["scope"]:
+        return ("This coupon does not apply to kundali purchases"
+                if x["scope"] == "KUNDALI" else
+                "This coupon does not apply to this purchase.")
+    if x.get("pujaId") and c.get("pujaId") and c["pujaId"] != x["pujaId"]:
+        return "This coupon applies to a different puja."
     if svc < c.get("min", 0):
         return f"Needs a puja value of at least Rs {c['min']}."
+    if c.get("per_user") and x.get("usedByUser") is not None and x["usedByUser"] >= c["per_user"]:
+        return "You have already used this coupon the maximum number of times."
     return ""
 
 

@@ -31,7 +31,7 @@ const kit = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, items: j(r.it
 const prasad = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, d: r.descr, stock: r.stock === undefined ? null : r.stock, active: r.active === undefined ? 1 : r.active });
 const temple = (r) => ({ id: r.id, n: r.name, city: r.city, deity: r.deity, ic: r.icon, pujas: j(r.pujas, []), off: r.offering, d: r.descr, active: r.active === undefined || r.active === null ? 1 : r.active, timings: r.timings || '', photo: r.photo || '' });
 const festival = (r) => ({ id: r.id, n: r.name, d: r.date, p: j(r.pujas, []), t: r.note });
-const order = (r) => ({ id: r.id, userId: r.user_id, items: j(r.items, []), total: r.total, date: r.date, st: r.status, city: r.city });
+const order = (r) => ({ id: r.id, userId: r.user_id, items: j(r.items, []), total: r.total, date: r.date, st: r.status, city: r.city, coupon: r.coupon || '', discount: r.discount || 0 });
 const ticket = (r) => ({ id: r.id, userId: r.user_id, b: r.booking_id || '', t: r.text, st: r.status, prio: r.prio });
 /* Payout shape: canonical statuses (Phases 7-8), hold info, money trail, refs.
    `hr` is what a pandit sees for WHY a payout is on hold; refs are admin-only via
@@ -42,6 +42,6 @@ const payout = (r) => ({ id: r.id, p: r.pandit_id, amt: r.amount, date: r.date,
   tax: r.tax_amt || 0, refd: r.refund_amt || 0, adj: r.adjustment_amt || 0,
   cur: r.currency || 'INR', hr: r.hold_reason || null, hn: r.hold_note || null,
   pd: r.processing_date || null, dd: r.disbursement_date || null, pr: r.payment_ref || null, utr: r.utr || null });
-const coupon = (r) => ({ code: r.code, type: r.type, val: r.val, max: r.max, min: r.min, active: !!r.active, used: r.used });
+const coupon = (r) => ({ code: r.code, type: r.type, val: r.val, max: r.max, min: r.min, active: !!r.active, used: r.used, scope: r.scope || 'ALL', pujaId: r.puja_id || null, starts: r.starts || null, expires: r.expires || null, per_user: r.per_user || 0 });
 
 module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon };

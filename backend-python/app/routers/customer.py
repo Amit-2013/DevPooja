@@ -181,6 +181,27 @@ async def review_booking(booking_id: str, body: dict,
 
 
 # --- shop orders ------------------------------------------------------------------
+@router.post("/orders/coupon")
+async def check_order_coupon(body: dict, auth: dict = Depends(customer_dep),
+                             db: AsyncSession = Depends(get_db)):
+    # Phase 14: live coupon check for the cart modal — same wording the order
+    # create will enforce, without reserving anything or touching stock.
+    from ..models import Kit, Prasad
+    from ..services import coupons as C
+    b = body or {}
+    code = v_str(b.get("code"), "Coupon code", max_len=20)
+    sub = 0
+    for it in (b.get("items") or [])[:30]:
+        kit = await db.get(Kit, it.get("k") or "")
+        pr = None if kit else await db.get(Prasad, it.get("k") or "")
+        if kit or pr:
+            sub += (kit or pr).price * v_int(it.get("q") or 1, "Quantity", min_val=1, max_val=20)
+    coupon, problem = await C.check_for_order(db, code, (await _me(db, auth)).id, sub)
+    if problem:
+        return {"code": code, "problem": problem}
+    return {"code": coupon["code"], "problem": "", "discount": C.discount_for_order(coupon, sub)}
+
+
 @router.post("/orders", status_code=201)
 async def create_order(body: dict, auth: dict = Depends(customer_dep),
                        db: AsyncSession = Depends(get_db)):
@@ -219,10 +240,28 @@ async def create_order(body: dict, auth: dict = Depends(customer_dep),
                     raise conflict(f"{pr.name} does not have enough stock")
             sub += (pr.price or 0) * q
         clean.append({"k": it.get("k"), "q": q})
-    dele = 0 if (sub >= 999 or u.plus) else 49
-    db.add(Order(id=id, user_id=u.id, items=json.dumps(clean), total=sub + dele,
-                 date=time.strftime("%Y-%m-%d"), status="Placed", city=city, address=address))
+    # Phase 14: the cart redeems ALL-scope coupons against the goods subtotal.
+    # Validation wording is shared with bookings/kundalis; delivery is charged
+    # on the post-coupon subtotal so a code can never create a negative cart.
+    from ..services import coupons as C
+    disc = 0
+    coupon_code = ""
+    if b.get("coupon"):
+        coupon, problem = await C.check_for_order(db, b["coupon"], u.id, sub)
+        if problem:
+            raise bad(problem)
+        disc = C.discount_for_order(coupon, sub)
+        if disc > 0:
+            coupon_code = coupon["code"]
+    after = max(0, sub - disc)
+    dele = 0 if (after >= 999 or u.plus) else 49
+    db.add(Order(id=id, user_id=u.id, items=json.dumps(clean), total=after + dele,
+                 date=time.strftime("%Y-%m-%d"), status="Placed", city=city, address=address,
+                 coupon=coupon_code, discount=disc))
     await db.flush()
+    if coupon_code:
+        await db.execute(update(Coupon).where(Coupon.code == coupon_code).values(used=Coupon.used + 1))
+        await C.record_redemption(db, coupon_code, u.id, "order", id, disc)
     db.add(Notif(user_id=u.id, channel="WhatsApp", message=f"Order {id} placed.",
                  ts=int(time.time() * 1000)))
     row = await db.get(Order, id)

@@ -41,9 +41,20 @@
     return { svc, tmp, conv, sam, pra, del, disc, rd, pts, gst, total, earn: Math.floor(total / 100) * (plus ? 2 : 1) };
   }
 
-  function couponProblem(c, svc) {
+  /* Phase 14: validity goes beyond active+minimum. x (all optional):
+     scope/pujaId — which surface is asking; now — wall clock for the window;
+     usedByUser — redemptions this user already has (per_user limit check). */
+  function couponProblem(c, svc, x) {
     if (!c || !c.active) return 'Coupon not found or inactive.';
+    x = x || {};
+    const now = x.now || Date.now();
+    if (c.starts && now < c.starts) return 'This coupon is not active yet.';
+    if (c.expires && now >= c.expires) return 'This coupon has expired.';
+    const scope = c.scope || 'ALL';
+    if (x.scope && scope !== 'ALL' && scope !== x.scope) return 'This coupon does not apply to ' + (x.scope === 'KUNDALI' ? 'kundali purchases' : 'this purchase') + '.';
+    if (x.pujaId && c.pujaId && c.pujaId !== x.pujaId) return 'This coupon applies to a different puja.';
     if (svc < c.min) return 'Needs a puja value of at least Rs ' + c.min + '.';
+    if (c.per_user && x.usedByUser != null && x.usedByUser >= c.per_user) return 'You have already used this coupon the maximum number of times.';
     return '';
   }
 

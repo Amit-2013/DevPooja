@@ -7,6 +7,7 @@ const S = require('../lib/serialize');
 const { v, bad, conflict, notFound, HttpError, today, j, rid, wrap } = require('../lib/util');
 const { notify } = require('../services/notify');
 const P = require('../../shared/pricing');
+const C = require('../services/coupons');
 
 router.use(requireRole('customer'));
 const me = (req) => currentUser(req);
@@ -156,10 +157,38 @@ router.post('/orders', (req, res) => {
       sub += (kit || pr).price * q; clean.push({ k: it.k, q });
     }
     const del = sub >= 999 || u.plus ? 0 : 49;
-    db.prepare("INSERT INTO orders(id,user_id,items,total,date,status,city,address) VALUES(?,?,?,?,?,'Placed',?,?)").run(id, u.id, JSON.stringify(clean), sub + del, today(), city, address);
+    /* Phase 14: the cart redeems ALL-scope coupons against the goods subtotal.
+      Validation wording is shared with bookings/kundalis; delivery is charged
+      on the post-coupon subtotal so a code can never create a negative cart. */
+    let disc = 0, couponCode = '';
+    if (req.body.coupon) {
+      const { coupon, problem } = C.checkForOrder(req.body.coupon, u.id, sub);
+      if (problem) throw bad(problem);
+      disc = C.discountForOrder(coupon, sub);
+      if (disc > 0) couponCode = coupon.code;
+    }
+    const after = Math.max(0, sub - disc);
+    const del2 = after >= 999 || u.plus ? 0 : 49;
+    db.prepare("INSERT INTO orders(id,user_id,items,total,date,status,city,address,coupon,discount) VALUES(?,?,?,?,?,'Placed',?,?,?,?)").run(id, u.id, JSON.stringify(clean), after + del2, today(), city, address, couponCode, disc);
+    if (couponCode) { db.prepare('UPDATE coupons SET used=used+1 WHERE code=?').run(couponCode); C.recordRedemption(couponCode, u.id, 'order', id, disc); }
   })();
   notify(u.id, 'WhatsApp', `Order ${id} placed.`);
   res.status(201).json({ order: S.order(db.prepare('SELECT * FROM orders WHERE id=?').get(id)) });
+});
+/* Phase 14: live coupon check for the cart modal — same wording the order
+   create will enforce, without reserving anything or touching stock. */
+router.post('/orders/coupon', (req, res) => {
+  const u = me(req);
+  const code = v.str(req.body.code, 'Coupon code', { max: 20 });
+  const items = v.arr(req.body.items || [], 'Items', 30);
+  let sub = 0;
+  for (const it of items) {
+    const kit = db.prepare('SELECT * FROM kits WHERE id=?').get(it.k), pr = kit ? null : db.prepare('SELECT * FROM prasad WHERE id=?').get(it.k);
+    if (kit || pr) sub += (kit || pr).price * v.int(it.q || 1, 'Quantity', { min: 1, max: 20 });
+  }
+  const { coupon, problem } = C.checkForOrder(code, u.id, sub);
+  if (problem) return res.json({ code, problem });
+  res.json({ code: coupon.code, problem: '', discount: C.discountForOrder(coupon, sub) });
 });
 router.post('/tickets', (req, res) => {
   const u = me(req), bid = v.str(req.body.b, 'Booking', { optional: true, max: 20 });

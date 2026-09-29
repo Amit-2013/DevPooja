@@ -45,14 +45,18 @@ function priceRequest(userRow, body, { strictCoupon = true } = {}) {
   let coupon = null, couponError = '';
   if (body.coupon) {
     const c = db.prepare('SELECT * FROM coupons WHERE code=?').get(String(body.coupon).toUpperCase());
-    coupon = c ? { code: c.code, type: c.type, val: c.val, max: c.max, min: c.min, active: !!c.active } : null;
+    coupon = require('./coupons').couponForProblem(c);
   }
   const base = { puja: { price: puja.price }, pandit: pandit ? { pf: pandit.pf } : null, plus: !!(userRow && userRow.plus), kits: kits.map((k) => ({ price: k.price })), prasad: prasad.map((k) => ({ price: k.price })), points: userRow ? userRow.pts : 0, usePoints: !!body.usePoints && !!userRow,
     /* Phase 11: explicit per-mode price (NULL = legacy formula) — flat, pf does not apply */
     modePrice: puja['price_' + mode] != null ? puja['price_' + mode] : null };
   if (body.coupon) {
     const svc = P.quote(mode, { ...base, coupon: null, usePoints: false }).svc;
-    couponError = P.couponProblem(coupon, svc);
+    /* Phase 14: scope (PUJA-surface coupon), per-puja restriction, validity
+       window and per-user cap are checked here, at quote time. */
+    const usedByUser = coupon && userRow && userRow.id
+      ? db.prepare('SELECT COUNT(*) AS n FROM coupon_redemptions WHERE code=? AND user_id=?').get(coupon.code, userRow.id).n : 0;
+    couponError = P.couponProblem(coupon, svc, { scope: 'PUJA', pujaId: puja.id, usedByUser });
     if (couponError) { if (strictCoupon) throw bad(couponError); coupon = null; }
   }
   const q = P.quote(mode, { ...base, coupon });
@@ -94,8 +98,12 @@ function createBooking(user, body) {
     }
     for (const k of kits) { const r = db.prepare('UPDATE kits SET stock=stock-1 WHERE id=? AND stock>0').run(k.id); if (!r.changes) throw conflict(k.name + ' is out of stock'); }
     if (q.pts) db.prepare('UPDATE users SET pts=pts-? WHERE id=?').run(q.pts, user.id);
-    if (pr.coupon && q.disc) db.prepare('UPDATE coupons SET used=used+1 WHERE code=?').run(pr.coupon.code);
     const id = 'DP' + nextSeq('booking_seq', 2401);
+    if (pr.coupon && q.disc) {
+      db.prepare('UPDATE coupons SET used=used+1 WHERE code=?').run(pr.coupon.code);
+      /* Phase 14: the money moment — per-user cap counts these */
+      require('./coupons').recordRedemption(pr.coupon.code, user.id, 'booking', id, q.disc);
+    }
     const status = gateway ? 'PendingPayment' : pandit ? 'Confirmed' : 'New';
     const payInfo = { method: gateway ? 'razorpay' : String(body.payMethod || 'UPI').slice(0, 20), ref: gateway ? '' : 'MOCK' + Math.floor(100000 + Math.random() * 900000), paid: !gateway };
     try {

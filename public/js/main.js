@@ -77,7 +77,11 @@ const ACT={
  cq(d){const c=cart.find(x=>x.k===d.id);c.q+=+d.d;if(c.q<1)cart=cart.filter(x=>x!==c);saveCart();header();cartModal()},
  kit(d){const k=KITS.find(x=>x.id===d.id);modal('<h2>'+k.ic+' '+k.n+'</h2><ul class="mt" style="padding-left:20px">'+k.items.map(i=>'<li>'+esc(i)+'</li>').join('')+'</ul><div class="row mt"><b>'+inr(k.p)+'</b><button class="btn s" data-act="cadd" data-id="'+k.id+'">Add to cart</button></div>')},
  async corder(){if(!me()){afterLogin=()=>cartModal();closeModal();loginModal();return}
-  const r=await run(()=>api('/orders',{body:{items:cart.map(c=>({k:c.k,q:c.q})),address:val('cad'),city:val('cct')}}),'Order placed');if(r){cart=[];saveCart();closeModal();location.hash='#/account/orders'}},
+  const cpn=val('ccpn').trim().toUpperCase();
+  const r=await run(()=>api('/orders',{body:{items:cart.map(c=>({k:c.k,q:c.q})),address:val('cad'),city:val('cct'),coupon:cpn||undefined}}),'Order placed');if(r){cart=[];saveCart();closeModal();location.hash='#/account/orders'}},
+ async 'cc-check'(){const c=val('ccpn').trim().toUpperCase();const out=$('#ccout');if(!out)return;
+  if(!c){CART_DISC.code='';CART_DISC.amt=0;out.textContent='';return}
+  try{const r=await api('/orders/coupon',{body:{code:c,items:cart.map(x=>({k:x.k,q:x.q}))}});if(r.problem){CART_DISC.code='';CART_DISC.amt=0;out.textContent='✕ '+r.problem;out.style.color='var(--bad,#c0392b)'}else{CART_DISC.code=r.code;CART_DISC.amt=r.discount;cartModal()}}catch(e){out.textContent='✕ '+e.message;out.style.color='var(--bad,#c0392b)'}},
  /* wizard */
  'wz-mode'(d){W.mode=d.v;W.step=2;W.templeId=W.mode==='temple'?W.templeId:'';render(true)},
  'wz-slot'(d){W.slot=d.v;if(W.panditId&&!free(PD(W.panditId),W.date,W.slot)){W.panditId='';W.pSel=false}render(true)},

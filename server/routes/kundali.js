@@ -124,6 +124,8 @@ router.post('/pay/verify', (req, res) => {
       .run(pay.mode() === 'razorpay' ? String(sig.razorpay_payment_id).slice(0, 60) : 'MOCK' + rid(4), id);
     KB.idemPut(req.body.idemKey, 'kundali.pay', info);
     require('../services/ledger').dedupe({ type: 'KUNDALI_PAYMENT', amount: k.final_amount, userId: k.customer_id, kundaliId: id, refTable: 'kundalis', refId: id, note: 'Kundali payment' });
+    /* Phase 14: gateway redemption records at verify, same as the mock path. */
+    if (k.coupon) require('../services/coupons').recordRedemption(k.coupon, k.customer_id, 'kundali', id, k.final_amount);
   })();
   res.json(info);
 });
@@ -236,15 +238,16 @@ router.post('/generate', wrap(async (req, res) => {
         .run(profileId, userId, name, gender || null, dob, tob, place.city, place.lat, place.lon, place.tz, place.state || '', place.country || '', accuracy, purpose, email, mobile, gotra, b.whatsapp ? String(b.whatsapp).replace(/\D/g, '').slice(-10) : '');
     }
     const qd = quote || { base, discount: 0, gst: 0, final: 0, currency: 'INR' };
+    const couponCode = qd.coupon || '';
     db.prepare(`INSERT INTO kundalis(id,profile_id,name,chart_data,planetary_data,lagna,rashi,nakshatra,pada,dasha_data,navamsa_data,calculation_version,
-                customer_id,family_member_id,relationship,billing,price,discount,gst,final_amount,currency,order_id,payment_status,payment_id,idem_key)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+                customer_id,family_member_id,relationship,billing,price,discount,gst,final_amount,currency,order_id,payment_status,payment_id,idem_key,coupon)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(kundaliId, profileId, name, JSON.stringify(chart), JSON.stringify(astro.kundali.analysisView(chart)),
         chart.lagna.signName, chart.rashi.signName, chart.panchang.nakshatra, chart.planets.moon.nakshatra.pada,
         JSON.stringify(chart.dashas), JSON.stringify(chart.navamsaSigns), ENGINE_VERSION,
         userId, familyMemberId, relationship || '', billing, qd.base, qd.discount, qd.gst, qd.final, qd.currency || 'INR',
         orderId, chargeable ? (billing === 'PAID' ? 'Paid' : 'Pending') : (billing === 'FREE' ? 'Free' : ''),
-        billing === 'PAID' ? 'MOCK' + rid(4) : '', idemKey);
+        billing === 'PAID' ? 'MOCK' + rid(4) : '', idemKey, couponCode);
 
     const insDosh = db.prepare(`INSERT INTO dosh_analysis(kundali_id,dosh_type,detected,severity,confidence,explanation,evidence,evidence_hi,recommendation)
                                 VALUES(?,?,?,?,?,?,?,?,?)`);
@@ -265,6 +268,9 @@ router.post('/generate', wrap(async (req, res) => {
      row here; gateway-mode payments record it in /pay/verify instead. */
   if (billing === 'PAID') {
     require('../services/ledger').dedupe({ type: 'KUNDALI_PAYMENT', amount: quote.final, userId, kundaliId, refTable: 'kundalis', refId: kundaliId, note: 'Kundali payment (mock)' });
+    /* Phase 14: the money moment — count the kundali redemption here so the
+       per-user cap holds even when the customer abandons the gateway flow. */
+    if (quote.coupon) require('../services/coupons').recordRedemption(quote.coupon, userId, 'kundali', kundaliId, quote.final);
   }
 
   /* Razorpay order for chargeable kundalis in gateway mode. */
