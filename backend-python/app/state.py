@@ -37,7 +37,7 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
             "pujas": [puja(r, kit_items.get(r.kit)) for r in puja_rows],
             "kits": [kit(k) for k in kits],
             "prasad": [prasad(k) for k in (await db.execute(select(Prasad))).scalars().all()],
-            "temples": [temple(t) for t in (await db.execute(select(Temple))).scalars().all()],
+            "temples": [temple(t) for t in (await db.execute(select(Temple).where(Temple.active == 1))).scalars().all()],
             "festivals": [festival(f) for f in (await db.execute(
                 select(Festival).order_by(Festival.date))).scalars().all()],
         },

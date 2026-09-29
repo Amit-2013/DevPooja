@@ -66,7 +66,9 @@ def prasad(r) -> dict:
 
 def temple(r) -> dict:
     return {"id": r.id, "n": r.name, "city": r.city, "deity": r.deity, "ic": r.icon,
-            "pujas": j(r.pujas, []), "off": r.offering, "d": r.descr}
+            "pujas": j(r.pujas, []), "off": r.offering, "d": r.descr,
+            "active": r.active if getattr(r, "active", None) is not None else 1,
+            "timings": r.timings or "", "photo": r.photo or ""}
 
 
 def festival(r) -> dict:

@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import (AuditLog, Booking, Coupon, KycDocument, Kit, Order, Pandit,
-                      Prasad, Puja, Setting, User)
+                      Prasad, Puja, Setting, Temple, User)
 from ..security import require_role
-from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout
+from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout, temple as s_temple
 from ..services import bookings as B
 from ..services import kyc as KYC
 from ..services import account_status as AS
@@ -635,6 +635,102 @@ async def _item_used(db: AsyncSession, id: str) -> int:
     od = (await db.execute(select(func.count()).select_from(Order).where(
         Order.items.like(_like(id))))).scalar_one()
     return bk + od
+
+
+# --- Phase 12: temple management. DELETE answers 409 when bookings reference
+# the temple (the audit trail keeps the history) — deactivate instead; the
+# active flag delists it from the customer directory and refuses new temple
+# bookings without breaking the old ones. Every write is audited.
+@router.get("/temples")
+async def temples_view(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(Temple).order_by(Temple.name))).scalars().all()
+    return {"temples": [s_temple(t) for t in rows]}
+
+
+async def _validated_temple_pujas(db: AsyncSession, raw) -> list[str]:
+    ids = [x for x in (raw if isinstance(raw, list) else []) if await db.get(Puja, x)]
+    if not ids:
+        raise bad("Choose at least one puja the temple offers")
+    return ids
+
+
+@router.post("/temples", status_code=201)
+async def create_temple(body: dict, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    b = body or {}
+    pujas = await _validated_temple_pujas(db, b.get("pujas"))
+    tid = "t" + rid(3)
+    db.add(Temple(id=tid, name=v_str(b.get("name"), "Temple name", max_len=120),
+                  city=v_str(b.get("city"), "City", max_len=80, optional=True),
+                  deity=v_str(b.get("deity"), "Deity", max_len=80, optional=True),
+                  icon="🛕", pujas=json.dumps(pujas),
+                  offering=v_int(b.get("offering") or 0, "Offering", min_val=0, max_val=1000000),
+                  descr=v_str(b.get("descr"), "Description", max_len=500, optional=True),
+                  active=1,
+                  timings=v_str(b.get("timings"), "Timings", max_len=200, optional=True),
+                  photo=v_str(b.get("photo"), "Photo", max_len=300, optional=True)))
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="temple.create",
+                    entity="temple", entity_id=tid,
+                    detail=json.dumps({"name": b.get("name"), "pujas": pujas}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    return {"temple": s_temple(await db.get(Temple, tid))}
+
+
+@router.patch("/temples/{temple_id}")
+async def patch_temple(temple_id: str, body: dict, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    t = await db.get(Temple, temple_id)
+    if not t:
+        raise not_found("Temple not found")
+    b = body or {}
+    old_name, old_active = t.name, bool(t.active)
+    if "name" in b:
+        t.name = v_str(b["name"], "Temple name", max_len=120)
+    if "city" in b:
+        t.city = v_str(b["city"], "City", max_len=80, optional=True)
+    if "deity" in b:
+        t.deity = v_str(b["deity"], "Deity", max_len=80, optional=True)
+    if "descr" in b:
+        t.descr = v_str(b["descr"], "Description", max_len=500, optional=True)
+    if "timings" in b:
+        t.timings = v_str(b["timings"], "Timings", max_len=200, optional=True)
+    if "photo" in b:
+        t.photo = v_str(b["photo"], "Photo", max_len=300, optional=True)
+    if "pujas" in b:
+        t.pujas = json.dumps(await _validated_temple_pujas(db, b["pujas"]))
+    if "active" in b:
+        t.active = 1 if b["active"] else 0
+    await db.flush()
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="temple.update",
+                    entity="temple", entity_id=t.id,
+                    detail=json.dumps({"from": {"name": old_name, "active": old_active},
+                                       "to": {"name": t.name, "active": bool(t.active)}}),
+                    old_value=json.dumps({"active": old_active}),
+                    new_value=json.dumps({"active": bool(t.active)}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    await db.refresh(t)
+    return {"temple": s_temple(t)}
+
+
+@router.delete("/temples/{temple_id}")
+async def delete_temple(temple_id: str, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    t = await db.get(Temple, temple_id)
+    if not t:
+        raise not_found("Temple not found")
+    used = (await db.execute(select(func.count()).select_from(Booking).where(Booking.temple_id == t.id))).scalar_one()
+    if used:
+        raise conflict("Past bookings reference this temple. Deactivate it instead.")
+    await db.delete(t)
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="temple.delete",
+                    entity="temple", entity_id=t.id,
+                    detail=json.dumps({"name": t.name}),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    return {"ok": True}
 
 
 @router.delete("/kits/{kit_id}")

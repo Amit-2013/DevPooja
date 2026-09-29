@@ -142,6 +142,53 @@ router.patch('/pujas/:id', (req, res) => {
   if (b.hidden !== undefined) db.prepare('UPDATE pujas SET hidden=? WHERE id=?').run(b.hidden ? 1 : 0, p.id);
   res.json({ ok: true });
 });
+/* --- Phase 12: temple management. DELETE answers 409 when bookings reference
+   the temple (the audit trail keeps the history) — deactivate instead; the
+   active flag delists it from the customer directory and refuses new temple
+   bookings without breaking the old ones. Every write is audited. */
+router.get('/temples', (req, res) => res.json({ temples: db.prepare('SELECT * FROM temples ORDER BY name').all().map(S.temple) }));
+router.post('/temples', (req, res) => {
+  const b = req.body || {};
+  const id = 't' + rid(3);
+  const pujas = (Array.isArray(b.pujas) ? b.pujas : []).filter((x) => db.prepare('SELECT 1 FROM pujas WHERE id=?').get(x));
+  if (!pujas.length) throw bad('Choose at least one puja the temple offers');
+  db.prepare('INSERT INTO temples(id,name,city,deity,icon,pujas,offering,descr,active,timings,photo) VALUES(?,?,?,?,?,?,?,?,1,?,?)')
+    .run(id, v.str(b.name, 'Temple name', { max: 120 }), v.str(b.city, 'City', { max: 80, optional: true }),
+         v.str(b.deity, 'Deity', { max: 80, optional: true }), '🛕', JSON.stringify(pujas),
+         v.int(b.offering || 0, 'Offering', { min: 0, max: 1000000 }),
+         v.str(b.descr, 'Description', { max: 500, optional: true }),
+         v.str(b.timings, 'Timings', { max: 200, optional: true }), v.str(b.photo, 'Photo', { max: 300, optional: true }));
+  AUDIT.audit(req.auth.uid, 'temple.create', 'temple', id, { name: b.name, pujas });
+  res.status(201).json({ temple: S.temple(db.prepare('SELECT * FROM temples WHERE id=?').get(id)) });
+});
+router.patch('/temples/:id', (req, res) => {
+  const t = db.prepare('SELECT * FROM temples WHERE id=?').get(req.params.id); if (!t) throw notFound();
+  const b = req.body || {};
+  if (b.name !== undefined) db.prepare('UPDATE temples SET name=? WHERE id=?').run(v.str(b.name, 'Temple name', { max: 120 }), t.id);
+  if (b.city !== undefined) db.prepare('UPDATE temples SET city=? WHERE id=?').run(v.str(b.city, 'City', { max: 80, optional: true }), t.id);
+  if (b.deity !== undefined) db.prepare('UPDATE temples SET deity=? WHERE id=?').run(v.str(b.deity, 'Deity', { max: 80, optional: true }), t.id);
+  if (b.descr !== undefined) db.prepare('UPDATE temples SET descr=? WHERE id=?').run(v.str(b.descr, 'Description', { max: 500, optional: true }), t.id);
+  if (b.timings !== undefined) db.prepare('UPDATE temples SET timings=? WHERE id=?').run(v.str(b.timings, 'Timings', { max: 200, optional: true }), t.id);
+  if (b.photo !== undefined) db.prepare('UPDATE temples SET photo=? WHERE id=?').run(v.str(b.photo, 'Photo', { max: 300, optional: true }), t.id);
+  if (b.pujas !== undefined) {
+    const pujas = (Array.isArray(b.pujas) ? b.pujas : []).filter((x) => db.prepare('SELECT 1 FROM pujas WHERE id=?').get(x));
+    if (!pujas.length) throw bad('Choose at least one puja the temple offers');
+    db.prepare('UPDATE temples SET pujas=? WHERE id=?').run(JSON.stringify(pujas), t.id);
+  }
+  if (b.active !== undefined) db.prepare('UPDATE temples SET active=? WHERE id=?').run(b.active ? 1 : 0, t.id);
+  const after = db.prepare('SELECT * FROM temples WHERE id=?').get(t.id);
+  AUDIT.audit(req.auth.uid, 'temple.update', 'temple', t.id, { from: { name: t.name, active: t.active }, to: { name: after.name, active: after.active } },
+    { oldValue: { active: t.active }, newValue: { active: after.active } });
+  res.json({ temple: S.temple(after) });
+});
+router.delete('/temples/:id', (req, res) => {
+  const t = db.prepare('SELECT * FROM temples WHERE id=?').get(req.params.id); if (!t) throw notFound();
+  const used = db.prepare('SELECT COUNT(*) c FROM bookings WHERE temple_id=?').get(t.id).c;
+  if (used) throw conflict('Past bookings reference this temple. Deactivate it instead.');
+  db.prepare('DELETE FROM temples WHERE id=?').run(t.id);
+  AUDIT.audit(req.auth.uid, 'temple.delete', 'temple', t.id, { name: t.name });
+  res.json({ ok: true });
+});
 router.post('/settings', (req, res) => {
   const prev = db.prepare("SELECT value FROM settings WHERE key='commission'").get();
   setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 }));

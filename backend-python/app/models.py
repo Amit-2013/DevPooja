@@ -128,6 +128,10 @@ class Temple(Base):
     pujas: Mapped[str] = mapped_column(Text, default="[]")
     offering: Mapped[int | None] = mapped_column(Integer)
     descr: Mapped[str | None] = mapped_column(Text)
+    # Phase 12 (migration 019): admin-managed listing state + display fields
+    active: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    timings: Mapped[str | None] = mapped_column(String(200))
+    photo: Mapped[str | None] = mapped_column(String(300))
 
 
 class Festival(Base):

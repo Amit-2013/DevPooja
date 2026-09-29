@@ -31,7 +31,7 @@ function priceRequest(userRow, body, { strictCoupon = true } = {}) {
   if (!puja) throw notFound('Puja not found');
   const mode = v.oneOf(body.mode, Object.keys(P.MODES), 'Puja type');
   if (mode === 'temple') {
-    const ok = db.prepare('SELECT pujas FROM temples').all().some((t) => j(t.pujas, []).includes(puja.id));
+    const ok = db.prepare('SELECT pujas FROM temples WHERE active=1').all().some((t) => j(t.pujas, []).includes(puja.id));
     if (!ok) throw bad('Temple puja is not available for this puja');
   }
   let pandit = null;
@@ -64,7 +64,7 @@ function createBooking(user, body) {
   let addr = null, templeId = null;
   if (mode === 'temple') {
     const t = db.prepare('SELECT * FROM temples WHERE id=?').get(body.templeId);
-    if (!t || !j(t.pujas, []).includes(puja.id)) throw bad('Choose a temple that offers this puja');
+    if (!t || !t.active || !j(t.pujas, []).includes(puja.id)) throw bad('Choose a temple that offers this puja');
     templeId = t.id;
   } else {
     const a = body.addr || {};

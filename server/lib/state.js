@@ -19,7 +19,7 @@ function buildState(auth) {
     config: { paymentMode: pay.mode(), razorpayKeyId: pay.mode() === 'razorpay' ? process.env.RAZORPAY_KEY_ID : null, demo: String(process.env.DEMO_MODE || (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true' },
     catalog: {
       pujas: pujaRows.map((r) => S.puja(r, kitItems[r.kit])), kits: kits.map(S.kit),
-      prasad: db.prepare('SELECT * FROM prasad').all().map(S.prasad), temples: db.prepare('SELECT * FROM temples').all().map(S.temple),
+      prasad: db.prepare('SELECT * FROM prasad').all().map(S.prasad), temples: db.prepare('SELECT * FROM temples WHERE active=1').all().map(S.temple),
       festivals: db.prepare('SELECT * FROM festivals ORDER BY date').all().map(S.festival)
     },
     banners: db.prepare('SELECT * FROM banners WHERE enabled=1').all().map((b) => ({ id: b.id, t: b.text, on: true })),

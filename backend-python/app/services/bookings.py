@@ -90,7 +90,7 @@ async def price_request(db: AsyncSession, user: User | None, body: dict, *, stri
         raise not_found("Puja not found")
     mode = v_one_of(body.get("mode"), list(MODES.keys()), "Puja type")
     if mode == "temple":
-        temples = (await db.execute(select(Temple.pujas))).scalars().all()
+        temples = (await db.execute(select(Temple.pujas).where(Temple.active == 1))).scalars().all()
         if not any(puja.id in j(t, []) for t in temples):
             raise bad("Temple puja is not available for this puja")
     pandit = None
@@ -165,7 +165,7 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
     addr, temple_id = None, None
     if mode == "temple":
         t = await db.get(Temple, body.get("templeId") or "")
-        if not t or puja.id not in j(t.pujas, []):
+        if not t or not t.active or puja.id not in j(t.pujas, []):
             raise bad("Choose a temple that offers this puja")
         temple_id = t.id
     else:
