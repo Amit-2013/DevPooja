@@ -143,3 +143,76 @@ async def test_booking_redemption_recorded(client, db_session):
     row = (await db_session.execute(select(CouponRedemption).where(
         CouponRedemption.source == "booking", CouponRedemption.ref_id == bid))).scalar_one()
     assert row.code == "FIRST100"
+
+
+async def test_coupon_redemption_reports(client, db_session):
+    """Python twin of the Node 'coupon-redemptions and coupon-usage reports'
+    test: ledger rows across all three surfaces render into both new exports
+    (money-moment rows + per-code/per-user rollup), with access control."""
+    import io
+
+    from openpyxl import load_workbook
+
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+    ct = {"Authorization": "Bearer " + await login(client, "customer")}
+
+    # seed one redemption on each surface: booking, kundali, cart order
+    await _coupon(client, aa, "RptAll", val=20, max=20, min=0, scope="ALL")
+    b = await client.post("/api/bookings", headers=ct,
+                          json={"pujaId": "satyanarayan", "mode": "home", "date": day_plus(21),
+                                "slot": "10:00 AM", "addr": {"line": "12 Test Street", "city": "Delhi NCR", "pin": "110001"},
+                                "panditId": "p1", "sam": [], "pra": [], "coupon": "RptAll"})
+    assert b.status_code == 201, b.text
+    place = {"city": "Delhi", "state": "Delhi", "country": "India", "lat": 28.6139, "lon": 77.2090, "tz": "Asia/Kolkata"}
+    for i in range(2):
+        await client.post("/api/kundali/generate", headers=ct,
+                          json={"name": f"Rpt {i}", "dob": "1992-03-03", "tob": "09:15", "place": place, "save": True})
+    gen = await client.post("/api/kundali/generate", headers=ct,
+                            json={"name": "Rpt Kundali", "dob": "1992-03-03", "tob": "09:15",
+                                  "place": place, "save": True, "coupon": "RptAll"})
+    assert gen.status_code == 201, gen.text
+    o1 = await client.post("/api/orders", headers=ct,
+                           json={"items": [{"k": "k_basic", "q": 1}], "address": "12 Test Street",
+                                 "city": "Delhi NCR", "coupon": "RptAll"})
+    assert o1.status_code == 201, o1.text
+
+    sources = (await db_session.execute(
+        select(CouponRedemption.source).where(CouponRedemption.code == "RPTALL"))).scalars().all()
+    assert sorted(sources) == ["booking", "kundali", "order"], "all three surfaces recorded"
+
+    async def wb_of(rid, headers=None, params=None):
+        r = await client.get(f"/api/admin/export/{rid}.xlsx", headers=headers or aa, params=params or {})
+        assert r.status_code == 200, r.text
+        return load_workbook(io.BytesIO(r.content))[rid[:28]]
+
+    assert (await client.get("/api/admin/export/coupon-redemptions.xlsx")).status_code == 401
+    assert (await client.get("/api/admin/export/coupon-usage.xlsx", headers=ct)).status_code == 403
+
+    ws = await wb_of("coupon-redemptions")
+    rows = [[ws.cell(row=i, column=c).value for c in range(1, 8)] for i in range(5, ws.max_row + 1)]
+    rpt = [r for r in rows if r[0] == "RPTALL"]
+    assert len(rpt) == 3
+    assert sorted(r[3] for r in rpt) == ["booking", "kundali", "order"]
+    assert all(r[1] and r[2] for r in rpt), "customer name + contact joined in"
+    assert all(r[5] == 20 for r in rpt), "kundali redemptions now record the discount"
+
+    wsk = await wb_of("coupon-redemptions", params={"source": "kundali"})
+    kvals = [wsk.cell(row=i, column=4).value for i in range(5, wsk.max_row + 1)]
+    kvals = [v for v in kvals if v]
+    assert kvals and all(v == "kundali" for v in kvals)
+
+    wsu = await wb_of("coupon-usage")
+    headers_row = [wsu.cell(row=4, column=c).value for c in range(1, wsu.max_column + 1)]
+    assert headers_row[:5] == ["Code", "Scope", "Redemptions", "Customers", "Total discount (Rs)"]
+    urows = [[wsu.cell(row=i, column=c).value for c in range(1, wsu.max_column + 1)]
+             for i in range(5, wsu.max_row + 1)]
+    block = [r for r in urows if r[0] == "RPTALL"]
+    assert len(block) == 1, "one RPTALL block header row"
+    assert block[0][1] == "ALL"
+    assert block[0][2] == 3 and block[0][3] == 1
+    assert block[0][4] == 60, "total discount summed across surfaces"
+    assert block[0][7] == 3 and block[0][8] == 60, "per-user uses + discount"
+
+    wsf = await wb_of("coupon-usage", params={"code": "rptall"})
+    fvals = [wsf.cell(row=i, column=1).value for i in range(5, wsf.max_row + 1)]
+    assert [v for v in fvals if v] == ["RPTALL"], "code filter scopes the rollup"

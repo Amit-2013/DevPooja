@@ -35,6 +35,7 @@ REPORT_TITLES = {
     "prasad": "Prasad", "orders": "Order", "payments": "Payment",
     "refunds": "Refund", "coupons": "Coupon", "campaigns": "Campaign",
     "payouts": "Pandit Payout", "payout-audit": "Payout Ledger (holds, refs, UTR)", "revenue": "Revenue by Month",
+    "coupon-redemptions": "Coupon Redemptions (money-moment ledger)", "coupon-usage": "Coupon Usage (per code / per user)",
     "commission": "Commission by Month", "puja-performance": "Puja Performance",
     "pandit-performance": "Pandit Performance", "customer-activity": "Customer Activity",
     "login-activity": "Login Activity", "audit-logs": "Audit Log", "media": "Puja Media",

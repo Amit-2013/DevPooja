@@ -619,6 +619,47 @@ const REPORTS = {
     ['ID', 'Name', 'Price (Rs)', 'Stock', 'Active']),
   coupons: (f) => select('SELECT code, type, val, max, min, active, used FROM coupons ORDER BY code', [],
     ['Code', 'Type', 'Value', 'Max (Rs)', 'Min order (Rs)', 'Active', 'Times used']),
+  /* --- coupon redemptions (Phase 14 ledger): money-moment rows + per-code and
+     per-user rollups across all three paid surfaces (booking | kundali | order). */
+  'coupon-redemptions': (f) => {
+    const w = [], a = [];
+    let sql = 'SELECT r.code, u.name AS customer, COALESCE(u.mobile, u.email, r.user_id) AS contact, r.source, r.ref_id, r.amount, r.created FROM coupon_redemptions r LEFT JOIN users u ON u.id=r.user_id';
+    if (f.code) { w.push('r.code=?'); a.push(String(f.code).toUpperCase()); }
+    if (f.source) { w.push('r.source=?'); a.push(String(f.source)); }
+    if (f.from) { w.push('r.created >= ?'); a.push(Number(f.from)); }
+    if (f.to) { w.push('r.created <= ?'); a.push(Number(f.to)); }
+    if (w.length) sql += ' WHERE ' + w.join(' AND ');
+    sql += ' ORDER BY r.created DESC LIMIT 5000';
+    return select(sql, a,
+      ['Code', 'Customer', 'Contact', 'Surface', 'Reference', 'Discount (Rs)', 'When']);
+  },
+  'coupon-usage': (f) => {
+    const w = [], a = [];
+    let sql = 'SELECT r.code, COUNT(*) AS n, SUM(r.amount) AS amt, COUNT(DISTINCT r.user_id) AS users FROM coupon_redemptions r';
+    if (f.code) { w.push('r.code=?'); a.push(String(f.code).toUpperCase()); }
+    if (f.from) { w.push('r.created >= ?'); a.push(Number(f.from)); }
+    if (f.to) { w.push('r.created <= ?'); a.push(Number(f.to)); }
+    if (w.length) sql += ' WHERE ' + w.join(' AND ');
+    sql += ' GROUP BY r.code ORDER BY amt DESC, r.code';
+    const rows = db.prepare(sql).all(...a);
+    const w2 = [], a2 = [];
+    let sql2 = 'SELECT r.code, r.user_id, u.name AS customer, COALESCE(u.mobile, u.email, r.user_id) AS contact, COUNT(*) AS n, SUM(r.amount) AS amt, MIN(r.created) AS first, MAX(r.created) AS last FROM coupon_redemptions r LEFT JOIN users u ON u.id=r.user_id';
+    if (f.code) { w2.push('r.code=?'); a2.push(String(f.code).toUpperCase()); }
+    if (f.from) { w2.push('r.created >= ?'); a2.push(Number(f.from)); }
+    if (f.to) { w2.push('r.created <= ?'); a2.push(Number(f.to)); }
+    if (w2.length) sql2 += ' WHERE ' + w2.join(' AND ');
+    sql2 += ' GROUP BY r.code, r.user_id ORDER BY r.code, amt DESC LIMIT 5000';
+    const perUser = db.prepare(sql2).all(...a2);
+    return { columns: ['Code', 'Scope', 'Redemptions', 'Customers', 'Total discount (Rs)', 'Customer', 'Contact', 'Uses by customer', 'Customer discount (Rs)', 'First', 'Last'],
+             rows: rows.map((r) => {
+               const c = db.prepare('SELECT scope FROM coupons WHERE code=?').get(r.code) || {};
+               const mine = perUser.filter((p) => p.code === r.code);
+               const body = mine.map((p, i) => [i === 0 ? r.code : '', i === 0 ? (c.scope || 'ALL') : '', i === 0 ? r.n : '', i === 0 ? r.users : '', i === 0 ? (r.amt || 0) : '', p.customer || '-', p.contact, p.n, p.amt || 0, new Date(p.first).toISOString().slice(0, 10), new Date(p.last).toISOString().slice(0, 10)]);
+               if (!body.length) return [r.code, c.scope || 'ALL', r.n, r.users, r.amt || 0, '-', '-', 0, 0, '', ''];
+               return body;
+             }).flat(),
+             rowsFlat: true };
+  },
   campaigns: (f) => select('SELECT id, name, channel, audience, status, sent FROM campaigns ORDER BY id', [],
     ['ID', 'Name', 'Channel', 'Audience', 'Status', 'Sent']),
   payouts: (f) => select('SELECT po.id, p.name AS pandit, po.amount, po.date, po.status, po.booking_id, po.gross_amount, po.commission_amt, po.tax_amt, po.refund_amt, po.adjustment_amt, po.hold_reason, po.processing_date, po.disbursement_date, po.payment_ref, po.utr FROM payouts po LEFT JOIN pandits p ON p.id=po.pandit_id ORDER BY po.date DESC', [],
@@ -752,7 +793,7 @@ const REPORT_TITLES = {
   kundalis: 'Kundali', 'kundali-payments': 'Kundali Payment', 'family-members': 'Family Member', samagri: 'Samagri Kit',
   prasad: 'Prasad', orders: 'Order', payments: 'Payment', refunds: 'Refund', coupons: 'Coupon', campaigns: 'Campaign',
   payouts: 'Pandit Payout', 'payout-audit': 'Payout Ledger (holds, refs, UTR)', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
-  'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
+  'coupon-redemptions': 'Coupon Redemptions (money-moment ledger)', 'coupon-usage': 'Coupon Usage (per code / per user)', 'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
   'audit-logs': 'Audit Log', media: 'Puja Media', dakshina: 'Dakshina (Pandit Earnings Ledger)', transactions: 'Transactions Ledger'
 };
 

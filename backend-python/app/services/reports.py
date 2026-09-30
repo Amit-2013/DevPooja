@@ -181,6 +181,76 @@ async def report(db: AsyncSession, report_id: str, f: dict) -> dict | None:
         return {"columns": ["Code", "Type", "Value", "Max (Rs)", "Min order (Rs)", "Active", "Times used"],
                 "rows": [[r.code, r.type, r.val, r.max, r.min, r.active, r.used] for r in rows]}
 
+    # --- coupon redemptions (Phase 14 ledger): money-moment rows + per-code and
+    # per-user rollups across all three paid surfaces (booking | kundali | order).
+    if report_id == "coupon-redemptions":
+        w, p = [], {}
+        if f.get("code"):
+            w.append("r.code = :code")
+            p["code"] = str(f["code"]).upper()
+        if f.get("source"):
+            w.append("r.source = :source")
+            p["source"] = str(f["source"])
+        if f.get("from"):
+            w.append("r.created >= :tfrom")
+            p["tfrom"] = int(f["from"])
+        if f.get("to"):
+            w.append("r.created <= :tto")
+            p["tto"] = int(f["to"])
+        cond = (" WHERE " + " AND ".join(w) if w else "")
+        rows = await _all(db, "SELECT r.code, r.user_id, u.name AS customer, "
+                              "COALESCE(u.mobile, u.email, r.user_id) AS contact, "
+                              "r.source, r.ref_id, r.amount, r.created "
+                              "FROM coupon_redemptions r LEFT JOIN users u ON u.id = r.user_id"
+                              + cond + " ORDER BY r.created DESC LIMIT 5000", p)
+        return {"columns": ["Code", "Customer", "Contact", "Surface", "Reference", "Discount (Rs)", "When"],
+                "rows": [[r.code, r.customer or "-", r.contact, r.source, r.ref_id, r.amount,
+                          _ms_to_sqlite_dt(r.created)] for r in rows]}
+
+    if report_id == "coupon-usage":
+        w, p = [], {}
+        if f.get("code"):
+            w.append("r.code = :code")
+            p["code"] = str(f["code"]).upper()
+        if f.get("from"):
+            w.append("r.created >= :tfrom")
+            p["tfrom"] = int(f["from"])
+        if f.get("to"):
+            w.append("r.created <= :tto")
+            p["tto"] = int(f["to"])
+        cond = (" WHERE " + " AND ".join(w) if w else "")
+        per_code = await _all(db, "SELECT r.code, COUNT(*) AS n, SUM(r.amount) AS amt, "
+                                  "COUNT(DISTINCT r.user_id) AS users FROM coupon_redemptions r"
+                                  + cond + " GROUP BY r.code ORDER BY amt DESC, r.code", p)
+        per_user = await _all(db, "SELECT r.code, r.user_id, u.name AS customer, "
+                                   "COALESCE(u.mobile, u.email, r.user_id) AS contact, "
+                                   "COUNT(*) AS n, SUM(r.amount) AS amt, MIN(r.created) AS first, "
+                                   "MAX(r.created) AS last FROM coupon_redemptions r "
+                                   "LEFT JOIN users u ON u.id = r.user_id"
+                                   + cond + " GROUP BY r.code, r.user_id ORDER BY r.code, amt DESC LIMIT 5000", p)
+        scope_rows = {r.code: r.scope for r in await _all(db, "SELECT code, scope FROM coupons")}
+        grouped: dict = {}
+        for r in per_user:
+            grouped.setdefault(r.code, []).append(r)
+        out = []
+        import datetime as _dt
+        for r in per_code:
+            scope = scope_rows.get(r.code, "ALL")
+            mine = grouped.get(r.code, [])
+            if not mine:
+                out.append([r.code, scope, r.n, r.users, r.amt or 0, "-", "-", 0, 0, "", ""])
+                continue
+            for i, pu_ in enumerate(mine):
+                out.append([r.code if i == 0 else "", scope if i == 0 else "",
+                            r.n if i == 0 else "", r.users if i == 0 else "",
+                            r.amt if i == 0 else "",
+                            pu_.customer or "-", pu_.contact, pu_.n, pu_.amt or 0,
+                            _dt.datetime.fromtimestamp(pu_.first / 1000, _dt.timezone.utc).date().isoformat(),
+                            _dt.datetime.fromtimestamp(pu_.last / 1000, _dt.timezone.utc).date().isoformat()])
+        return {"columns": ["Code", "Scope", "Redemptions", "Customers", "Total discount (Rs)",
+                            "Customer", "Contact", "Uses by customer", "Customer discount (Rs)", "First", "Last"],
+                "rows": out}
+
     if report_id == "campaigns":
         rows = await _all(db, "SELECT id, name, channel, audience, status, sent FROM campaigns ORDER BY id")
         return {"columns": ["ID", "Name", "Channel", "Audience", "Status", "Sent"],

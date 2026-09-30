@@ -233,7 +233,7 @@ async def pay_verify(body: dict, auth: dict = Depends(customer_dep),
         # Phase 14: gateway redemption records at verify, same as the mock path.
         if k.coupon:
             from ..services.coupons import record_redemption
-            await record_redemption(db, k.coupon, k.customer_id, "kundali", kid, k.final_amount)
+            await record_redemption(db, k.coupon, k.customer_id, "kundali", kid, k.discount or 0)
     await KB.idem_put(db, b.get("idemKey"), "kundali.pay", info)
     await db.flush()
     return info
@@ -444,7 +444,7 @@ async def generate(body: dict, request: Request,
         if quote.get("coupon"):
             from ..services.coupons import record_redemption
             await record_redemption(db, quote["coupon"], user_id, "kundali",
-                                    kundali_id, quote["final"])
+                                    kundali_id, quote["discount"] or 0)
 
     # 5. response: the full flow result for the result page
     order = {"high": 0, "medium": 1, "low": 2, "none": 3}

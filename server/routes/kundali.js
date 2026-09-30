@@ -125,7 +125,7 @@ router.post('/pay/verify', (req, res) => {
     KB.idemPut(req.body.idemKey, 'kundali.pay', info);
     require('../services/ledger').dedupe({ type: 'KUNDALI_PAYMENT', amount: k.final_amount, userId: k.customer_id, kundaliId: id, refTable: 'kundalis', refId: id, note: 'Kundali payment' });
     /* Phase 14: gateway redemption records at verify, same as the mock path. */
-    if (k.coupon) require('../services/coupons').recordRedemption(k.coupon, k.customer_id, 'kundali', id, k.final_amount);
+    if (k.coupon) require('../services/coupons').recordRedemption(k.coupon, k.customer_id, 'kundali', id, k.discount || 0);
   })();
   res.json(info);
 });
@@ -270,7 +270,7 @@ router.post('/generate', wrap(async (req, res) => {
     require('../services/ledger').dedupe({ type: 'KUNDALI_PAYMENT', amount: quote.final, userId, kundaliId, refTable: 'kundalis', refId: kundaliId, note: 'Kundali payment (mock)' });
     /* Phase 14: the money moment — count the kundali redemption here so the
        per-user cap holds even when the customer abandons the gateway flow. */
-    if (quote.coupon) require('../services/coupons').recordRedemption(quote.coupon, userId, 'kundali', kundaliId, quote.final);
+    if (quote.coupon) require('../services/coupons').recordRedemption(quote.coupon, userId, 'kundali', kundaliId, quote.discount || 0);
   }
 
   /* Razorpay order for chargeable kundalis in gateway mode. */

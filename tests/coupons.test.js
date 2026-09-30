@@ -147,3 +147,75 @@ test('booking redemption recorded; ALL-scope coupon still works on bookings (leg
   assert.ok(redemption, 'booking redemption recorded');
   assert.equal(redemption.code, 'FIRST100');
 });
+
+test('coupon-redemptions and coupon-usage reports: rows, rollups, filters, access', async () => {
+  const at = await admin();
+  const ct = await login('customer');
+
+  /* seed one redemption on each surface: booking, kundali, cart order */
+  await call('POST', '/admin/coupons', { token: at, body: { code: 'RPTALL', type: 'flat', val: 20, max: 20, min: 300, scope: 'ALL' } });
+  const b = await call('POST', '/bookings', { token: ct, body: bookingBody({ coupon: 'RPTALL', date: dayPlus(21) }) });
+  assert.equal(b.status, 201, JSON.stringify(b.json));
+  const places = (await call('GET', '/kundali/places?q=delhi')).json.places;
+  for (let i = 0; i < 2; i++) await call('POST', '/kundali/generate', { token: ct, body: { name: 'Rpt ' + i, dob: '1992-03-03', tob: '09:15', placeId: places[i % places.length].id, save: true } });
+  const gen = await call('POST', '/kundali/generate', { token: ct, body: { name: 'Rpt Kundali', dob: '1992-03-03', tob: '09:15', placeId: places[0].id, save: true, coupon: 'RPTALL' } });
+  assert.equal(gen.status, 201, JSON.stringify(gen.json));
+  const o1 = await call('POST', '/orders', { token: ct, body: { items: [{ k: anyKit(), q: 1 }], address: '12 Test Street', city: 'Delhi NCR', coupon: 'RPTALL' } });
+  assert.equal(o1.status, 201, JSON.stringify(o1.json));
+  const allSources = db.prepare("SELECT DISTINCT source FROM coupon_redemptions WHERE code='RPTALL'").all().map((r) => r.source).sort();
+  assert.deepEqual(allSources, ['booking', 'kundali', 'order'], 'all three surfaces recorded a redemption');
+
+  const Excel = require('exceljs');
+  const getWb = async (rep, qs = '', tok = at) => {
+    const r = await fetch(base + '/api/admin/export/' + rep + '.xlsx' + qs, { headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
+    return { status: r.status, wb: r.status === 200 ? await new Excel.Workbook().xlsx.load(Buffer.from(await r.arrayBuffer())) : null };
+  };
+
+  /* access */
+  assert.equal((await getWb('coupon-redemptions', '', null)).status, 401, 'anonymous refused');
+  assert.equal((await getWb('coupon-usage', '', ct)).status, 403, 'customers refused');
+
+  /* the money-moment ledger lists all three rows with customer + surface */
+  const ledger = await getWb('coupon-redemptions');
+  const lw = ledger.wb.getWorksheet('coupon-redemptions');
+  const ledgerRows = [];
+  lw.eachRow((row, i) => { if (i >= 5) ledgerRows.push(row.values.slice(1)); });
+  const rpt = ledgerRows.filter((r) => r[0] === 'RPTALL');
+  assert.equal(rpt.length, 3);
+  assert.deepEqual(rpt.map((r) => r[3]).sort(), ['booking', 'kundali', 'order'], 'surface column names all three paid surfaces');
+  assert.ok(rpt.every((r) => r[1] && r[2]), 'customer name + contact joined in');
+  assert.ok(rpt.every((r) => r[5] === 20), 'discount amount column');
+
+  /* the source filter narrows the export to one surface */
+  const ledK = await getWb('coupon-redemptions', '?source=kundali');
+  const kw = ledK.wb.getWorksheet('coupon-redemptions');
+  const kRows = [];
+  kw.eachRow((row, i) => { if (i >= 5) kRows.push(row.values.slice(1)); });
+  assert.ok(kRows.length >= 1 && kRows.every((r) => r[3] === 'kundali'));
+
+  /* the usage rollup: one code block with totals + per-user lines */
+  const usage = await getWb('coupon-usage');
+  const uw = usage.wb.getWorksheet('coupon-usage');
+  const headers = uw.getRow(4).values.slice(1);
+  assert.deepEqual(headers.slice(0, 5), ['Code', 'Scope', 'Redemptions', 'Customers', 'Total discount (Rs)']);
+  const uRows = [];
+  uw.eachRow((row, i) => { if (i >= 5) uRows.push(row.values.slice(1)); });
+  const rptBlock = uRows.filter((r) => r[0] === 'RPTALL');
+  assert.equal(rptBlock.length, 1, 'one RPTALL block header row');
+  const hdr = rptBlock[0];
+  assert.equal(hdr[1], 'ALL', 'scope from the coupons table');
+  assert.equal(hdr[2], 3, 'redemption count');
+  assert.equal(hdr[3], 1, 'distinct customers');
+  assert.equal(hdr[4], 60, 'total discount summed');
+  assert.equal(hdr[7], 3, 'uses by this customer');
+  assert.equal(hdr[8], 60, 'customer discount');
+  assert.ok(hdr[5] && hdr[5] !== '-', 'the per-user line carries the customer');
+  assert.ok(uRows.some((r) => r[1] === 'ALL'), 'scope column renders for every block');
+
+  /* code filter scopes the rollup to the requested code */
+  const usageF = await getWb('coupon-usage', '?code=rptall');
+  const fw = usageF.wb.getWorksheet('coupon-usage');
+  const fRows = [];
+  fw.eachRow((row, i) => { if (i >= 5) fRows.push(row.values.slice(1)); });
+  assert.equal(fRows.filter((r) => r[0]).length, 1, 'only the requested code block');
+});
