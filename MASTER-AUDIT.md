@@ -217,7 +217,7 @@ a parity exception.
   agreements + agreement_acceptances (version-locked unique index) [23-25],
   trial_poojas [18] — SQLAlchemy models mirrored.
 - E2E workflows to script-test: onboarding, booking (with availability), customized puja, KYC, agreement, payout.
-- Duplication sweep after implementation; no dead code/placeholder buttons (FE note: analytics "Sample" KPI and incentives text are static copy — verify and either wire or label).
+- Duplication sweep after implementation; no dead code/placeholder buttons (FE note: analytics "Sample" KPI and incentives text are static copy — verify and either wire or label). **Native-`prompt()` sweep (complete):** every remaining `prompt()` in the admin/pandit flows of public/js/main.js was converted to the standard required-reason twin-handler modal pattern (opener + `*ok` validator + `closeAnd(run(...))` + cache invalidation): pandit pcancel (optional reason) and pcalblk (required block reason), admin kycdec (Reject / Request re-upload reasons, Verify expiry days), plc (suspend/terminate with reason + end/review dates, review note), payout ptrans hold/disburse/fail/reverse/adjust, and media-manager reject — fixing along the way that the payout modal openers shipped without their `pt*ok` submission handlers (buttons did nothing). Required reasons are enforced in-modal with a toast, the pandit-facing texts are stated explicitly, and no native dialogs remain in admin/pandit flows (ui-smoke drives the SPA with zero JS errors).
 
 ### Phase 36 — Do-not-break list
 Demo accounts (`u1`, `p1`, admin env creds, OTP 123456 demo mode), demo reset, mock
