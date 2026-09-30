@@ -6,9 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .services import payments as pay
-from .models import (Banner, Booking, Coupon, Festival, Kit, Kundali, Notif, Order,
+from .models import (Banner, Booking, Coupon, Festival, Kit, Kundali, Lead, Notif, Order,
                      Pandit, Prasad, Payout, Puja, Temple, Ticket, User)
-from .serialize import (booking, coupon, festival, kit, notif, order, pandit,
+from .serialize import (booking, coupon, festival, kit, lead as s_lead, notif, order, pandit,
                         prasad, puja, temple, ticket, payout as s_payout, user)
 from .services.bookings import expire_unpaid, get_setting
 from .util import j
@@ -118,7 +118,9 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["payouts"] = [s_payout(p) for p in (await db.execute(select(Payout))).scalars().all()]
         st["inv"] = {k.id: k.stock for k in kits}
         st["campaigns"] = []
-        st["leads"] = []
+        # Phase 26: full CRM rows (pipeline, contact, assignment) for the support tab.
+        st["leads"] = [s_lead(l) for l in (await db.execute(
+            select(Lead).order_by(Lead.id.desc()).limit(500))).scalars().all()]
         st["set"] = {"comm": await get_setting(db, "commission", 20),
                      # Phase 16: the cancellation policy rides along for the finance tab.
                      "cxp": await get_setting(db, "cancellation_policy", None)}

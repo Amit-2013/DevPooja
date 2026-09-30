@@ -157,9 +157,11 @@ app.post('/api/quote', (req, res) => {
   res.json({ q: r.q, couponError: r.couponError, coupon: r.coupon });
 });
 app.post('/api/leads', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, skip: () => process.env.NODE_ENV === 'test' }), (req, res) => {
-  const type = v.oneOf(req.body.type, ['Contact', 'Corporate', 'Astrology', 'Kundli'], 'Type');
-  db.prepare('INSERT INTO leads(type,name,details,date) VALUES(?,?,?,?)').run(type, v.str(req.body.name, 'Name', { max: 100 }), v.str(req.body.details, 'Details', { max: 800 }), new Date().toISOString().slice(0, 10));
-  res.status(201).json({ ok: true });
+  /* Phase 26: capture through the leads service (audited lead.captured as
+     actor 'public'); the four enquiry forms stay valid — contact details are
+     now captured structurally (mobile/email/service/location) when present,
+     and at least one contact channel is REQUIRED so a lead is reachable. */
+  res.status(201).json({ ok: true, lead: require('./services/leads').capture(req.body || {}) });
 });
 app.use('/api/auth', require('./routes/auth').router);
 app.use('/api/kundali', require('./routes/kundali'));

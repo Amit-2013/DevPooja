@@ -987,3 +987,58 @@ async def kundalis(request: Request, auth: dict = Depends(admin_dep),
         "paymentStatus": k.payment_status, "orderId": k.order_id,
         "paymentId": k.payment_id, "createdAt": k.created_at,
     } for k, un, um in rows]}
+
+
+# --- Leads CRM (Phase 26): the enquiry pipeline from capture to booking ---
+from ..services import leads as LEADS
+
+
+@router.get("/leads")
+async def leads_list(request: Request, auth: dict = Depends(admin_dep),
+                     db: AsyncSession = Depends(get_db)):
+    f = dict(request.query_params)
+    f["assigned"] = auth["uid"] if f.get("assigned") == "me" else f.get("assigned") or ""
+    return await LEADS.list_leads(db, f)
+
+
+@router.post("/leads", status_code=201)
+async def leads_capture(body: dict, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    return {"lead": await LEADS.capture(db, body or {}, auth["uid"])}
+
+
+@router.post("/leads/{lead_id}/status")
+async def leads_status(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    return {"lead": await LEADS.set_status(db, lead_id, (body or {}).get("status"),
+                                           (body or {}).get("reason"), auth["uid"])}
+
+
+@router.post("/leads/{lead_id}/assign")
+async def leads_assign(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    return {"lead": await LEADS.assign(db, lead_id, (body or {}).get("userId") or None, auth["uid"])}
+
+
+@router.post("/leads/{lead_id}/followup")
+async def leads_followup(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    return {"lead": await LEADS.schedule_follow_up(db, lead_id, (body or {}).get("when"), auth["uid"])}
+
+
+@router.post("/leads/{lead_id}/notes")
+async def leads_notes(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    return {"lead": await LEADS.update_notes(db, lead_id, (body or {}).get("notes"), auth["uid"])}
+
+
+@router.post("/leads/{lead_id}/convert", status_code=201)
+async def leads_convert(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    return await LEADS.convert(db, lead_id, body or {}, auth["uid"])
+
+
+@router.delete("/leads/{lead_id}")
+async def leads_delete(lead_id: int, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    return await LEADS.remove(db, lead_id, auth["uid"])

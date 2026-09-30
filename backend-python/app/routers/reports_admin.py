@@ -40,6 +40,7 @@ REPORT_TITLES = {
     "pandit-performance": "Pandit Performance", "customer-activity": "Customer Activity",
     "login-activity": "Login Activity", "audit-logs": "Audit Log", "media": "Puja Media",
     "dakshina": "Dakshina (Pandit Earnings Ledger)", "transactions": "Transactions Ledger",
+    "leads": "Lead",
 }
 
 

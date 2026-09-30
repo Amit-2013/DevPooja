@@ -65,7 +65,8 @@ function buildState(auth) {
     st.payouts = db.prepare('SELECT * FROM payouts').all().map(S.payout);
     st.inv = Object.fromEntries(kits.map((k) => [k.id, k.stock]));
     st.campaigns = db.prepare('SELECT * FROM campaigns').all().map((c) => ({ id: c.id, n: c.name, ch: c.channel, aud: c.audience, st: c.status, sent: c.sent }));
-    st.leads = db.prepare('SELECT * FROM leads ORDER BY id DESC LIMIT 200').all().map((l) => ({ type: l.type, n: l.name, d: l.details, date: l.date }));
+    /* Phase 26: full CRM rows (pipeline, contact, assignment) for the support tab. */
+    st.leads = db.prepare('SELECT * FROM leads ORDER BY id DESC LIMIT 500').all().map(require('./serialize').lead);
     st.set = Object.assign({ comm: getSetting('commission', 20) },
       /* Phase 16: the cancellation policy rides along for the finance tab. */
       (function () { try { const r = db.prepare("SELECT value FROM settings WHERE key='cancellation_policy'").get(); return { cxp: r ? JSON.parse(r.value) : null }; } catch (e) { return { cxp: null }; } })());

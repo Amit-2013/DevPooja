@@ -1,0 +1,147 @@
+"""Phase 26 — Leads CRM: Python twin of tests/leads.test.js.
+
+Public capture forms (contact/corporate/astrology/kundli) gain structured
+contact fields; admins get a full pipeline (NEW → CONTACTED → QUALIFIED →
+CONVERTED | LOST), filters, assignment, follow-ups, notes, one-click
+conversion into a real manual booking, and the leads Excel export."""
+import time
+
+import pytest
+
+from tests.conftest import admin_login, login
+
+pytestmark = pytest.mark.asyncio
+
+H = lambda tok: {"Authorization": "Bearer " + tok}
+
+
+async def test_public_capture_and_admin_pipeline(client, db_session):
+    """Capture keeps legacy forms working, validates contact when present,
+    audits anonymously as 'public'; the admin pipeline covers every move."""
+    # legacy kundli-style capture (no contact at all) still works
+    r = await client.post("/api/leads", json={"type": "Kundli", "name": "Legacy Enquiry",
+                                              "details": "Born 1995-04-11, Jaipur."})
+    assert r.status_code == 201, r.text
+    assert r.json()["lead"]["status"] == "NEW"
+
+    # structured capture with contact fields
+    r = await client.post("/api/leads", json={"type": "Corporate", "name": "Ritu Corporate",
+                                              "mobile": "9876500011", "email": "ritu@corp.example",
+                                              "service": "Office opening puja", "location": "Gurugram",
+                                              "details": "60 attendees, Diwali week."})
+    assert r.status_code == 201, r.text
+    lead = r.json()["lead"]
+    assert lead["mobile"] == "9876500011" and lead["email"] == "ritu@corp.example"
+    assert lead["service"] == "Office opening puja"
+
+    # contact channels validated WHEN present; unknown source refused
+    assert (await client.post("/api/leads", json={"type": "Contact", "name": "Bad Mobile",
+                                                  "mobile": "123", "email": "a@b.example"})).status_code == 400
+    assert (await client.post("/api/leads", json={"type": "Spam", "name": "X",
+                                                  "mobile": "9876500012"})).status_code == 400
+
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+
+    # admin manual capture
+    r = await client.post("/api/admin/leads", headers=aa,
+                          json={"source": "Partner", "name": "Partner Lead",
+                                "mobile": "9876500021", "service": "Satyanarayan", "location": "Delhi"})
+    assert r.status_code == 201, r.text
+    l1 = r.json()["lead"]
+    r = await client.post("/api/admin/leads", headers=aa,
+                          json={"source": "Other", "name": "To Lose", "mobile": "9876500022"})
+    l3 = r.json()["lead"]
+    r = await client.post("/api/admin/leads", headers=aa,
+                          json={"source": "Other", "name": "Live Lead", "email": "live@example.com"})
+    l2 = r.json()["lead"]
+
+    # list + counts + filters
+    body = (await client.get("/api/admin/leads", headers=aa)).json()
+    assert body["counts"]["NEW"] >= 4
+    assert len(body["leads"]) >= 4
+    body = (await client.get("/api/admin/leads?status=NEW", headers=aa)).json()
+    assert all(x["status"] == "NEW" for x in body["leads"])
+    body = (await client.get("/api/admin/leads?q=9876500021", headers=aa)).json()
+    assert len(body["leads"]) == 1, "mobile search hits"
+    body = (await client.get("/api/admin/leads?source=Partner", headers=aa)).json()
+    assert body["leads"] and all(x["type"] == "Partner" for x in body["leads"])
+
+    # lifecycle
+    r = await client.post(f"/api/admin/leads/{l1['id']}/status", headers=aa, json={"status": "CONTACTED"})
+    assert r.json()["lead"]["status"] == "CONTACTED"
+    r = await client.post(f"/api/admin/leads/{l1['id']}/status", headers=aa, json={"status": "QUALIFIED"})
+    assert r.json()["lead"]["status"] == "QUALIFIED"
+    r = await client.post(f"/api/admin/leads/{l3['id']}/status", headers=aa, json={"status": "LOST"})
+    assert r.status_code == 400, "LOST needs a reason"
+    r = await client.post(f"/api/admin/leads/{l3['id']}/status", headers=aa,
+                          json={"status": "LOST", "reason": "Budget mismatch after three calls."})
+    assert r.json()["lead"]["status"] == "LOST"
+
+    # assign + followup + notes
+    r = await client.post(f"/api/admin/leads/{l1['id']}/assign", headers=aa, json={"userId": "admin1"})
+    assert r.json()["lead"]["assignedTo"] == "admin1"
+    r = await client.post(f"/api/admin/leads/{l1['id']}/assign", headers=aa, json={"userId": "u_nobody"})
+    assert r.status_code == 400
+    r = await client.post(f"/api/admin/leads/{l1['id']}/followup", headers=aa,
+                          json={"when": int(time.time() * 1000) + 3600_000})
+    assert r.json()["lead"]["followUpAt"] > time.time() * 1000
+    r = await client.post(f"/api/admin/leads/{l1['id']}/followup", headers=aa, json={"when": "soon"})
+    assert r.status_code == 400
+    r = await client.post(f"/api/admin/leads/{l1['id']}/notes", headers=aa, json={"notes": "Wants a morning muhurat."})
+    assert "muhurat" in r.json()["lead"]["details"]
+
+    # conversion through the real bookings engine
+    r = await client.post(f"/api/admin/leads/{l1['id']}/convert", headers=aa,
+                          json={"pujaId": "satyanarayan", "mode": "home", "slot": "10:00 AM"})
+    assert r.status_code == 201, r.text
+    assert r.json()["bookingId"].startswith("DP"), "a real booking id comes back"
+    assert r.json()["lead"]["status"] == "CONVERTED"
+    assert r.json()["lead"]["convertedBookingId"] == r.json()["bookingId"]
+    assert (await client.post(f"/api/admin/leads/{l1['id']}/convert", headers=aa, json={})).status_code == 409
+
+    # no contact -> convert refuses with guidance
+    r = await client.post("/api/admin/leads", headers=aa,
+                          json={"source": "Other", "name": "Email Only", "email": "eo@example.com"})
+    no_mob = r.json()["lead"]
+    assert (await client.post(f"/api/admin/leads/{no_mob['id']}/convert", headers=aa, json={})).status_code == 400
+
+    # delete rules
+    assert (await client.delete(f"/api/admin/leads/{l2['id']}", headers=aa)).status_code == 409, "live leads are never deleted"
+    assert (await client.delete(f"/api/admin/leads/{l3['id']}", headers=aa)).status_code == 200
+    assert (await client.delete(f"/api/admin/leads/{l3['id']}", headers=aa)).status_code == 404
+
+    # audit trail
+    from sqlalchemy import select
+
+    from app.models import AuditLog
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action.like("lead.%")).order_by(AuditLog.id.desc()).limit(50))).scalars().all()
+    actions = {a.action for a in rows}
+    assert {"lead.captured", "lead.status", "lead.assign", "lead.followup",
+            "lead.notes", "lead.converted", "lead.deleted"} <= actions
+    assert any(a.actor_role == "public" for a in rows if a.action == "lead.captured"), \
+        "anonymous captures audit as public"
+
+    # access: admin-only
+    ct = await login(client, "customer")
+    assert (await client.get("/api/admin/leads", headers={"Authorization": "Bearer " + ct})).status_code == 403
+    assert (await client.get("/api/admin/leads")).status_code == 401
+    assert (await client.post("/api/admin/leads", headers={"Authorization": "Bearer " + ct},
+                              json={"source": "Other", "name": "X"})).status_code == 403
+
+
+async def test_leads_report_export(client, db_session):
+    """The leads Excel export renders with the CRM columns and filters."""
+    from openpyxl import load_workbook
+
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+    await client.post("/api/leads", json={"type": "Contact", "name": "Export Probe",
+                                          "mobile": "9876500031", "location": "Delhi"})
+    r = await client.get("/api/admin/export/leads.xlsx", headers=aa)
+    assert r.status_code == 200, r.text
+    wb = load_workbook(__import__("io").BytesIO(r.content))
+    ws = wb.active
+    header = [str(c.value or "") for c in ws[4]]
+    assert "Status" in header and "Converted booking" in header, "CRM columns in the export"
+    r = await client.get("/api/admin/export/leads.xlsx?status=NEW", headers=aa)
+    assert r.status_code == 200

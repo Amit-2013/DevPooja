@@ -101,6 +101,15 @@ async def quote(body: dict, auth: dict | None = Depends(current_auth),
     return {"q": r["q"], "couponError": r["coupon_error"], "coupon": r["coupon"]}
 
 
+@app.post("/api/leads", status_code=201)
+async def capture_lead(body: dict, request: Request, db: AsyncSession = Depends(get_db)):
+    """Public lead capture (Node /api/leads parity): the four enquiry forms;
+    contact fields validated when present; audited with actor_role 'public'."""
+    from .services.leads import capture
+    return {"ok": True, "lead": await capture(db, body or {}, None,
+                                              request.client.host if request.client else "")}
+
+
 # Routers. The Razorpay webhook lives in payments_router and reads the RAW body
 # for HMAC verification before any JSON parsing — same ordering rule as Node.
 app.include_router(payments_router.router)

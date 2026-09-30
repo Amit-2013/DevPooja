@@ -346,6 +346,15 @@ class Lead(Base):
     name: Mapped[str | None] = mapped_column(String(120))
     details: Mapped[str | None] = mapped_column(Text)
     date: Mapped[str | None] = mapped_column(String(10))
+    # Phase 26 CRM columns (migration 024 twin — additive, defaulted)
+    mobile: Mapped[str | None] = mapped_column(String(15), default="")
+    email: Mapped[str | None] = mapped_column(String(120), default="")
+    service: Mapped[str | None] = mapped_column(String(120), default="")
+    location: Mapped[str | None] = mapped_column(String(120), default="")
+    assigned_to: Mapped[str | None] = mapped_column(String(40))
+    status: Mapped[str | None] = mapped_column(String(20), default="NEW")
+    follow_up_at: Mapped[int | None] = mapped_column(MS)
+    converted_booking_id: Mapped[str | None] = mapped_column(String(40))
 
 
 class Payout(Base):

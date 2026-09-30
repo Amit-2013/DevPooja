@@ -43,5 +43,10 @@ const payout = (r) => ({ id: r.id, p: r.pandit_id, amt: r.amount, date: r.date,
   cur: r.currency || 'INR', hr: r.hold_reason || null, hn: r.hold_note || null,
   pd: r.processing_date || null, dd: r.disbursement_date || null, pr: r.payment_ref || null, utr: r.utr || null });
 const coupon = (r) => ({ code: r.code, type: r.type, val: r.val, max: r.max, min: r.min, active: !!r.active, used: r.used, scope: r.scope || 'ALL', pujaId: r.puja_id || null, starts: r.starts || null, expires: r.expires || null, per_user: r.per_user || 0 });
+/* Phase 26: compact CRM lead row for the admin state payload. */
+const lead = (r) => ({ id: r.id, type: r.type, n: r.name, details: r.details || '', date: r.date,
+  mobile: r.mobile || '', email: r.email || '', service: r.service || '', location: r.location || '',
+  st: r.status || 'NEW', assignedTo: r.assigned_to || null, followUpAt: r.follow_up_at || null,
+  convertedBookingId: r.converted_booking_id || null });
 
-module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon };
+module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon, lead };

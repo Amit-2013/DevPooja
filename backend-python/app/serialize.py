@@ -123,3 +123,13 @@ def coupon(r) -> dict:
 
 def notif(r) -> dict:
     return {"id": r.id, "uid": r.user_id, "ch": r.channel, "m": r.message, "ts": r.ts}
+
+
+# Phase 26: compact CRM lead row for the admin state payload.
+def lead(r) -> dict:
+    return {"id": r.id, "type": r.type, "n": r.name, "details": r.details or "",
+            "date": r.date, "mobile": r.mobile or "", "email": r.email or "",
+            "service": r.service or "", "location": r.location or "",
+            "st": r.status or "NEW", "assignedTo": r.assigned_to or None,
+            "followUpAt": r.follow_up_at or None,
+            "convertedBookingId": r.converted_booking_id or None}

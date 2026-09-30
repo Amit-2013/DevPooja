@@ -481,6 +481,37 @@ async def report(db: AsyncSession, report_id: str, f: dict) -> dict | None:
                           r.status, 1 if r.is_primary == 1 else 0, 1 if r.is_published == 1 else 0,
                           _ms_to_sqlite_dt(r.created_at)] for r in rows]}
 
+    if report_id == "leads":
+        # Phase 26: the leads pipeline export — full CRM rows with pipeline
+        # status, assignment and conversion reference. ?status/?source/?from/?to/?q.
+        from .leads import SOURCES as LEAD_SOURCES, STATUSES as LEAD_STATUSES
+        w, p = [], {}
+        if f.get("status") in LEAD_STATUSES:
+            w.append("status = :status")
+            p["status"] = str(f["status"])
+        if f.get("source") in LEAD_SOURCES:
+            w.append("type = :source")
+            p["source"] = str(f["source"])
+        if f.get("from"):
+            w.append("date >= :dfrom")
+            p["dfrom"] = str(f["from"])
+        if f.get("to"):
+            w.append("date <= :dto")
+            p["dto"] = str(f["to"])
+        if f.get("q"):
+            q = str(f["q"]).replace("%", "").replace("_", "").strip()
+            if q:
+                w.append("(name LIKE :q OR mobile LIKE :q OR email LIKE :q OR details LIKE :q)")
+                p["q"] = f"%{q}%"
+        sql = ("SELECT id, type, name, mobile, email, service, location, status, "
+               "assigned_to, follow_up_at, converted_booking_id, details, date FROM leads"
+               + (" WHERE " + " AND ".join(w) if w else "") + " ORDER BY id DESC")
+        rows = await _all(db, sql, p)
+        return {"columns": ["Lead ID", "Source", "Name", "Mobile", "Email", "Interested service", "Location", "Status", "Assigned to", "Follow-up", "Converted booking", "Notes", "Captured"],
+                "rows": [[r.id, r.type, r.name, r.mobile or "", r.email or "", r.service or "", r.location or "",
+                          r.status, r.assigned_to or "", r.follow_up_at or "", r.converted_booking_id or "",
+                          r.details or "", r.date] for r in rows]}
+
     return None
 
 

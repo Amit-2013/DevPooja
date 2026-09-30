@@ -771,6 +771,18 @@ const REPORTS = {
     if (w.length) sql += ' WHERE ' + w.join(' AND ');
     sql += ' ORDER BY m.created_at DESC';
     return select(sql, a, ['Media ID', 'Puja', 'Booking', 'Pandit', 'Original name', 'MIME', 'Size (bytes)', 'Status', 'Primary', 'Published', 'Uploaded']);
+  },
+  /* Phase 26: the leads pipeline export — full CRM rows with pipeline status,
+     assignment and conversion reference. ?status/?source/?from/?to ?q filters. */
+  leads: (f) => {
+    const w = [], a = [];
+    if (f.status && LEADS.STATUSES.includes(String(f.status))) { w.push('status=?'); a.push(String(f.status)); }
+    if (f.source && LEADS.SOURCES.includes(String(f.source))) { w.push('type=?'); a.push(String(f.source)); }
+    if (f.from && /^\d{4}-\d{2}-\d{2}$/.test(f.from)) { w.push('date>=?'); a.push(String(f.from)); }
+    if (f.to && /^\d{4}-\d{2}-\d{2}$/.test(f.to)) { w.push('date<=?'); a.push(String(f.to)); }
+    if (f.q) { const q = String(f.q).replace(/[%_]/g, '').trim(); if (q) { w.push('(name LIKE ? OR mobile LIKE ? OR email LIKE ? OR details LIKE ?)'); a.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); } }
+    return select('SELECT id, type, name, mobile, email, service, location, status, assigned_to, follow_up_at, converted_booking_id, details, date FROM leads' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY id DESC', a,
+      ['Lead ID', 'Source', 'Name', 'Mobile', 'Email', 'Interested service', 'Location', 'Status', 'Assigned to', 'Follow-up', 'Converted booking', 'Notes', 'Captured']);
   }
 };
 
@@ -801,7 +813,7 @@ const REPORT_TITLES = {
   prasad: 'Prasad', orders: 'Order', payments: 'Payment', refunds: 'Refund', coupons: 'Coupon', campaigns: 'Campaign',
   payouts: 'Pandit Payout', 'payout-audit': 'Payout Ledger (holds, refs, UTR)', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
   'coupon-redemptions': 'Coupon Redemptions (money-moment ledger)', 'coupon-usage': 'Coupon Usage (per code / per user)', 'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
-  'audit-logs': 'Audit Log', media: 'Puja Media', dakshina: 'Dakshina (Pandit Earnings Ledger)', transactions: 'Transactions Ledger'
+  'audit-logs': 'Audit Log', media: 'Puja Media', dakshina: 'Dakshina (Pandit Earnings Ledger)', transactions: 'Transactions Ledger', leads: 'Lead'
 };
 
 /* --- KYC documents (Phase 4): admin screen data + decisions --- */
@@ -950,6 +962,17 @@ router.post('/orders/:id/advance', (req, res) => {
   res.json({ ok: true });
 });
 router.post('/tickets/:id/resolve', (req, res) => { const r = db.prepare("UPDATE tickets SET status='Resolved' WHERE id=?").run(req.params.id); if (!r.changes) throw notFound(); res.json({ ok: true }); });
+
+/* --- Leads CRM (Phase 26): the enquiry pipeline from capture to booking --- */
+const LEADS = require('../services/leads');
+router.get('/leads', (req, res) => res.json(LEADS.list({ ...req.query, actor: req.auth.uid })));
+router.post('/leads', (req, res) => res.status(201).json({ lead: LEADS.capture(req.body || {}, req.auth.uid, req.ip) }));
+router.post('/leads/:id/status', (req, res) => res.json({ lead: LEADS.setStatus(req.params.id, req.body.status, req.body.reason, req.auth.uid) }));
+router.post('/leads/:id/assign', (req, res) => res.json({ lead: LEADS.assign(req.params.id, req.body.userId || null, req.auth.uid) }));
+router.post('/leads/:id/followup', (req, res) => res.json({ lead: LEADS.scheduleFollowUp(req.params.id, req.body.when, req.auth.uid) }));
+router.post('/leads/:id/notes', (req, res) => res.json({ lead: LEADS.updateNotes(req.params.id, req.body.notes, req.auth.uid) }));
+router.post('/leads/:id/convert', (req, res) => res.status(201).json(LEADS.convert(req.params.id, req.body || {}, req.auth.uid)));
+router.delete('/leads/:id', (req, res) => res.json(LEADS.remove(req.params.id, req.auth.uid)));
 
 /* --- Account management: customers & pandits (login id, status, passwords) --- */
 const AUDIT = require('../lib/audit');

@@ -14,10 +14,10 @@ const { db } = require('../db');
 function audit(actorUserId, action, entity, entityId, detail, extra) {
   try {
     const opts = typeof extra === 'string' ? { reason: extra } : (extra || {});
-    const u = actorUserId ? db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId) : null;
+    const u = opts.role ? null : (actorUserId ? db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId) : null);
     db.prepare(`INSERT INTO audit_logs(actor_user_id,actor_role,action,entity,entity_id,detail,
       old_value,new_value,reason,ip,device,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(actorUserId || null, u ? u.role : (actorUserId ? 'system' : null), action, entity, entityId || null,
+      .run(actorUserId || null, opts.role || (u ? u.role : (actorUserId ? 'system' : null)), action, entity, entityId || null,
         JSON.stringify(detail || {}),
         opts.oldValue === undefined ? null : JSON.stringify(opts.oldValue),
         opts.newValue === undefined ? null : JSON.stringify(opts.newValue),
