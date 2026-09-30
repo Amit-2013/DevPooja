@@ -11,6 +11,7 @@ import os
 
 _swipe_task: asyncio.Task | None = None
 _noshow_task: asyncio.Task | None = None
+_digest_task: asyncio.Task | None = None
 
 
 async def kyc_sweep_tick() -> int:
@@ -93,12 +94,53 @@ def start_no_show_sweeper() -> asyncio.Task | None:
     return _noshow_task
 
 
+def _digest_interval_ms() -> int:
+    raw = os.environ.get("DIGEST_SWEEP_MS", "")
+    try:
+        n = int(raw)
+    except ValueError:
+        return 86400000  # 24h default (Node parity)
+    return n if n > 0 else (0 if n == 0 else 86400000)
+
+
+async def digest_sweep_tick() -> int:
+    """One scheduled reopen-digest pass over its own session (parity: Node digestSweep.tick)."""
+    from .digest_sweep import tick
+    from ..db import SessionLocal
+    async with SessionLocal() as db:
+        n = await tick(db)
+        await db.commit()
+        return n
+
+
+async def _digest_loop(interval_ms: int) -> None:
+    while True:
+        await asyncio.sleep(interval_ms / 1000)
+        try:
+            await digest_sweep_tick()
+        except Exception as e:  # never let the background loop die
+            print(f"[digest.sweeper] {e}")
+
+
+def start_digest_sweeper() -> asyncio.Task | None:
+    """Arm the daily reopen-digest sweep (idempotent, same contract as the other sweeps)."""
+    global _digest_task
+    if _digest_task and not _digest_task.done():
+        return _digest_task
+    ms = _digest_interval_ms()
+    if not ms:
+        return None
+    _digest_task = asyncio.get_running_loop().create_task(_digest_loop(ms))
+    return _digest_task
+
+
 def stop_sweeper() -> None:
-    global _swipe_task, _noshow_task
-    for task in (_swipe_task, _noshow_task):
+    global _swipe_task, _noshow_task, _digest_task
+    for task in (_swipe_task, _noshow_task, _digest_task):
         if task and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 pass
     _swipe_task = None
     _noshow_task = None
+    _digest_task = None

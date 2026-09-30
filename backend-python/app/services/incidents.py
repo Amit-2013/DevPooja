@@ -78,11 +78,13 @@ async def admin_queue_alerts(db, iid: str) -> list[dict]:
 
 
 async def all_queue_alerts(db) -> list[dict]:
-    """All queue-entry alerts across every incident (Operations notifications panel)."""
+    """All queue-entry alerts across every incident (Operations notifications panel).
+    Also matches daily-digest lines so sweep summaries surface alongside them."""
     from ..models import Notif
     rows = (await db.execute(
         select(Notif).where(Notif.channel == "In-App",
-                            Notif.message.like("Repeat-reopen alert: incident %"))
+                            Notif.message.like("Repeat-reopen alert: incident %")
+                            | Notif.message.like("Daily reopen digest — %"))
         .order_by(Notif.ts.desc()).limit(100))).scalars().all()
     return [{"id": n.id, "userId": n.user_id, "channel": n.channel,
              "message": n.message, "ts": n.ts} for n in rows]
