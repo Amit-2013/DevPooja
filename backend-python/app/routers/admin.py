@@ -444,9 +444,22 @@ async def incidents_reopen_digest(limit: int | None = None, auth: dict = Depends
     # Returns { incidents, flaggedPandits, threshold }: flaggedPandits lists pandits whose
     # reopens exceed the threshold across DISTINCT bookings (per-pandit pattern flag).
     from ..services.reopen_digest import REOPEN_LIMIT, reopen_digest
+    from ..services.review_hold import sweep as hold_sweep
+    # Lazily auto-release held bookings whose pandit's flag has cleared.
+    await hold_sweep(db)
     body = await reopen_digest(db, limit)
     body["threshold"] = REOPEN_LIMIT
     return body
+
+
+# Explicit admin release for a review-hold booking (per-pandit flagging follow-up).
+@router.post("/bookings/{booking_id}/release-hold")
+async def booking_release_hold(booking_id: str, auth: dict = Depends(admin_dep),
+                               db: AsyncSession = Depends(get_db)):
+    from ..services.review_hold import release
+    from ..serialize import booking as s_booking
+    r = await release(db, booking_id, auth["uid"])
+    return {"booking": s_booking(r["booking"]), "released": r["released"]}
 
 
 # Queue-entry alerts across ALL incidents (Operations notifications panel).

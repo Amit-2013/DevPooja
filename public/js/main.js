@@ -390,6 +390,7 @@ const INP={
  rff(el){PAGE.rf=PAGE.rf||{};PAGE.rf.from=el.value},
  rft(el){PAGE.rf=PAGE.rf||{};PAGE.rf.to=el.value},
  aas(el){run(()=>api('/admin/bookings/'+el.dataset.id+'/assign',{body:{panditId:el.value}}),'Assignment updated')},
+ arelease(d){run(()=>api('/admin/bookings/'+d.id+'/release-hold',{body:{}}),'Hold released — the pandit can act on this booking now')},
  ast(el){run(()=>api('/admin/bookings/'+el.dataset.id+'/status',{body:{status:el.value}}),'Status updated')},
 
 };

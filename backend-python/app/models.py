@@ -253,6 +253,10 @@ class Booking(Base):
     review_hidden: Mapped[int] = mapped_column(Integer, default=0)
     # Phase 6 (migration 017): admin-granted photo-upload date-gate override
     media_override: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Per-pandit flagging follow-up (migration 025 twin): review hold for
+    # bookings created/assigned while the pandit is flagged by the reopen digest
+    review_hold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    hold_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class AuditLog(Base):

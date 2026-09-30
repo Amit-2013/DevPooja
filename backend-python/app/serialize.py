@@ -13,7 +13,7 @@ def user(r) -> dict | None:
             "pref": j(r.pref, {}), "joined": r.joined}
 
 
-def pandit(r, *, admin: bool = False, self: bool = False) -> dict | None:
+def pandit(r, *, admin: bool = False, self: bool = False, flagged: bool = False) -> dict | None:
     if r is None:
         return None
     out = {"id": r.id, "n": r.name, "city": r.city, "exp": r.exp, "langs": j(r.langs, []),
@@ -29,6 +29,7 @@ def pandit(r, *, admin: bool = False, self: bool = False) -> dict | None:
     if admin:
         out["m"] = r.mobile
         out["kyc"] = list((j(r.kyc, {}) or {}).get("files", {}).keys())
+        out["flagged"] = bool(flagged)
     if admin or self:
         from .services.availability import config_of
         out["av"] = config_of(r)
@@ -44,7 +45,10 @@ def booking(r) -> dict:
             "q": j(r.q, {}), "status": r.status, "pay": j(r.pay, {}), "ops": j(r.ops, {}),
             "media": len(media), "mediaUrls": media, "review": j(r.review, None),
             "created": r.created, "log": j(r.log, []), "refund": j(r.refund, None), "esc": bool(r.esc),
-            "mediaOverride": bool(getattr(r, "media_override", 0))}
+            "mediaOverride": bool(getattr(r, "media_override", 0)),
+            # Per-pandit flagging follow-up: bookings of flagged pandits wait under a review hold.
+            "reviewHold": bool(getattr(r, "review_hold", 0)),
+            "holdReason": getattr(r, "hold_reason", None) or None}
 
 
 def puja(r, kit_items=None) -> dict:

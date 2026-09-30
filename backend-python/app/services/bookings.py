@@ -227,6 +227,7 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
                   addr=json.dumps(addr, ensure_ascii=False) if addr else None,
                   temple_id=temple_id, pandit_id=pandit.id if pandit else None,
                   pst="pending" if pandit else None,
+                  review_hold=0,
                   sam=json.dumps([k.id for k in kits]), pra=json.dumps([k.id for k in prasad]),
                   notes=notes, member=member, coupon=pr["coupon"]["code"] if pr["coupon"] else "",
                   q=json.dumps(q), status=status, pay=json.dumps(pay_info),
@@ -247,6 +248,10 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
                      ref_id=id, note="Puja booking payment (mock)")
     if not gateway:
         await _announce(db, row, user)
+    # Per-pandit flagging follow-up: a booking created while the assigned
+    # pandit is flagged by the reopen digest waits under a review hold.
+    from .review_hold import stamp_on_create
+    await stamp_on_create(db, id, row.pandit_id)
     return row
 
 
@@ -364,6 +369,11 @@ async def pandit_act(db: AsyncSession, pid: str, id: str, action: str,
     row = await get_booking(db, id)
     if not row or row.pandit_id != pid:
         raise not_found("Booking not found")
+    # Review hold: flagged-pandit bookings wait for an admin release (or the
+    # flag clearing) before the pandit can accept or start them.
+    from .review_hold import guard
+    if action in ("accept", "start"):
+        await guard(db, row, action)
     if action == "accept":
         if row.pst != "pending" or row.status not in OPEN:
             raise bad("Nothing to accept")
@@ -421,6 +431,9 @@ async def admin_assign(db: AsyncSession, id: str, pid: str | None) -> Booking:
         if row.status == "New":
             row.status = "Confirmed"
         row.log = _log_append(row, "Assigned to " + (p.name or ""))
+        # A manual/assigned booking entering a flagged pandit's queue holds too.
+        from .review_hold import stamp_on_create
+        await stamp_on_create(db, id, pid)
         from ..models import Notif
         db.add(Notif(user_id=row.user_id, channel="WhatsApp",
                      message=f"A pandit has been assigned to {id}: {p.name}.", ts=now_ms()))

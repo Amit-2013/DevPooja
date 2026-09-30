@@ -45,6 +45,12 @@ async def lifespan(_app: FastAPI):
     from .services.scheduler import start_no_show_sweeper, start_sweeper, stop_sweeper
     start_sweeper()  # KYC expiry sweep on a schedule (KYC_SWEEP_MS, default 6h; 0 disables)
     start_no_show_sweeper()  # Phase 16 no-show sweep (NOSHOW_SWEEP_MS, default 1h; 0 disables)
+    # Per-pandit flagging follow-up: release holds whose flag cleared (Node boot sweep parity).
+    from .services.review_hold import sweep as hold_sweep
+    from .db import SessionLocal as _SL
+    async with _SL() as _db:
+        await hold_sweep(_db)
+        await _db.commit()
     try:
         yield
     finally:

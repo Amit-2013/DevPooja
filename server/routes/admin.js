@@ -110,7 +110,16 @@ router.get('/incidents', (req, res) => res.json({ incidents: INC.list({ status: 
 /* Repeat-reopen review queue for the Operations tab (?limit=N overrides the >2 threshold).
    Returns { incidents, flaggedPandits, threshold }: flaggedPandits lists pandits whose
    reopens exceed the threshold across DISTINCT bookings (per-pandit pattern flag). */
-router.get('/incidents/reopen-digest', (req, res) => res.json({ ...INC.reopenDigest(req.query.limit ? +req.query.limit : undefined), threshold: INC.REOPEN_LIMIT }));
+router.get('/incidents/reopen-digest', (req, res) => {
+  /* Lazily auto-release held bookings whose pandit's flag has cleared. */
+  require('../services/reviewHold').sweep();
+  res.json({ ...INC.reopenDigest(req.query.limit ? +req.query.limit : undefined), threshold: INC.REOPEN_LIMIT });
+});
+/* Explicit admin release for a review-hold booking (per-pandit flagging follow-up). */
+router.post('/bookings/:id/release-hold', (req, res) => {
+  const r = require('../services/reviewHold').release(req.params.id, req.auth.uid);
+  res.json({ booking: S.booking(r.booking), released: r.released });
+});
 /* Queue-entry alerts across ALL incidents (Operations notifications panel) */
 router.get('/incidents/queue-alerts', (req, res) => res.json({ alerts: INC.allQueueAlerts() }));
 router.patch('/incidents/:id', (req, res) => res.json({ incident: INC.triage(req.auth.uid, req.params.id, req.body || {}) }));

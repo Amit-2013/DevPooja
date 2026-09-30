@@ -214,4 +214,9 @@ function reopen(actorUserId, id, { reason } = {}) {
   return out(get(id));
 }
 
-module.exports = { CATEGORIES, STATUSES, get, list, adminQueueAlerts, allQueueAlerts, flaggedPandits, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };
+/* Pandit ids currently flagged by the digest — feeds the booking review-hold
+   (services/reviewHold.js) and the pandit-module surfacing. */
+function flaggedPanditIds(limit) {
+  return flaggedPandits(limit).map((x) => x.panditId);
+}
+module.exports = { CATEGORIES, STATUSES, get, list, adminQueueAlerts, allQueueAlerts, flaggedPandits, flaggedPanditIds, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };

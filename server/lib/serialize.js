@@ -4,7 +4,7 @@ const PE = require('../services/payoutEngine');
 const AV = require('../services/availability');
 
 const user = (r) => r && ({ id: r.id, n: r.name, m: r.mobile || '', e: r.email || '', pts: r.pts, plus: !!r.plus, addr: j(r.addr, []), fam: j(r.fam, []), pref: j(r.pref, {}), joined: r.joined });
-const pandit = (r, { admin = false, self = false } = {}) => r && ({
+const pandit = (r, { admin = false, self = false, flagged = false } = {}) => r && ({
   id: r.id, n: r.name, city: r.city, exp: r.exp, langs: j(r.langs, []), spec: j(r.spec, []), rating: r.rating, rev: r.rev, done: r.done,
   pf: r.pf, bio: r.bio || '', color: r.color || '#0c4b49', st: r.status, feat: !!r.featured, off: j(r.off, []), avail: !!r.avail,
   photo: r.photo_file ? '/media/' + r.photo_file : '', gotra: r.gotra || '', quals: r.qualifications || '', veda: r.veda_school || '',
@@ -12,7 +12,7 @@ const pandit = (r, { admin = false, self = false } = {}) => r && ({
   /* derived cancellation/no-show metrics are NOT inlined here (they need their own
      queries); both backends expose them on the dedicated QA endpoints
      (/admin/pandits/:id/qa, /pandit/me/qa) which the portals use. */
-  ...(admin ? { m: r.mobile, kyc: Object.keys(j(r.kyc, {}).files || {}) } : {}),
+  ...(admin ? { m: r.mobile, kyc: Object.keys(j(r.kyc, {}).files || {}), flagged: !!flagged } : {}),
   ...(self || admin ? { av: AV.configOf(r) } : {})
 });
 const booking = (r) => {
@@ -21,7 +21,9 @@ const booking = (r) => {
     id: r.id, userId: r.user_id, pujaId: r.puja_id, mode: r.mode, date: r.date, slot: r.slot, addr: j(r.addr, null), templeId: r.temple_id,
     panditId: r.pandit_id, pst: r.pst, sam: j(r.sam, []), pra: j(r.pra, []), notes: r.notes || '', member: r.member || 'Self', coupon: r.coupon || '',
     q: j(r.q, {}), status: r.status, pay: j(r.pay, {}), ops: j(r.ops, {}), media: media.length, mediaUrls: media, review: j(r.review, null),
-    created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc, mediaOverride: !!r.media_override
+    created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc, mediaOverride: !!r.media_override,
+    /* Per-pandit flagging follow-up: bookings of flagged pandits wait under a review hold. */
+    reviewHold: !!r.review_hold, holdReason: r.hold_reason || null
   };
 };
 const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, benHi: r.ben_hi || '', kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [],

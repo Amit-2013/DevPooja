@@ -11,6 +11,7 @@ from .models import (Banner, Booking, Coupon, Festival, Kit, Kundali, Lead, Noti
 from .serialize import (booking, coupon, festival, kit, lead as s_lead, notif, order, pandit,
                         prasad, puja, temple, ticket, payout as s_payout, user)
 from .services.bookings import expire_unpaid, get_setting
+from .services.reopen_digest import flagged_pandit_ids
 from .util import j
 
 
@@ -56,8 +57,12 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
     _ = get_setting  # imported for parity; settings surfaced per-role below
 
     p_rows = (await db.execute(select(Pandit))).scalars().all()
+    # Per-pandit flagging follow-up: admins see which pandits are currently
+    # flagged by the repeat-reopen digest (drives the pandit-module surfacing).
+    flagged_ids = (await flagged_pandit_ids(db)) if role == "admin" else []
     st["pandits"] = [pandit(p, admin=(role == "admin"),
-                            self=(role == "pandit" and p.id == auth.get("pid")))
+                            self=(role == "pandit" and p.id == auth.get("pid")),
+                            flagged=(p.id in flagged_ids))
                      for p in p_rows
                      if role == "admin" or p.status == "verified"
                      or (role == "pandit" and p.id == auth.get("pid"))]

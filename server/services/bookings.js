@@ -8,6 +8,7 @@ const PE = require('./payoutEngine');
 const AV = require('./availability');
 const LEDGER = require('./ledger');
 const CX = require('./cancellation');
+const reviewHold = require('./reviewHold');
 
 const STATUSES = ['New', 'Confirmed', 'Assigned', 'Started', 'Completed', 'Cancelled'];
 const OPEN = ['New', 'Confirmed', 'Assigned'];
@@ -112,6 +113,9 @@ function createBooking(user, body) {
         JSON.stringify(kits.map((k) => k.id)), JSON.stringify(prasad.map((k) => k.id)), notes, member, pr.coupon ? pr.coupon.code : '', JSON.stringify(q), status, JSON.stringify(payInfo),
         JSON.stringify({ sam: kits.length ? 'Packed' : '', pra: '' }), '[]', Date.now(), JSON.stringify([[gateway ? 'Awaiting payment' : 'Booking confirmed', today()]]));
     } catch (e) { if (String(e.code).startsWith('SQLITE_CONSTRAINT')) throw conflict('That pandit was just booked for this slot. Choose another.'); throw e; }
+    /* Per-pandit flagging follow-up: a booking created while the assigned
+       pandit is flagged by the reopen digest waits under a review hold. */
+    reviewHold.stampOnCreate(id, pandit ? pandit.id : null);
     /* Phase 10: mock-gateway bookings settle at creation — record the ledger row
        here; gateway-mode payments record it in confirmPayment instead. */
     if (!gateway) LEDGER.dedupe({ type: 'SERVICE_PAYMENT', amount: q.total, userId: user.id, panditId: pandit ? pandit.id : null, bookingId: id, refTable: 'bookings', refId: id, note: 'Puja booking payment (mock)' });
@@ -192,6 +196,9 @@ function completeBooking(row, mediaUrls = []) {
 function panditAct(pid, id, action, media) {
   const row = getBooking(id);
   if (!row || row.pandit_id !== pid) throw notFound('Booking not found');
+  /* Review hold: flagged-pandit bookings wait for an admin release (or the
+     flag clearing) before the pandit can accept or start them. */
+  if (['accept', 'start'].includes(action)) reviewHold.guard(row, action);
   if (action === 'accept') {
     if (row.pst !== 'pending' || !OPEN.includes(row.status)) throw bad('Nothing to accept');
     db.prepare("UPDATE bookings SET pst='accepted', status='Assigned', log=? WHERE id=?").run(log(row, 'Pandit accepted'), id);
@@ -223,6 +230,8 @@ function adminAssign(id, pid) {
     if (!vv.ok) throw conflict('That pandit is not available: ' + vv.reason);
     try { db.prepare("UPDATE bookings SET pandit_id=?, pst='pending', status=CASE WHEN status='New' THEN 'Confirmed' ELSE status END, log=? WHERE id=?").run(pid, log(row, 'Assigned to ' + p.name), id); }
     catch (e) { if (String(e.code).startsWith('SQLITE_CONSTRAINT')) throw conflict('That pandit is not free at this time.'); throw e; }
+    /* A manual/assigned booking entering a flagged pandit's queue holds too. */
+    reviewHold.stampOnCreate(id, pid);
     notify(row.user_id, 'WhatsApp', `A pandit has been assigned to ${id}: ${p.name}.`);
   }
   return getBooking(id);

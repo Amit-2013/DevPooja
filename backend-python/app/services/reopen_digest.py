@@ -27,6 +27,12 @@ async def reopen_digest(db, limit: int | None = None) -> dict:
     return {"incidents": [out(r) for r in rows], "flaggedPandits": await flagged_pandits(db, cap)}
 
 
+async def flagged_pandit_ids(db, limit: int | None = None) -> list[str]:
+    """Pandit ids currently flagged — feeds the booking review-hold
+    (services/review_hold.py) and the pandit-module surfacing."""
+    return [x["panditId"] for x in await flagged_pandits(db, limit)]
+
+
 async def flagged_pandits(db, limit: int | None = None) -> list[dict]:
     from ..models import Incident, Pandit
 
