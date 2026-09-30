@@ -149,6 +149,76 @@ async def test_queue_entry_notifications(client, db_session):
     assert (await client.get(f"/api/admin/incidents/{inc['id']}/queue-alerts")).status_code == 401
 
 
+async def test_per_customer_flagging_customer_conduct_mirror(client, db_session):
+    """Customer-conduct mirror of the per-pandit flag: a customer whose bookings
+    accumulate repeated reopened incidents across DISTINCT bookings beyond the
+    threshold is flagged; a single-booking loop never flags on volume alone;
+    resolving every live incident drops the customer off the list.
+    Python twin of tests/incident-digest.test.js."""
+    import time
+
+    pt = await login(client, "pandit")
+    ct = await login(client, "customer")
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+    day = lambda n: time.strftime("%Y-%m-%d", time.localtime(time.time() + n * 86400))
+
+    async def loop(booking_id, tag, n):
+        r = await client.post("/api/pandit/incidents", headers={"Authorization": "Bearer " + pt},
+                              json={"bookingId": booking_id, "category": "CUSTOMER_CONDUCT",
+                                    "description": f"Customer probe {tag}: conduct dispute during the puja."})
+        assert r.status_code == 201, r.text
+        iid = r.json()["incident"]["id"]
+        for i in range(1, n + 1):
+            d = await client.patch(f"/api/admin/incidents/{iid}", headers=aa,
+                                   json={"status": "DISMISSED", "reason": f"{tag} dismissal {i}"})
+            assert d.status_code == 200, d.text
+            re = await client.post(f"/api/admin/incidents/{iid}/reopen", headers=aa,
+                                   json={"reason": f"{tag} reopen {i}"})
+            assert re.status_code == 200, re.text
+        return iid
+
+    # cross-booking pattern against ONE customer: incidents on 3 distinct bookings
+    k1 = await _booking(client, ct, day(35))
+    k2 = await _booking(client, ct, day(36))
+    k3 = await _booking(client, ct, day(37))
+    j1 = await loop(k1["id"], "C1", 3)
+    j2 = await loop(k2["id"], "C2", 1)
+    j3 = await loop(k3["id"], "C3", 1)
+
+    digest = await client.get("/api/admin/incidents/reopen-digest", headers=aa)
+    assert digest.status_code == 200
+    body = digest.json()
+    assert isinstance(body["flaggedCustomers"], list), "digest carries flaggedCustomers"
+    c1 = next((x for x in body["flaggedCustomers"] if x["customerId"] == "u1"), None)
+    assert c1, "customer u1 flagged: reopened incidents across 3 distinct bookings"
+    reopens = c1["reopens"]
+    assert c1["bookings"] >= 3, "distinct bookings counted"
+    assert reopens >= 5, "reopen count summed across incidents"
+    assert c1["customer"], "customer name joined in"
+
+    # single-booking loop alone never flags: no row below the pattern's breadth
+    assert not any(x["bookings"] < 3 for x in body["flaggedCustomers"]), \
+        "no customer flagged on a single-booking loop alone"
+
+    # ?limit=1 narrows the window and keeps the shape
+    wide = await client.get("/api/admin/incidents/reopen-digest?limit=1", headers=aa)
+    assert wide.status_code == 200
+    assert isinstance(wide.json()["flaggedCustomers"], list)
+
+    # resolving everything drops the customer off the list (live-window rule)
+    for iid in (j1, j2, j3):
+        r = await client.patch(f"/api/admin/incidents/{iid}", headers=aa,
+                               json={"status": "RESOLVED", "resolution": "Customer pattern closed out."})
+        assert r.status_code == 200, r.text
+    after = (await client.get("/api/admin/incidents/reopen-digest", headers=aa)).json()["flaggedCustomers"]
+    assert not any(x["customerId"] == "u1" for x in after), "fully-resolved customer drops off the flag list"
+
+    # access: admin-only
+    ct_h = {"Authorization": "Bearer " + ct}
+    assert (await client.get("/api/admin/incidents/reopen-digest", headers=ct_h)).status_code == 403
+    assert (await client.get("/api/admin/incidents/reopen-digest")).status_code == 401
+
+
 async def test_per_pandit_flagging_across_distinct_bookings(client, db_session):
     """Per-pandit flagging: a pandit whose live incidents were reopened across
     DISTINCT bookings beyond the threshold is flagged (reopens on one booking

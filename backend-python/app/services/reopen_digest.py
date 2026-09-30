@@ -24,13 +24,39 @@ async def reopen_digest(db, limit: int | None = None) -> dict:
     rows = (await db.execute(
         select(Incident).where(Incident.reopen_count > cap).order_by(
             Incident.reopen_count.desc(), Incident.reported_at.desc(), Incident.id.desc()))).scalars().all()
-    return {"incidents": [out(r) for r in rows], "flaggedPandits": await flagged_pandits(db, cap)}
+    return {"incidents": [out(r) for r in rows], "flaggedPandits": await flagged_pandits(db, cap),
+            "flaggedCustomers": await flagged_customers(db, cap)}
 
 
 async def flagged_pandit_ids(db, limit: int | None = None) -> list[str]:
     """Pandit ids currently flagged — feeds the booking review-hold
     (services/review_hold.py) and the pandit-module surfacing."""
     return [x["panditId"] for x in await flagged_pandits(db, limit)]
+
+
+async def flagged_customers(db, limit: int | None = None) -> list[dict]:
+    """Customer-conduct mirror of the per-pandit flag: a customer whose bookings
+    accumulate repeated reopened incidents across DISTINCT bookings is the
+    demand-side pattern signal (incidents link the customer from the booking at
+    report time). Same aggregation as flagged_pandits, grouped by customer_id;
+    rows without a booking (customer_id IS NULL) are excluded up front."""
+    from ..models import Incident, User
+
+    cap = int(limit) if (limit is not None and int(limit) >= 1) else REOPEN_LIMIT
+    # cap is a validated int — inline as literal (same WHERE+HAVING edge case).
+    rows = (await db.execute(
+        select(Incident.customer_id, User.name,
+               func.sum(Incident.reopen_count), func.count(func.distinct(Incident.booking_id)),
+               func.count(Incident.id), func.max(Incident.reported_at))
+        .join(User, User.id == Incident.customer_id, isouter=True)
+        .where(Incident.customer_id.is_not(None), Incident.reopen_count > 0,
+               Incident.status.in_(("OPEN", "UNDER_REVIEW")))
+        .group_by(Incident.customer_id)
+        .having(text(f"count(distinct booking_id) > {cap}"))
+        .order_by(func.sum(Incident.reopen_count).desc(), Incident.customer_id))).all()
+    return [{"customerId": cid, "customer": (name or ""), "reopens": (reopens or 0),
+             "bookings": bookings or 0, "incidents": incidents or 0, "latest": latest}
+            for cid, name, reopens, bookings, incidents, latest in rows]
 
 
 async def flagged_pandits(db, limit: int | None = None) -> list[dict]:

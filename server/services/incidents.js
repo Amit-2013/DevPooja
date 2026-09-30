@@ -104,7 +104,29 @@ function flaggedPandits(limit) {
 function reopenDigest(limit) {
   const cap = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REOPEN_LIMIT;
   const rows = db.prepare('SELECT * FROM incidents WHERE reopen_count > ? ORDER BY reopen_count DESC, reported_at DESC, id DESC').all(cap);
-  return { incidents: rows.map(out), flaggedPandits: flaggedPandits(cap) };
+  return { incidents: rows.map(out), flaggedPandits: flaggedPandits(cap), flaggedCustomers: flaggedCustomers(cap) };
+}
+/* Customer-conduct mirror of the per-pandit flag: a customer whose bookings
+   accumulate repeated reopened incidents across DISTINCT bookings is the
+   demand-side pattern signal (the incidents table links the customer from
+   the booking at report time). Same aggregation as flaggedPandits, grouped
+   by customer_id; rows without a booking (customer_id IS NULL) can never
+   accumulate distinct bookings and are excluded up front. */
+function flaggedCustomers(limit) {
+  const cap = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REOPEN_LIMIT;
+  /* cap is a validated integer — inlined as a literal (same SQLite WHERE+HAVING
+     bound-param edge case as flaggedPandits). */
+  const rows = db.prepare(`SELECT i.customer_id AS customer_id, u.name AS customer_name,
+    SUM(i.reopen_count) AS reopens, COUNT(DISTINCT i.booking_id) AS bookings,
+    COUNT(*) AS incidents, MAX(i.reported_at) AS latest
+    FROM incidents i LEFT JOIN users u ON u.id=i.customer_id
+    WHERE i.customer_id IS NOT NULL AND i.reopen_count > 0 AND i.status IN ('OPEN','UNDER_REVIEW')
+    GROUP BY i.customer_id HAVING COUNT(DISTINCT i.booking_id) > ${cap}
+    ORDER BY reopens DESC, customer_id`).all();
+  return rows.map((r) => ({
+    customerId: r.customer_id, customer: r.customer_name || '', reopens: r.reopens || 0,
+    bookings: r.bookings || 0, incidents: r.incidents || 0, latest: r.latest || null
+  }));
 }
 function counts() {
   const rows = db.prepare('SELECT status, COUNT(*) n FROM incidents GROUP BY status').all();
@@ -219,4 +241,4 @@ function reopen(actorUserId, id, { reason } = {}) {
 function flaggedPanditIds(limit) {
   return flaggedPandits(limit).map((x) => x.panditId);
 }
-module.exports = { CATEGORIES, STATUSES, get, list, adminQueueAlerts, allQueueAlerts, flaggedPandits, flaggedPanditIds, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };
+module.exports = { CATEGORIES, STATUSES, get, list, adminQueueAlerts, allQueueAlerts, flaggedPandits, flaggedPanditIds, flaggedCustomers, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };

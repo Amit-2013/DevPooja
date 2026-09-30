@@ -179,3 +179,47 @@ test('per-pandit flagging: reopens across DISTINCT bookings above threshold flag
   /* access */
   assert.equal((await call('GET', '/admin/incidents/reopen-digest', { token: ct })).status, 403);
 });
+
+test('per-customer flagging: the customer-conduct mirror flags demand-side patterns; single-booking loops do not', async () => {
+  const pt = await login('pandit'), ct = await login('customer'), at = await admin();
+
+  /* cross-booking pattern against ONE customer (u1): incidents on 3 distinct
+     bookings — H1 loops 3 times (also queues the incident), H2/H3 once each */
+  const mkBooking = async (day) => (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(day) }) })).json.booking;
+  const inc = async (b, tag) => (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId: b.id, category: 'CUSTOMER_CONDUCT', description: 'Customer probe ' + tag + ': conduct dispute during the puja.' } })).json.incident;
+  const loop = async (id, tag, n) => { for (let i = 1; i <= n; i++) { await call('PATCH', '/admin/incidents/' + id, { token: at, body: { status: 'DISMISSED', reason: tag + ' dismissal ' + i } }); await call('POST', '/admin/incidents/' + id + '/reopen', { token: at, body: { reason: tag + ' reopen ' + i } }); } };
+  const k1 = await mkBooking(35), k2 = await mkBooking(36), k3 = await mkBooking(37);
+  const j1 = await inc(k1, 'C1'); await loop(j1.id, 'C1', 3);
+  const j2 = await inc(k2, 'C2'); await loop(j2.id, 'C2', 1);
+  const j3 = await inc(k3, 'C3'); await loop(j3.id, 'C3', 1);
+
+  const digest = (await call('GET', '/admin/incidents/reopen-digest', { token: at })).json;
+  assert.ok(Array.isArray(digest.flaggedCustomers), 'digest carries flaggedCustomers');
+  const c1 = (digest.flaggedCustomers || []).find((x) => x.customerId === 'u1');
+  assert.ok(c1, 'customer u1 flagged: reopened incidents across 3 distinct bookings');
+  assert.equal(c1.bookings >= 3, true, 'distinct bookings counted');
+  assert.equal(c1.reopens >= 5, true, 'reopen count summed across incidents');
+  assert.ok(c1.customer && c1.customer.length > 0, 'customer name joined in');
+
+  /* single-booking loop alone does NOT flag a customer: no row may exist
+     whose distinct-booking count is below the 3 the pattern requires here
+     (S1's earlier 3-reopen loop on ONE booking created no customer flag) */
+  const singleCustomer = (digest.flaggedCustomers || []).filter((x) => x.bookings < 3);
+  assert.equal(singleCustomer.length, 0, 'no customer flagged on a single-booking loop alone');
+
+  /* ?limit=1 narrows the window and keeps the shape */
+  const wide = await call('GET', '/admin/incidents/reopen-digest?limit=1', { token: at });
+  assert.ok(Array.isArray(wide.json.flaggedCustomers), 'limit=1 keeps the flaggedCustomers shape');
+
+  /* resolving everything drops the customer off the list (live-window rule) */
+  const mine = [j1, j2, j3];
+  for (const row of mine) {
+    const r = await call('PATCH', '/admin/incidents/' + row.id, { token: at, body: { status: 'RESOLVED', resolution: 'Customer pattern closed out.' } });
+    assert.equal(r.status, 200);
+  }
+  const after = (await call('GET', '/admin/incidents/reopen-digest', { token: at })).json.flaggedCustomers || [];
+  assert.ok(!after.some((x) => x.customerId === 'u1'), 'fully-resolved customer drops off the flag list');
+
+  /* access: admin-only (envelope key invisible without admin) */
+  assert.equal((await call('GET', '/admin/incidents/reopen-digest', { token: ct })).status, 403);
+});
