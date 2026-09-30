@@ -21,7 +21,7 @@ from ..services import bookings as B
 from ..services import kyc as KYC
 from ..services import account_status as AS
 from ..services.payout_engine import payout_rules, set_adjustment, transition
-from ..util import bad, conflict, j, not_found, rid, v_arr, v_int, v_one_of, v_str
+from ..util import bad, conflict, j, not_found, rid, v_arr, v_date, v_int, v_one_of, v_str
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 admin_dep = require_role("admin")
@@ -1045,13 +1045,196 @@ async def leads_notes(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
     return {"lead": await LEADS.update_notes(db, lead_id, (body or {}).get("notes"), auth["uid"])}
 
 
+@router.get("/leads/available-pandits")
+async def leads_available_pandits(request: Request, auth: dict = Depends(admin_dep),
+                                  db: AsyncSession = Depends(get_db)):
+    """Assignment-ready conversion: the modal's pandit picker source — the SAME
+    centralized availability rules the booking engine enforces on assign."""
+    from ..pricing import MODES, SLOTS
+    from ..services.availability import who_is_available
+    q = dict(request.query_params)
+    date = v_date(q.get("date"))
+    slot = v_one_of(q.get("slot"), SLOTS, "Time slot")
+    mode = q.get("mode") if q.get("mode") in MODES else "home"
+    rows = await who_is_available(db, q.get("pujaId") or "", q.get("city") or None,
+                                  date, slot, mode=mode)
+    return {"pandits": [{"id": p.id, "n": p.name, "city": p.city, "rating": p.rating,
+                          "spec": j(p.spec, [])} for p in rows]}
+
+
 @router.post("/leads/{lead_id}/convert", status_code=201)
 async def leads_convert(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
                         db: AsyncSession = Depends(get_db)):
-    return await LEADS.convert(db, lead_id, body or {}, auth["uid"])
+    r = await LEADS.convert(db, lead_id, body or {}, auth["uid"])
+    await db.commit()
+    return r
 
 
 @router.delete("/leads/{lead_id}")
 async def leads_delete(lead_id: int, auth: dict = Depends(admin_dep),
                        db: AsyncSession = Depends(get_db)):
     return await LEADS.remove(db, lead_id, auth["uid"])
+
+
+# --- Phases 27-29: communication engine (services/comms.py; Node parity: the
+# comms block in server/routes/admin.js). ONE notification path with consent +
+# delivery records; campaigns are a real lifecycle (DRAFT → SCHEDULED → SENDING
+# → SENT|FAILED, CANCELLED while pending); Excel import previews dedupe
+# statelessly, commit applies it. ---
+from io import BytesIO  # noqa: E402
+
+from fastapi import File, UploadFile  # noqa: E402
+
+from ..services import comms as CM  # noqa: E402
+
+
+@router.get("/campaigns")
+async def campaigns_list(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"campaigns": await CM.list_campaigns(db)}
+
+
+@router.post("/campaigns", status_code=201)
+async def campaigns_create(body: dict, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    r = await CM.create(db, body or {}, auth["uid"])
+    await db.commit()
+    return {"campaign": r}
+
+
+@router.post("/campaigns/due-sweep")
+async def campaigns_due_sweep(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    n = await CM.due_sweep(db)
+    await db.commit()
+    return {"sent": n}
+
+
+@router.get("/campaigns/{campaign_id}")
+async def campaigns_detail(campaign_id: str, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    return await CM.detail(db, campaign_id)
+
+
+@router.patch("/campaigns/{campaign_id}")
+async def campaigns_update(campaign_id: str, body: dict, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    r = await CM.update(db, campaign_id, body or {}, auth["uid"])
+    await db.commit()
+    return {"campaign": r}
+
+
+@router.post("/campaigns/{campaign_id}/schedule")
+async def campaigns_schedule(campaign_id: str, body: dict, auth: dict = Depends(admin_dep),
+                             db: AsyncSession = Depends(get_db)):
+    r = await CM.schedule(db, campaign_id, body or {}, auth["uid"])
+    await db.commit()
+    return {"campaign": r}
+
+
+@router.post("/campaigns/{campaign_id}/cancel")
+async def campaigns_cancel(campaign_id: str, auth: dict = Depends(admin_dep),
+                           db: AsyncSession = Depends(get_db)):
+    r = await CM.cancel(db, campaign_id, auth["uid"])
+    await db.commit()
+    return {"campaign": r}
+
+
+@router.post("/campaigns/{campaign_id}/send")
+async def campaigns_send(campaign_id: str, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    r = await CM.send(db, campaign_id, auth["uid"])
+    await db.commit()
+    return {"campaign": r}
+
+
+# Legacy one-off push, now through the engine so it leaves delivery records.
+@router.post("/push")
+async def push_all(body: dict, auth: dict = Depends(admin_dep),
+                   db: AsyncSession = Depends(get_db)):
+    m = v_str((body or {}).get("message"), "Message", max_len=300)
+    users = (await db.execute(select(User.id).where(User.role == "customer"))).scalars().all()
+    sent = 0
+    for uid in users:
+        if await CM.deliver(db, campaign_id=None, user_id=uid, channel="Push", message=m) == "SENT":
+            sent += 1
+    await db.commit()
+    return {"sent": sent}
+
+
+# Excel import (customers | leads): stateless preview → confirmed commit.
+# xlsx is a zip (PK\x03\x04) — bytes are sniffed before openpyxl touches them.
+_XLSX_LIMIT = 5 * 1024 * 1024
+
+
+def _parse_xlsx_rows(content: bytes) -> list[dict]:
+    if not (len(content) > 4 and content[:2] == b"PK"
+            and content[2] in (3, 5, 7) and content[3] in (4, 6, 8)):
+        raise bad("Not a valid .xlsx file")
+    from openpyxl import load_workbook
+    try:
+        wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        raise bad("Not a valid .xlsx file")
+    try:
+        ws = wb.worksheets[0] if wb.worksheets else None
+        if ws is None:
+            raise bad("The workbook has no sheets")
+        data = ws.iter_rows(values_only=True)
+        header = next(data, None)
+        if header is None:
+            raise bad("No data rows found below the header")
+        headers: dict[str, int] = {}
+        for idx, val in enumerate(header, start=1):
+            if val is not None and str(val).strip():
+                headers[str(val).strip().lower()] = idx
+        if "name" not in headers or ("mobile" not in headers and "email" not in headers):
+            raise bad("Expected a header row with at least name and mobile (or email)")
+
+        def get(row, h: str) -> str:
+            i = headers.get(h)
+            if not i or not row or i > len(row):
+                return ""
+            v = row[i - 1]
+            return "" if v is None else str(v).strip()
+
+        rows = []
+        for row in data:
+            mobile = get(row, "mobile")
+            rows.append({"name": get(row, "name"),
+                         "mobile": re.sub(r"\D", "", mobile),
+                         "email": get(row, "email").lower(),
+                         "source": get(row, "source"), "details": get(row, "details")})
+    finally:
+        wb.close()
+    return rows
+
+
+async def _import_run(kind: str, file: UploadFile, commit: bool, auth: dict, db: AsyncSession):
+    if kind not in CM.IMPORT_KINDS:
+        raise bad("Unknown import kind")
+    content = await file.read(_XLSX_LIMIT + 1)
+    if not content:
+        raise bad("Upload an .xlsx file")
+    if len(content) > _XLSX_LIMIT:
+        raise bad("File too large (max 5 MB)")
+    rows = _parse_xlsx_rows(content)
+    if not rows:
+        raise bad("No data rows found below the header")
+    if len(rows) > 5000:
+        raise bad("Too many rows (max 5000 per import)")
+    if commit:
+        return await CM.import_commit(db, kind, rows, auth["uid"])
+    return await CM.import_preview(db, kind, rows)
+
+
+@router.post("/import/{kind}/preview")
+async def import_preview(kind: str, file: UploadFile = File(...),
+                         auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await _import_run(kind, file, False, auth, db)
+
+
+@router.post("/import/{kind}/commit")
+async def import_commit(kind: str, file: UploadFile = File(...),
+                        auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    r = await _import_run(kind, file, True, auth, db)
+    await db.commit()
+    return r

@@ -12,6 +12,7 @@ import os
 _swipe_task: asyncio.Task | None = None
 _noshow_task: asyncio.Task | None = None
 _digest_task: asyncio.Task | None = None
+_campaign_task: asyncio.Task | None = None
 
 
 async def kyc_sweep_tick() -> int:
@@ -103,6 +104,46 @@ def _digest_interval_ms() -> int:
     return n if n > 0 else (0 if n == 0 else 86400000)
 
 
+def _campaign_interval_ms() -> int:
+    raw = os.environ.get("CAMPAIGN_SWEEP_MS", "")
+    try:
+        n = int(raw)
+    except ValueError:
+        return 60000  # 1m default (Node parity)
+    return n if n > 0 else (0 if n == 0 else 60000)
+
+
+async def campaign_due_tick() -> int:
+    """One scheduled due-campaign pass over its own session (parity: Node comms.dueSweep)."""
+    from .comms import due_sweep
+    from ..db import SessionLocal
+    async with SessionLocal() as db:
+        n = await due_sweep(db)
+        await db.commit()
+        return n
+
+
+async def _campaign_loop(interval_ms: int) -> None:
+    while True:
+        await asyncio.sleep(interval_ms / 1000)
+        try:
+            await campaign_due_tick()
+        except Exception as e:  # never let the background loop die
+            print(f"[campaigns.sweeper] {e}")
+
+
+def start_campaign_sweeper() -> asyncio.Task | None:
+    """Arm the due-campaign send sweep (idempotent, same contract as the other sweeps)."""
+    global _campaign_task
+    if _campaign_task and not _campaign_task.done():
+        return _campaign_task
+    ms = _campaign_interval_ms()
+    if not ms:
+        return None
+    _campaign_task = asyncio.get_running_loop().create_task(_campaign_loop(ms))
+    return _campaign_task
+
+
 async def digest_sweep_tick() -> int:
     """One scheduled reopen-digest pass over its own session (parity: Node digestSweep.tick)."""
     from .digest_sweep import tick
@@ -135,8 +176,8 @@ def start_digest_sweeper() -> asyncio.Task | None:
 
 
 def stop_sweeper() -> None:
-    global _swipe_task, _noshow_task, _digest_task
-    for task in (_swipe_task, _noshow_task, _digest_task):
+    global _swipe_task, _noshow_task, _digest_task, _campaign_task
+    for task in (_swipe_task, _noshow_task, _digest_task, _campaign_task):
         if task and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -144,3 +185,4 @@ def stop_sweeper() -> None:
     _swipe_task = None
     _noshow_task = None
     _digest_task = None
+    _campaign_task = None

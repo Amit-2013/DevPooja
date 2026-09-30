@@ -67,7 +67,8 @@ function buildState(auth) {
     st.coupons = db.prepare('SELECT * FROM coupons').all().map(S.coupon);
     st.payouts = db.prepare('SELECT * FROM payouts').all().map(S.payout);
     st.inv = Object.fromEntries(kits.map((k) => [k.id, k.stock]));
-    st.campaigns = db.prepare('SELECT * FROM campaigns').all().map((c) => ({ id: c.id, n: c.name, ch: c.channel, aud: c.audience, st: c.status, sent: c.sent }));
+    /* Phases 27-29: full campaign lifecycle rows for the marketing tab. */
+    st.campaigns = db.prepare('SELECT * FROM campaigns ORDER BY created_at DESC, id DESC').all().map((c) => ({ id: c.id, n: c.name, ch: c.channel, aud: c.audience, st: c.status, sent: c.sent || 0, failed: c.failed || 0, msg: c.message || '', when: c.scheduled_at || null, sentAt: c.sent_at || null }));
     /* Phase 26: full CRM rows (pipeline, contact, assignment) for the support tab. */
     st.leads = db.prepare('SELECT * FROM leads ORDER BY id DESC LIMIT 500').all().map(require('./serialize').lead);
     st.set = Object.assign({ comm: getSetting('commission', 20) },

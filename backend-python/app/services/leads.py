@@ -10,8 +10,9 @@ import time
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuditLog, Lead, User
-from ..util import bad, conflict, not_found, v_email, v_int, v_mobile, v_one_of, v_str
+from ..models import AuditLog, Lead, Pandit, User
+from ..pricing import SLOTS
+from ..util import bad, conflict, not_found, v_date, v_email, v_int, v_mobile, v_one_of, v_str
 
 SOURCES = ["Contact", "Corporate", "Astrology", "Kundli", "Partner", "Walk-in", "Other"]
 PUBLIC_SOURCES = ["Contact", "Corporate", "Astrology", "Kundli"]
@@ -164,8 +165,13 @@ async def update_notes(db: AsyncSession, lead_id, notes, actor: str) -> dict:
 async def convert(db: AsyncSession, lead_id, body: dict, actor: str) -> dict:
     """The money move: a lead becomes a real manual booking via the EXISTING
     bookings engine (admin_manual — creates/finds the customer by mobile,
-    prices through shared pricing). The lead closes as CONVERTED."""
-    from .bookings import admin_manual
+    prices through shared pricing). With a panditId the booking is immediately
+    assignment-ready: the pandit is validated through the SAME availability
+    engine the customer wizard uses (admin_assign applies it again before the
+    write, so a race still fails safely with 409). The lead closes as CONVERTED
+    and keeps the booking id."""
+    from .bookings import admin_assign, admin_manual
+    from .availability import check as availability_check
 
     l = await _one(db, lead_id)
     if l.status == "CONVERTED":
@@ -173,22 +179,33 @@ async def convert(db: AsyncSession, lead_id, body: dict, actor: str) -> dict:
     if not l.mobile:
         raise bad("Add a mobile number to the lead before converting it to a booking")
     body = body or {}
+    mode = body.get("mode") or "home"
+    slot = body.get("slot") or "10:00 AM"
+    date = body.get("date") or time.strftime("%Y-%m-%d", time.localtime(time.time() + 7 * 86400))
+    if body.get("panditId"):
+        p = await db.get(Pandit, body["panditId"])
+        vres = await availability_check(db, p, v_date(date), v_one_of(slot, SLOTS, "Slot"),
+                                        mode=mode, city=l.location or None)
+        if not vres["ok"]:
+            raise conflict("That pandit is not available: " + vres["reason"])
     booking = await admin_manual(db, {
-        "name": l.name, "mobile": l.mobile, "mode": body.get("mode") or "home",
-        "slot": body.get("slot") or "10:00 AM",
-        "date": body.get("date") or time.strftime("%Y-%m-%d", time.localtime(time.time() + 7 * 86400)),
+        "name": l.name, "mobile": l.mobile, "mode": mode,
+        "slot": slot, "date": date,
         "pujaId": body.get("pujaId") or "satyanarayan", "city": l.location or None})
+    if body.get("panditId"):
+        await admin_assign(db, booking.id, body["panditId"])
     db.add(AuditLog(actor_user_id=actor, actor_role="admin", action="lead.converted",
                     entity="lead", entity_id=str(l.id),
                     detail=json.dumps({"from": l.status, "to": "CONVERTED",
-                                       "bookingId": booking.id}),
+                                       "bookingId": booking.id,
+                                       "panditId": body.get("panditId") or None}),
                     old_value=json.dumps({"status": l.status}),
                     new_value=json.dumps({"status": "CONVERTED",
                                           "convertedBookingId": booking.id}),
                     created_at=int(time.time() * 1000)))
     l.status = "CONVERTED"
     l.converted_booking_id = booking.id
-    return {"lead": out(l), "bookingId": booking.id}
+    return {"lead": out(l), "bookingId": booking.id, "panditId": body.get("panditId") or None}
 
 
 async def remove(db: AsyncSession, lead_id, actor: str) -> dict:

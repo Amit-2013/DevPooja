@@ -341,6 +341,28 @@ class Campaign(Base):
     audience: Mapped[str | None] = mapped_column(String(120))
     status: Mapped[str | None] = mapped_column(String(20))
     sent: Mapped[int] = mapped_column(Integer, default=0)
+    # Phases 27-29 lifecycle extensions (migration 026 twin — additive, defaulted).
+    message: Mapped[str | None] = mapped_column(Text, default="")
+    scheduled_at: Mapped[int | None] = mapped_column(MS)
+    created_by: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[int | None] = mapped_column(MS)
+    sent_at: Mapped[int | None] = mapped_column(MS)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class NotificationDelivery(Base):
+    """One row per recipient per campaign send — the campaign detail view's
+    source of truth (SENT = notifs row + provider fired, SKIPPED = no consent
+    or no contact target with the reason, FAILED = provider error)."""
+    __tablename__ = "notification_deliveries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    user_id: Mapped[str] = mapped_column(String(40))
+    channel: Mapped[str] = mapped_column(String(20))
+    message: Mapped[str] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(String(10), default="SENT")  # SENT | SKIPPED | FAILED
+    detail: Mapped[str | None] = mapped_column(Text)
+    ts: Mapped[int | None] = mapped_column(MS)
 
 
 class Lead(Base):

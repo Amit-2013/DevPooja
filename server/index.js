@@ -190,6 +190,7 @@ if (require.main === module) {
   require('./services/kyc').startSweeper(); // KYC expiry sweep on a schedule (KYC_SWEEP_MS, default 6h; 0 disables)
   require('./services/cancellation').startNoShowSweeper(); // Phase 16: no-show sweep (NOSHOW_SWEEP_MS, default 1h; 0 disables)
   require('./services/digestSweep').startSweeper(); // Daily reopen-digest digest sweep (DIGEST_SWEEP_MS, default 24h; 0 disables)
+  require('./services/comms').startSweeper(); // Phases 27-29: due-campaign send sweep (CAMPAIGN_SWEEP_MS, default 60s; 0 disables)
   require('./services/reviewHold').sweep(); // Per-pandit flagging follow-up: release holds whose flag cleared
 }
 module.exports = app;

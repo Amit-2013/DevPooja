@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .services import payments as pay
-from .models import (Banner, Booking, Coupon, Festival, Kit, Kundali, Lead, Notif, Order,
+from .models import (Banner, Booking, Campaign, Coupon, Festival, Kit, Kundali, Lead, Notif, Order,
                      Pandit, Prasad, Payout, Puja, Temple, Ticket, User)
 from .serialize import (booking, coupon, festival, kit, lead as s_lead, notif, order, pandit,
                         prasad, puja, temple, ticket, payout as s_payout, user)
@@ -122,7 +122,11 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["coupons"] = [coupon(c) for c in (await db.execute(select(Coupon))).scalars().all()]
         st["payouts"] = [s_payout(p) for p in (await db.execute(select(Payout))).scalars().all()]
         st["inv"] = {k.id: k.stock for k in kits}
-        st["campaigns"] = []
+        # Phases 27-29: full campaign lifecycle rows for the marketing tab.
+        from .services.comms import out as s_campaign
+        st["campaigns"] = [s_campaign(c) for c in (await db.execute(
+            select(Campaign).order_by(Campaign.created_at.desc().nullslast(), Campaign.id.desc())
+        )).scalars().all()]
         # Phase 26: full CRM rows (pipeline, contact, assignment) for the support tab.
         st["leads"] = [s_lead(l) for l in (await db.execute(
             select(Lead).order_by(Lead.id.desc()).limit(500))).scalars().all()]

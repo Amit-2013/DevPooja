@@ -8,6 +8,7 @@
 'use strict';
 const { db, nextSeq } = require('../db');
 const { v, bad, notFound, conflict } = require('../lib/util');
+const P_SLOTS = require('../../shared/pricing').SLOTS;
 
 const SOURCES = ['Contact', 'Corporate', 'Astrology', 'Kundli', 'Partner', 'Walk-in', 'Other'];
 const STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED', 'LOST'];
@@ -123,22 +124,36 @@ function updateNotes(id, notes, actor) {
 
 /* The money move: a lead becomes a real manual booking via the EXISTING
    bookings engine (adminManual — creates/finds the customer by mobile,
-   prices through shared pricing). The lead closes as CONVERTED and keeps the
-   booking id. Works for leads without contact details only if they already
-   carry a mobile; adminManual requires one. */
+   prices through shared pricing). With a panditId the booking is immediately
+   assignment-ready: the pandit is validated through the SAME availability
+   engine the customer wizard uses (adminAssign applies it again before the
+   write, so a race still fails safely with 409). The lead closes as CONVERTED
+   and keeps the booking id. Works for leads without contact details only if
+   they already carry a mobile; adminManual requires one. */
 function convert(id, body, actor) {
   const l = one(id);
   if (l.status === 'CONVERTED') throw conflict('Lead already converted');
   if (!l.mobile) throw bad('Add a mobile number to the lead before converting it to a booking');
+  const body_ = body || {};
+  const AV = require('./availability');
+  const mode = body_.mode || 'home', slot = body_.slot || '10:00 AM';
+  const date = body_.date || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  if (body_.panditId) {
+    const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(body_.panditId);
+    const vres = AV.check(p, v.date(date), v.oneOf(slot, P_SLOTS, 'Slot'),
+      { mode, city: l.location || undefined });
+    if (!vres.ok) throw conflict('That pandit is not available: ' + vres.reason);
+  }
   const booking = require('./bookings').adminManual({
-    name: l.name, mobile: l.mobile, mode: (body && body.mode) || 'home',
-    slot: (body && body.slot) || '10:00 AM', date: (body && body.date) || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-    pujaId: (body && body.pujaId) || 'satyanarayan', city: l.location || undefined
+    name: l.name, mobile: l.mobile, mode,
+    slot, date,
+    pujaId: body_.pujaId || 'satyanarayan', city: l.location || undefined
   });
+  if (body_.panditId) require('./bookings').adminAssign(booking.id, body_.panditId);
   db.prepare("UPDATE leads SET status='CONVERTED', converted_booking_id=? WHERE id=?").run(booking.id, l.id);
   require('../lib/audit').audit(actor, 'lead.converted', 'lead', l.id,
-    { from: l.status, to: 'CONVERTED', bookingId: booking.id });
-  return { lead: out({ ...l, status: 'CONVERTED', converted_booking_id: booking.id }), bookingId: booking.id };
+    { from: l.status, to: 'CONVERTED', bookingId: booking.id, panditId: body_.panditId || null });
+  return { lead: out({ ...l, status: 'CONVERTED', converted_booking_id: booking.id }), bookingId: booking.id, panditId: body_.panditId || null };
 }
 
 function remove(id, actor) {

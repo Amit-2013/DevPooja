@@ -292,16 +292,64 @@ router.post('/payouts/:id/reverse', (req, res) => res.json({ payout: S.payout(PE
 router.post('/payouts/:id/adjustment', (req, res) => res.json({ payout: S.payout(PE.setAdjustment(req.params.id, v.int(req.body.amount, 'Adjustment', { min: -10000000, max: 10000000 }), req.auth.uid, req.body.reason)) }));
 router.get('/payouts/:id', (req, res) => { const r = PE.get(req.params.id); if (!r) throw notFound(); res.json({ payout: S.payout(r) }); });
 router.patch('/banners/:id', (req, res) => { db.prepare('UPDATE banners SET enabled=? WHERE id=?').run(req.body.enabled ? 1 : 0, req.params.id); res.json({ ok: true }); });
-router.post('/campaigns', (req, res) => {
-  db.prepare("INSERT INTO campaigns(id,name,channel,audience,status,sent) VALUES(?,?,?,?,'Scheduled',0)").run('C' + nextSeq('campaign_seq', 3), v.str(req.body.name, 'Name', { max: 80 }), v.oneOf(req.body.channel, ['WhatsApp', 'Email', 'SMS', 'Push'], 'Channel'), v.oneOf(req.body.audience, ['All customers', 'Repeat customers', 'Plus members'], 'Audience'));
-  res.status(201).json({ ok: true });
-});
+/* --- Phases 27-29: communication engine (server/services/comms.js) ---------
+   ONE notification path with consent + delivery records; campaigns are a real
+   lifecycle (DRAFT → SCHEDULED → SENDING → SENT|FAILED, CANCELLED while
+   pending); Excel import previews dedupe statelessly, commit applies it. */
+const CM = require('../services/comms');
+
+router.get('/campaigns', (req, res) => res.json({ campaigns: CM.list() }));
+router.post('/campaigns', (req, res) => res.status(201).json({ campaign: CM.create(req.body, req.auth.uid) }));
+router.get('/campaigns/:id', (req, res) => res.json(CM.detail(req.params.id)));
+router.patch('/campaigns/:id', (req, res) => res.json({ campaign: CM.update(req.params.id, req.body, req.auth.uid) }));
+router.post('/campaigns/:id/schedule', (req, res) => res.json({ campaign: CM.schedule(req.params.id, req.body, req.auth.uid) }));
+router.post('/campaigns/:id/cancel', (req, res) => res.json({ campaign: CM.cancel(req.params.id, req.auth.uid) }));
+router.post('/campaigns/:id/send', (req, res) => res.json({ campaign: CM.send(req.params.id, req.auth.uid) }));
+router.post('/campaigns/due-sweep', (req, res) => res.json({ sent: CM.dueSweep() }));
+
+/* Legacy one-off push, now through the engine so it leaves delivery records. */
 router.post('/push', (req, res) => {
   const m = v.str(req.body.message, 'Message', { max: 300 });
   const users = db.prepare("SELECT id FROM users WHERE role='customer'").all();
-  users.forEach((u) => notify(u.id, 'Push', m));
-  res.json({ sent: users.length });
+  let sent = 0;
+  users.forEach((u) => { if (CM.deliver({ userId: u.id, channel: 'Push', message: m }) === 'SENT') sent++; });
+  res.json({ sent });
 });
+
+/* Excel import (customers | leads): stateless preview → confirmed commit.
+   xlsx is a zip (PK\x03\x04), which the media magic allowlist excludes, so this
+   route has its own memory-storage multer that only accepts real xlsx bytes. */
+const xlsxUpload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const readXlsx = async (buffer) => {
+  const wb = await new (require('exceljs').Workbook)().xlsx.load(buffer);
+  const ws = wb.worksheets[0];
+  if (!ws) throw bad('The workbook has no sheets');
+  const headers = {};
+  ws.getRow(1).eachCell((cell, col) => { if (cell.value) headers[String(cell.value).toString().trim().toLowerCase()] = col; });
+  if (!headers.name || (!headers.mobile && !headers.email)) throw bad('Expected a header row with at least name and mobile (or email)');
+  const rows = [];
+  ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const get = (h) => { const c = headers[h] && row.getCell(headers[h]); const val = c && c.value; return val == null ? '' : String(typeof val === 'object' && val.text ? val.text : val).trim(); };
+    const mobile = get('mobile');
+    rows.push({ name: get('name'), mobile: mobile ? mobile.replace(/\D/g, '') : '', email: get('email').toLowerCase(), source: get('source'), details: get('details') });
+  });
+  return rows;
+};
+
+const importHandler = (commit) => wrap(async (req, res) => {
+  const kind = req.params.kind;
+  if (!CM.IMPORT_KINDS.includes(kind)) throw bad('Unknown import kind');
+  if (!req.file || !req.file.buffer || !req.file.buffer.length) throw bad('Upload an .xlsx file');
+  const head = req.file.buffer.subarray(0, 4);
+  if (!(head[0] === 0x50 && head[1] === 0x4b && (head[2] === 0x03 || head[2] === 0x05 || head[2] === 0x07) && (head[3] === 0x04 || head[3] === 0x06 || head[3] === 0x08))) throw bad('Not a valid .xlsx file');
+  const rows = await readXlsx(req.file.buffer);
+  if (!rows.length) throw bad('No data rows found below the header');
+  if (rows.length > 5000) throw bad('Too many rows (max 5000 per import)');
+  res.json(commit ? CM.importCommit(kind, rows, req.auth.uid) : CM.importPreview(kind, rows));
+});
+router.post('/import/:kind/preview', xlsxUpload.single('file'), importHandler(false));
+router.post('/import/:kind/commit', xlsxUpload.single('file'), importHandler(true));
 router.post('/inventory/:kit/restock', (req, res) => { const r = db.prepare('UPDATE kits SET stock=stock+? WHERE id=?').run(v.int(req.body.qty || 20, 'Quantity', { min: 1, max: 5000 }), req.params.kit); if (!r.changes) throw notFound(); res.json({ ok: true }); });
 
 /* --- samagri kit catalog management --- */
@@ -980,6 +1028,18 @@ router.post('/leads/:id/status', (req, res) => res.json({ lead: LEADS.setStatus(
 router.post('/leads/:id/assign', (req, res) => res.json({ lead: LEADS.assign(req.params.id, req.body.userId || null, req.auth.uid) }));
 router.post('/leads/:id/followup', (req, res) => res.json({ lead: LEADS.scheduleFollowUp(req.params.id, req.body.when, req.auth.uid) }));
 router.post('/leads/:id/notes', (req, res) => res.json({ lead: LEADS.updateNotes(req.params.id, req.body.notes, req.auth.uid) }));
+/* Assignment-ready conversion: the modal's pandit picker source — the SAME
+   centralized availability rules the booking engine enforces on assign. */
+router.get('/leads/available-pandits', (req, res) => {
+  const AV = require('../services/availability');
+  const date = v.date(req.query.date), slot = v.oneOf(req.query.slot, P.SLOTS, 'Time slot');
+  const mode = req.query.mode && P.MODES[req.query.mode] ? req.query.mode : 'home';
+  const pujaId = String(req.query.pujaId || '');
+  const list = AV.whoIsAvailable(pujaId, req.query.city, date, slot, { mode }).map((p) => ({
+    id: p.id, n: p.name, city: p.city, rating: p.rating, spec: j(p.spec, [])
+  }));
+  res.json({ pandits: list });
+});
 router.post('/leads/:id/convert', (req, res) => res.status(201).json(LEADS.convert(req.params.id, req.body || {}, req.auth.uid)));
 router.delete('/leads/:id', (req, res) => res.json(LEADS.remove(req.params.id, req.auth.uid)));
 

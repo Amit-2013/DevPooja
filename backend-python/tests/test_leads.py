@@ -145,3 +145,58 @@ async def test_leads_report_export(client, db_session):
     assert "Status" in header and "Converted booking" in header, "CRM columns in the export"
     r = await client.get("/api/admin/export/leads.xlsx?status=NEW", headers=aa)
     assert r.status_code == 200
+
+
+async def test_assignment_ready_conversion(client, db_session):
+    """Twin of tests/leads.test.js 'assignment-ready conversion': the picker lists
+    availability-filtered pandits, convert with a pandit creates the booking AND
+    assigns it, and a second same-slot convert 409s through the engine."""
+    import datetime
+
+    from sqlalchemy import select
+
+    from app.models import AuditLog
+
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+    r = await client.post("/api/admin/leads", headers=aa,
+                          json={"source": "Walk-in", "name": "Assign Ready",
+                                "mobile": "9876500041", "location": "Delhi NCR"})
+    lead = r.json()["lead"]
+
+    day = (datetime.date.today() + datetime.timedelta(days=5)).isoformat()
+    pick = await client.get("/api/admin/leads/available-pandits",
+                            headers=aa,
+                            params={"pujaId": "satyanarayan", "mode": "home",
+                                    "date": day, "slot": "10:00 AM", "city": "Delhi NCR"})
+    assert pick.status_code == 200, pick.text
+    assert isinstance(pick.json()["pandits"], list)
+    ct = await login(client, "customer")
+    assert (await client.get("/api/admin/leads/available-pandits",
+                             headers={"Authorization": "Bearer " + ct},
+                             params={"date": day, "slot": "10:00 AM"})).status_code == 403
+    assert (await client.get("/api/admin/leads/available-pandits",
+                             params={"date": day, "slot": "10:00 AM"})).status_code == 401
+    if not pick.json()["pandits"]:
+        return
+    pid = pick.json()["pandits"][0]["id"]
+
+    conv = await client.post(f"/api/admin/leads/{lead['id']}/convert", headers=aa,
+                             json={"pujaId": "satyanarayan", "mode": "home",
+                                   "slot": "10:00 AM", "date": day, "panditId": pid})
+    assert conv.status_code == 201, conv.text
+    assert conv.json()["panditId"] == pid
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "lead.converted")
+        .order_by(AuditLog.id.desc()).limit(5))).scalars().all()
+    assert any(pid in (a.detail or "") for a in rows), "conversion audit carries the pandit"
+
+    # same pandit, same slot again -> 409 through the availability engine
+    r = await client.post("/api/admin/leads", headers=aa,
+                          json={"source": "Other", "name": "Second Slot",
+                                "mobile": "9876500042", "location": "Delhi NCR"})
+    l2 = r.json()["lead"]
+    clash = await client.post(f"/api/admin/leads/{l2['id']}/convert", headers=aa,
+                              json={"pujaId": "satyanarayan", "mode": "home",
+                                    "slot": "10:00 AM", "date": day, "panditId": pid})
+    assert clash.status_code == 409, clash.text
+    assert "not available" in clash.json()["detail"]

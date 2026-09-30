@@ -42,15 +42,24 @@ async def lifespan(_app: FastAPI):
         await seed_kundali(db)
         await db.commit()
     # Background jobs (Node parity: server/index.js arms startSweeper at boot).
-    from .services.scheduler import start_digest_sweeper, start_no_show_sweeper, start_sweeper, stop_sweeper
+    from .services.scheduler import (campaign_due_tick, start_campaign_sweeper,
+                                     start_digest_sweeper, start_no_show_sweeper,
+                                     start_sweeper, stop_sweeper)
     start_sweeper()  # KYC expiry sweep on a schedule (KYC_SWEEP_MS, default 6h; 0 disables)
     start_no_show_sweeper()  # Phase 16 no-show sweep (NOSHOW_SWEEP_MS, default 1h; 0 disables)
     start_digest_sweeper()  # Daily reopen-digest sweep (DIGEST_SWEEP_MS, default 24h; 0 disables)
+    start_campaign_sweeper()  # Phases 27-29 due-campaign send sweep (CAMPAIGN_SWEEP_MS, default 60s; 0 disables)
     # Tick once at boot: an existing backlog is reported on the first boot after
     # this ships; restarts stay silent unless the state changed (snapshot diff).
     from .services.scheduler import digest_sweep_tick
     try:
         await digest_sweep_tick()
+    except Exception:
+        pass
+    # Due-campaign boot tick is the catch-up: a campaign scheduled while the
+    # server was down fires on the first boot after its scheduled_at (Node parity).
+    try:
+        await campaign_due_tick()
     except Exception:
         pass
     # Per-pandit flagging follow-up: release holds whose flag cleared (Node boot sweep parity).
