@@ -65,6 +65,29 @@ async def for_pandit(db, pandit_id: str) -> list[dict]:
     return [out(r) for r in rows]
 
 
+async def admin_queue_alerts(db, iid: str) -> list[dict]:
+    """Admin in-app notifications for the review queue. Reuses the standard notifs
+    store (the In-App channel) filtered to queue-entry alerts for this incident."""
+    from ..models import Notif
+    rows = (await db.execute(
+        select(Notif).where(Notif.channel == "In-App",
+                            Notif.message.like(f"Repeat-reopen alert: incident {iid} is on the review queue (%"))
+        .order_by(Notif.ts.desc()).limit(50))).scalars().all()
+    return [{"id": n.id, "userId": n.user_id, "channel": n.channel,
+             "message": n.message, "ts": n.ts} for n in rows]
+
+
+async def all_queue_alerts(db) -> list[dict]:
+    """All queue-entry alerts across every incident (Operations notifications panel)."""
+    from ..models import Notif
+    rows = (await db.execute(
+        select(Notif).where(Notif.channel == "In-App",
+                            Notif.message.like("Repeat-reopen alert: incident %"))
+        .order_by(Notif.ts.desc()).limit(100))).scalars().all()
+    return [{"id": n.id, "userId": n.user_id, "channel": n.channel,
+             "message": n.message, "ts": n.ts} for n in rows]
+
+
 async def counts(db) -> dict:
     rows = (await db.execute(select(Incident.status))).scalars().all()
     c = {s: 0 for s in STATUSES}
@@ -202,4 +225,17 @@ async def reopen(db, actor, iid: str, body: dict) -> dict:
         db.add(Notif(user_id=p.user_id, channel="In-App",
                      message=f"Your incident {iid} was reopened for review: {why[:160]}",
                      ts=_now_ms()))
+    # Queue-entry alert: a reopen that pushes the count above REOPEN_LIMIT puts
+    # the incident on the Operations review queue — tell every admin through the
+    # same in-app channel used for new incident reports. Every reopen above the
+    # threshold follows a dismissal, so each alert is a fresh queue entry.
+    from .reopen_digest import REOPEN_LIMIT
+    if (getattr(row, "reopen_count", 0) or 0) > REOPEN_LIMIT:
+        admins = (await db.execute(select(User.id).where(User.role == "admin"))).scalars().all()
+        for a in admins:
+            db.add(Notif(user_id=a, channel="In-App",
+                         message=f"Repeat-reopen alert: incident {iid} is on the review queue "
+                                 f"({row.reopen_count} reopens, threshold {REOPEN_LIMIT}). "
+                                 f"Latest reason: {why[:140]}",
+                         ts=_now_ms()))
     return out(row)

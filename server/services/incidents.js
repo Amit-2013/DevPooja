@@ -57,18 +57,54 @@ function list({ status } = {}) {
     : db.prepare('SELECT * FROM incidents ORDER BY reported_at DESC, id DESC').all();
   return rows.map(out);
 }
+/* Admin in-app notifications for the review queue. Reuses the standard notifs
+   store (the In-App channel) filtered to queue-entry alerts for this incident. */
+function adminQueueAlerts(id) {
+  return db.prepare("SELECT id, user_id, channel, message, ts FROM notifs WHERE channel='In-App' AND message LIKE ? ORDER BY ts DESC, id DESC LIMIT 50")
+    .all(`Repeat-reopen alert: incident ${id} is on the review queue (%`).map((n) => ({ id: n.id, userId: n.user_id, channel: n.channel, message: n.message, ts: n.ts }));
+}
+/* All queue-entry alerts across every incident (Operations notifications panel). */
+function allQueueAlerts() {
+  return db.prepare("SELECT id, user_id, channel, message, ts FROM notifs WHERE channel='In-App' AND message LIKE 'Repeat-reopen alert: incident %' ORDER BY ts DESC, id DESC LIMIT 100")
+    .all().map((n) => ({ id: n.id, userId: n.user_id, channel: n.channel, message: n.message, ts: n.ts }));
+}
 function forPandit(panditId) {
   return db.prepare('SELECT * FROM incidents WHERE pandit_id=? ORDER BY reported_at DESC, id DESC').all(panditId).map(out);
 }
+const REOPEN_LIMIT = 2;
 /* Repeat-reopen review queue: an incident dismissed-and-reopened more than
    REOPEN_LIMIT times is a systemic signal (recurring safety/cconduct issue,
    disputed dismissals) that one-off triage keeps losing. Surfaces the live
-   queue — anything still OPEN/UNDER_REVIEW — on the Operations tab. */
-const REOPEN_LIMIT = 2;
+   queue — anything still OPEN/UNDER_REVIEW — on the Operations tab.
+
+   Per-pandit flagging: a pandit whose reopen-count over the digest window
+   exceeds the threshold across DISTINCT bookings (reopens on the same booking
+   collapse to one) is a repeated-pattern signal that outlives any single
+   incident — surfaced as flaggedPandits so operations can review the pandit,
+   not just the incident. */
+function flaggedPandits(limit) {
+  const cap = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REOPEN_LIMIT;
+  /* cap is a validated integer (Math.floor, >= 1) — safe to inline as a literal:
+     binding BOTH the WHERE and HAVING params trips a better-sqlite3/SQLite edge
+     case that silently returns an empty set. The per-pandit window is every live
+     reopened incident (reopen_count > 0); the threshold applies to DISTINCT
+     bookings in HAVING, so a single-booking reopen loop never flags on volume. */
+  const rows = db.prepare(`SELECT i.pandit_id, p.name AS pandit_name,
+    SUM(i.reopen_count) AS reopens, COUNT(DISTINCT i.booking_id) AS bookings,
+    COUNT(*) AS incidents, MAX(i.reported_at) AS latest
+    FROM incidents i LEFT JOIN pandits p ON p.id=i.pandit_id
+    WHERE i.reopen_count > 0 AND i.status IN ('OPEN','UNDER_REVIEW')
+    GROUP BY i.pandit_id HAVING COUNT(DISTINCT i.booking_id) > ${cap}
+    ORDER BY reopens DESC, pandit_id`).all();
+  return rows.map((r) => ({
+    panditId: r.pandit_id, pandit: r.pandit_name || '', reopens: r.reopens || 0,
+    bookings: r.bookings || 0, incidents: r.incidents || 0, latest: r.latest || null
+  }));
+}
 function reopenDigest(limit) {
   const cap = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REOPEN_LIMIT;
   const rows = db.prepare('SELECT * FROM incidents WHERE reopen_count > ? ORDER BY reopen_count DESC, reported_at DESC, id DESC').all(cap);
-  return rows.map(out);
+  return { incidents: rows.map(out), flaggedPandits: flaggedPandits(cap) };
 }
 function counts() {
   const rows = db.prepare('SELECT status, COUNT(*) n FROM incidents GROUP BY status').all();
@@ -165,7 +201,17 @@ function reopen(actorUserId, id, { reason } = {}) {
     { oldValue: { status: 'DISMISSED' }, newValue: { status: 'UNDER_REVIEW' } });
   const p = db.prepare('SELECT user_id FROM pandits WHERE id=?').get(row.pandit_id);
   if (p && p.user_id) notify(p.user_id, 'In-App', `Your incident ${id} was reopened for review: ${why.slice(0, 160)}`);
+  /* Queue-entry alert: a reopen that pushes the count above REOPEN_LIMIT puts
+     the incident on the Operations review queue — tell every admin through the
+     same in-app channel used for new incident reports. Every reopen above the
+     threshold follows a dismissal, so each alert is a fresh queue entry. */
+  const fresh = get(id);
+  if (fresh.reopen_count > REOPEN_LIMIT) {
+    const admins = db.prepare("SELECT id FROM users WHERE role='admin'").all();
+    admins.forEach((a) => notify(a.id, 'In-App',
+      `Repeat-reopen alert: incident ${id} is on the review queue (${fresh.reopen_count} reopens, threshold ${REOPEN_LIMIT}). Latest reason: ${why.slice(0, 140)}`));
+  }
   return out(get(id));
 }
 
-module.exports = { CATEGORIES, STATUSES, get, list, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };
+module.exports = { CATEGORIES, STATUSES, get, list, adminQueueAlerts, allQueueAlerts, flaggedPandits, forPandit, counts, report, triage, reopen, reopenDigest, REOPEN_LIMIT, out };

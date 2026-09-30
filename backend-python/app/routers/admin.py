@@ -441,8 +441,19 @@ async def incidents_view(status: str | None = None, auth: dict = Depends(admin_d
 async def incidents_reopen_digest(limit: int | None = None, auth: dict = Depends(admin_dep),
                                   db: AsyncSession = Depends(get_db)):
     # Repeat-reopen review queue for the Operations tab (?limit=N overrides the >2 threshold).
+    # Returns { incidents, flaggedPandits, threshold }: flaggedPandits lists pandits whose
+    # reopens exceed the threshold across DISTINCT bookings (per-pandit pattern flag).
     from ..services.reopen_digest import REOPEN_LIMIT, reopen_digest
-    return {"incidents": await reopen_digest(db, limit), "threshold": REOPEN_LIMIT}
+    body = await reopen_digest(db, limit)
+    body["threshold"] = REOPEN_LIMIT
+    return body
+
+
+# Queue-entry alerts across ALL incidents (Operations notifications panel).
+@router.get("/incidents/queue-alerts")
+async def incidents_queue_alerts(auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    return {"alerts": await INC.all_queue_alerts(db)}
 
 
 @router.patch("/incidents/{incident_id}")
@@ -460,6 +471,14 @@ async def incident_reopen(incident_id: str, body: dict, auth: dict = Depends(adm
     r = await INC.reopen(db, auth["uid"], incident_id, body or {})
     await db.commit()
     return {"incident": r}
+
+
+# Queue-entry alerts: the in-app notifications admins received when this
+# incident crossed the repeat-reopen threshold (Operations queue drill-in).
+@router.get("/incidents/{incident_id}/queue-alerts")
+async def incident_queue_alerts(incident_id: str, auth: dict = Depends(admin_dep),
+                                db: AsyncSession = Depends(get_db)):
+    return {"alerts": await INC.admin_queue_alerts(db, incident_id)}
 
 
 @router.post("/pandits/{pandit_id}/kyc")

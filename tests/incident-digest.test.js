@@ -12,6 +12,7 @@ process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { db } = require('../server/db');
 const seedMod = require('../server/seed');
 const app = require('../server/index.js');
 
@@ -74,4 +75,107 @@ test('digest: >2 reopens surface on the queue, ordered by reopen count; below th
   /* access */
   assert.equal((await call('GET', '/admin/incidents/reopen-digest', { token: ct })).status, 403);
   assert.equal((await call('GET', '/admin/incidents/reopen-digest')).status, 401);
+});
+
+test('queue-entry notifications: admins are notified in-app when an incident crosses the reopen threshold', async () => {
+  const pt = await login('pandit'), ct = await login('customer'), at = await admin();
+  const adminNotifs = () => db.prepare("SELECT n.* FROM notifs n JOIN users u ON u.id=n.user_id WHERE u.role='admin' AND n.channel='In-App' ORDER BY n.ts DESC, n.id DESC").all();
+
+  const b = (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(22) }) })).json.booking;
+  const inc = (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId: b.id, category: 'SAFETY_CONCERN', description: 'Escalating conduct issue at the venue entrance.' } })).json.incident;
+
+  /* reopens 1 and 2 are at/below the threshold (2): no queue-entry alerts */
+  for (let i = 1; i <= 2; i++) {
+    await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'Pass ' + i + '.' } });
+    const r = await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'Reopen ' + i + '.' } });
+    assert.equal(r.status, 200);
+  }
+  const before = adminNotifs().filter((n) => n.message.startsWith('Repeat-reopen alert: incident ' + inc.id));
+  assert.equal(before.length, 0, 'no queue-entry alerts below the threshold');
+
+  /* reopen 3 crosses the threshold: every admin gets exactly one alert */
+  await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'Pass 3.' } });
+  const r3 = await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'Reopen 3: the third pass makes a pattern.' } });
+  assert.equal(r3.status, 200);
+  assert.equal(r3.json.incident.reopenCount, 3);
+  const alerts = adminNotifs().filter((n) => n.message.startsWith('Repeat-reopen alert: incident ' + inc.id));
+  assert.ok(alerts.length >= 1, 'admins notified in-app on crossing the threshold');
+  assert.ok(alerts.every((n) => n.channel === 'In-App'), 'alerts ride the existing In-App channel');
+  assert.ok(alerts.every((n) => n.message.includes('3 reopens')), 'alert carries the reopen count');
+  assert.ok(alerts.every((n) => n.message.includes('threshold 2')), 'alert carries the threshold');
+
+  /* a second reopen (4th) alerts again — a fresh queue entry each time */
+  await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'Pass 4.' } });
+  await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'Reopen 4.' } });
+  const after = adminNotifs().filter((n) => n.message.startsWith('Repeat-reopen alert: incident ' + inc.id));
+  assert.ok(after.length === alerts.length + 1, 'exactly one new alert per threshold-crossing reopen');
+
+  /* the queue-alerts drill-in returns only this incident's alerts, newest first */
+  const drill = await call('GET', '/admin/incidents/' + inc.id + '/queue-alerts', { token: at });
+  assert.equal(drill.status, 200);
+  assert.ok(drill.json.alerts.length >= 1, "crossing alerts are retrievable");
+  assert.ok(drill.json.alerts.every((a) => a.message.startsWith('Repeat-reopen alert: incident ' + inc.id + ' ')), 'filtered to this incident');
+  assert.ok(drill.json.alerts[0].message.includes('Reopen 4.') || drill.json.alerts[0].ts >= drill.json.alerts[drill.json.alerts.length - 1].ts, 'newest first');
+
+  /* the below-threshold incident must never have alerted */
+  assert.equal((await call('GET', '/admin/incidents/' + 'INCNOALERT1' + '/queue-alerts', { token: at })).json.alerts.length, 0, 'unknown id: empty, not an error path');
+
+  /* access: admin-only */
+  assert.equal((await call('GET', '/admin/incidents/' + inc.id + '/queue-alerts', { token: ct })).status, 403);
+  assert.equal((await call('GET', '/admin/incidents/' + inc.id + '/queue-alerts')).status, 401);
+});
+
+test('per-pandit flagging: reopens across DISTINCT bookings above threshold flag the pandit; single-booking loops do not', async () => {
+  const pt = await login('pandit'), ct = await login('customer'), at = await admin();
+  const reopenTwice = async (bookingId, tag) => {
+    const inc = (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId, category: 'CUSTOMER_CONDUCT', description: 'Pattern probe: ' + tag + ' — conduct dispute during the puja.' } })).json.incident;
+    for (let i = 1; i <= 2; i++) {
+      await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: tag + ' dismissal ' + i + '.' } });
+      await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: tag + ' reopen ' + i + '.' } });
+    }
+    return inc;
+  };
+  const reopenOnce = async (bookingId, tag) => {
+    const inc = (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId, category: 'OTHER', description: 'Pattern probe: ' + tag + ' — one-off dispute, documented.' } })).json.incident;
+    await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: tag + ' dismissal.' } });
+    await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: tag + ' reopen.' } });
+    return inc;
+  };
+
+  /* setup: distinct bookings for cross-booking pattern; a single booking whose
+     incident loops 3 times (high count, ONE booking); a below-threshold booking */
+  const mkBooking = async (day) => (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(day) }) })).json.booking;
+  const cross1 = await reopenTwice((await mkBooking(30)).id, 'X1');
+  const cross2 = await reopenOnce((await mkBooking(31)).id, 'X2'); /* 2+1 = 3 reopens over 2 distinct bookings */
+  const single = await reopenTwice((await mkBooking(32)).id, 'S1');
+  await call('PATCH', '/admin/incidents/' + single.id, { token: at, body: { status: 'DISMISSED', reason: 'S1 dismissal 3.' } });
+  await call('POST', '/admin/incidents/' + single.id + '/reopen', { token: at, body: { reason: 'S1 reopen 3.' } }); /* 3 reopens, ONE booking */
+  const lone = await reopenOnce((await mkBooking(33)).id, 'L1'); /* 1 reopen: below everything */
+
+  const digest = await call('GET', '/admin/incidents/reopen-digest', { token: at });
+  assert.equal(digest.status, 200);
+  const flagged = digest.json.flaggedPandits || [];
+  assert.ok(Array.isArray(flagged), 'digest carries flaggedPandits');
+
+  const p1 = flagged.find((x) => x.panditId === 'p1');
+  assert.ok(p1, 'pandit p1 flagged: reopens cross the threshold over distinct bookings');
+  assert.equal(p1.bookings >= 3, true, 'distinct bookings collapsed (>=3: X1, X2, S1, lone)');
+  assert.equal(p1.incidents >= 4, true, 'incident count distinct from booking count');
+  assert.equal(p1.reopens >= 7, true, 'total reopen count summed across incidents');
+
+  /* ?limit=1 narrows the window: same shape, single-booking loop still excluded */
+  const wide = await call('GET', '/admin/incidents/reopen-digest?limit=1', { token: at });
+  assert.ok(Array.isArray(wide.json.flaggedPandits), 'limit=1 keeps the flaggedPandits shape');
+
+  /* resolved incidents leave the live queue: resolve everything for p1, flag disappears */
+  const live = (await call('GET', '/admin/incidents', { token: at })).json.incidents.filter((x) => x.panditId === 'p1' && (x.reopenCount || 0) > 0 && ['OPEN', 'UNDER_REVIEW'].includes(x.status));
+  for (const row of live) {
+    const r = await call('PATCH', '/admin/incidents/' + row.id, { token: at, body: { status: 'RESOLVED', resolution: 'Pattern reviewed and closed out.' } });
+    assert.equal(r.status, 200);
+  }
+  const after = (await call('GET', '/admin/incidents/reopen-digest', { token: at })).json.flaggedPandits || [];
+  assert.ok(!after.some((x) => x.panditId === 'p1'), 'fully-resolved pandit drops off the flag list');
+
+  /* access */
+  assert.equal((await call('GET', '/admin/incidents/reopen-digest', { token: ct })).status, 403);
 });

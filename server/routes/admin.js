@@ -107,11 +107,18 @@ router.post('/trials/:id/record', (req, res) => res.json({ trial: TRIAL.record(r
 /* --- Incident reporting (Phase 20): admin triage --- */
 const INC = require('../services/incidents');
 router.get('/incidents', (req, res) => res.json({ incidents: INC.list({ status: req.query.status }), counts: INC.counts(), categories: INC.CATEGORIES }));
-/* Repeat-reopen review queue for the Operations tab (?limit=N overrides the >2 threshold) */
-router.get('/incidents/reopen-digest', (req, res) => res.json({ incidents: INC.reopenDigest(req.query.limit ? +req.query.limit : undefined), threshold: INC.REOPEN_LIMIT }));
+/* Repeat-reopen review queue for the Operations tab (?limit=N overrides the >2 threshold).
+   Returns { incidents, flaggedPandits, threshold }: flaggedPandits lists pandits whose
+   reopens exceed the threshold across DISTINCT bookings (per-pandit pattern flag). */
+router.get('/incidents/reopen-digest', (req, res) => res.json({ ...INC.reopenDigest(req.query.limit ? +req.query.limit : undefined), threshold: INC.REOPEN_LIMIT }));
+/* Queue-entry alerts across ALL incidents (Operations notifications panel) */
+router.get('/incidents/queue-alerts', (req, res) => res.json({ alerts: INC.allQueueAlerts() }));
 router.patch('/incidents/:id', (req, res) => res.json({ incident: INC.triage(req.auth.uid, req.params.id, req.body || {}) }));
 /* Phase 20 follow-up: reopen a dismissed incident (reason required, audited) */
 router.post('/incidents/:id/reopen', (req, res) => res.json({ incident: INC.reopen(req.auth.uid, req.params.id, req.body || {}) }));
+/* Queue-entry alerts: the in-app notifications admins received when this
+   incident crossed the repeat-reopen threshold (Operations queue drill-in). */
+router.get('/incidents/:id/queue-alerts', (req, res) => res.json({ alerts: INC.adminQueueAlerts(req.params.id) }));
 router.post('/pandits/:id/feature', (req, res) => { const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id); if (!p) throw notFound(); db.prepare('UPDATE pandits SET featured=? WHERE id=?').run(p.featured ? 0 : 1, p.id); res.json({ ok: true }); });
 /* KYC documents are private: streamed only to admins */
 router.get('/pandits/:id/docs/:key', (req, res) => {
