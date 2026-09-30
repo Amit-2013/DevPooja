@@ -111,6 +111,8 @@ const ACT={
  aadd(){run(()=>api('/me/addresses',{body:{l:val('al'),line:val('ai'),city:val('ac'),pin:val('ap')}}),'Address saved')},
  adel(d){run(()=>api('/me/addresses/'+d.id,{method:'DELETE'}))},
  async fadd(){try{await api('/me/family',{body:{relationship:val('frel')||undefined,name:val('fn'),gender:val('fgen')||undefined,dob:val('fdob')||undefined,tob:val('ftob')||undefined,gotra:val('fg')||undefined,city:val('fcity')||undefined}});await sync();toast('Family member saved');render(true)}catch(e){toast(e.message)}},
+ async akf(){PAGE.kf={billing:val('akb')||'',kind:val('akk')||'',q:val('akq').trim()};const p=[];if(PAGE.kf.billing)p.push('billing='+encodeURIComponent(PAGE.kf.billing));if(PAGE.kf.kind)p.push('kind='+PAGE.kf.kind);if(PAGE.kf.q)p.push('q='+encodeURIComponent(PAGE.kf.q));render(true);try{const m=await api('/kundali/mine'+(p.length?'?'+p.join('&'):''));db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}catch(e){toast(e.message)}},
+ akfc(){PAGE.kf={billing:'',kind:'',q:''};try{api('/kundali/mine').then(m=>{db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}).catch(()=>{})}catch(e){}render(true)},
  fdel(d){run(()=>api('/me/family/'+d.id,{method:'DELETE'}))},
  tadd(){run(()=>api('/tickets',{body:{b:val('tb'),t:val('tt')}}),'Ticket raised')},
  plus(d){if(!me()){afterLogin=()=>render(true);loginModal();return}run(()=>api('/me/plus',{body:{on:true}}),'Welcome to DaivikPooja Plus')},

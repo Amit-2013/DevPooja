@@ -493,6 +493,18 @@ test('kundali commercial model: quota, family pricing, billing states, idempoten
   assert.ok(mine.kundalis.some((k) => k.relationship === 'Self' && k.billing === 'FREE'));
   assert.ok(mine.kundalis.some((k) => k.relationship === 'Mother' && k.billing === 'PAID' && k.final > 0));
 
+  /* 5b. Phase 15 history filters on /mine (parity with the admin list style) */
+  const minePaid = (await call('GET', '/kundali/mine?billing=PAID', { token: tc })).json.kundalis;
+  assert.ok(minePaid.length >= 1 && minePaid.every((k) => k.billing === 'PAID'), 'billing filter');
+  const mineFam = (await call('GET', '/kundali/mine?kind=family', { token: tc })).json.kundalis;
+  assert.ok(mineFam.some((k) => k.kundaliId === k2.json.kundaliId) && mineFam.every((k) => k.relationship !== 'Self'), 'kind=family filter');
+  const minePer = (await call('GET', '/kundali/mine?kind=personal', { token: tc })).json.kundalis;
+  assert.ok(minePer.some((k) => k.kundaliId === k1.json.kundaliId) && minePer.every((k) => k.relationship === 'Self'), 'kind=personal filter');
+  const mineQ1 = (await call('GET', '/kundali/mine?q=sarla', { token: tc })).json.kundalis;
+  assert.ok(mineQ1.length >= 1 && mineQ1.every((k) => /sarla/i.test(k.name)), 'q filter on name');
+  const mineQ2 = (await call('GET', '/kundali/mine?q=zzz-nothing', { token: tc })).json.kundalis;
+  assert.equal(mineQ2.length, 0, 'q filter with no match');
+
   /* 6. ownership: another customer cannot open the family kundali */
   await call('POST', '/auth/otp/send', { body: { mobile: '9811100502' } });
   const other = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100502', otp: '123456' } })).json.token;
@@ -504,6 +516,16 @@ test('kundali commercial model: quota, family pricing, billing states, idempoten
   const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
   const kl = (await call('GET', '/admin/kundalis?kind=family', { token: admin })).json.kundalis;
   assert.ok(kl.some((k) => k.kundaliId === k2.json.kundaliId && k.billing === 'PAID' && k.final > 0));
+  /* 7b. Phase 15 admin filters: customer search + billing (rows carry the joined customer) */
+  const klCust = (await call('GET', '/admin/kundalis?q=9811100501', { token: admin })).json.kundalis;
+  assert.ok(klCust.length >= 2, 'admin q matches the customer mobile');
+  assert.ok(klCust.every((k) => k.mobile === '9811100501' && k.customer), 'rows carry the joined customer + mobile');
+  assert.ok(klCust.some((k) => k.kundaliId === k2.json.kundaliId), 'the family kundali is in the customer search results');
+  const klPaid = (await call('GET', '/admin/kundalis?billing=PAID', { token: admin })).json.kundalis;
+  assert.ok(klPaid.length >= 1 && klPaid.every((k) => k.billing === 'PAID'), 'admin billing filter');
+  const klOrder = (await call('GET', '/admin/kundalis?q=' + encodeURIComponent(k2.json.orderId || k2.json.kundaliId), { token: admin })).json.kundalis;
+  assert.ok(klOrder.some((k) => k.kundaliId === k2.json.kundaliId), 'admin q matches order id or kundali id');
+  assert.equal((await call('GET', '/admin/kundalis', { token: tc })).status, 403, 'customers cannot list admin kundalis');
 });
 
 test('kundali pricing is admin-controlled and RESET-safe; toggles gate services', async () => {

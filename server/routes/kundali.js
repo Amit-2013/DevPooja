@@ -302,11 +302,18 @@ router.post('/generate', wrap(async (req, res) => {
   res.status(201).json(payload);
 }));
 
-/* --- GET /mine (customer) --------------------------------------------------- */
+/* --- GET /mine (customer) ---------------------------------------------------
+   Phase 15 history filters: ?billing= ?kind=personal|family ?q= (name/order id)
+   — same filter style as the admin list, applied per-customer. */
 router.get('/mine', (req, res) => {
   if (!req.auth || req.auth.role !== 'customer') throw new HttpError(401, 'Please log in');
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.auth.uid);
-  const rows = db.prepare('SELECT id,name,relationship,billing,price,discount,gst,final_amount,currency,payment_status,order_id,payment_id,created_at FROM kundalis WHERE customer_id=? ORDER BY created_at DESC').all(u.id);
+  const w = ['customer_id=?'], a = [u.id];
+  if (req.query.billing) { w.push('billing=?'); a.push(String(req.query.billing)); }
+  if (req.query.kind === 'family') w.push("relationship != ''");
+  if (req.query.kind === 'personal') w.push("(relationship = '' OR relationship IS NULL)");
+  if (req.query.q) { w.push('(name LIKE ? OR order_id LIKE ? OR id LIKE ?)'); const like = '%' + String(req.query.q).replace(/[%_]/g, '') + '%'; a.push(like, like, like); }
+  const rows = db.prepare('SELECT id,name,relationship,billing,price,discount,gst,final_amount,currency,payment_status,order_id,payment_id,created_at FROM kundalis WHERE ' + w.join(' AND ') + ' ORDER BY created_at DESC').all(...a);
   res.json({
     quota: { included: KB.includedCount(u), used: KB.usedCount(u.id), remaining: Math.max(0, KB.includedCount(u) - KB.usedCount(u.id)) },
     kundalis: rows.map((r) => ({ kundaliId: r.id, name: r.name, relationship: r.relationship || 'Self', billing: r.billing, price: r.price, discount: r.discount, gst: r.gst, final: r.final_amount, currency: r.currency, paymentStatus: r.payment_status, orderId: r.order_id, paymentId: r.payment_id, createdAt: r.created_at }))

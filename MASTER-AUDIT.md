@@ -5,7 +5,7 @@ master prompt's AUDIT → MAP → DEDUPLICATE rule. Statuses:
 `WORKING` (exists, tested, in use) · `PARTIAL` (exists, incomplete) · `BUGGY` ·
 `DUPLICATED` · `MISSING` (not implemented anywhere).
 
-Verification baseline at audit time: Node 69/69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI; **75/75 after Phase 14 coupons + the incident reopen digest**),
+Verification baseline at audit time: Node 69/69 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI; **75/75 after Phase 14 coupons + the incident reopen digest; 76/76 after the Phase 15 kundali history filters**),
 Python 134/134 at audit time (incl. CI-wiring guards + audit-claim guards + foundation + availability +
 security + KYC/lifecycle + agreements + ledger + cancellation + trial + incident + media date-gate + temple + pricing + NRI suites), UI smoke clean. `backend-python/tests/test_audit_claims.py`
 pins the inventory claims in this document to the real codebase so the two cannot
@@ -21,12 +21,12 @@ Node-parity contract), **FE** = `public/js/` SPA, **DB** = SQLite schema.
 | Layer | Count | Notes |
 |---|---|---|
 | N endpoints | 115 | admin 71, customer 16, pandit 13, kundali 9, auth 6 |
-| P endpoints | 73 | admin 22, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
+| P endpoints | 74 | admin 23, media 11, customer 12, pandit 9, kundali 9, auth 7, reports 2, payments 1 |
 | N tables | ~61 | `server/db.js` + migrations 001–022 (…020 puja mode pricing, 021 NRI packages, 022 coupon scope + redemptions) |
 | P models | 51 | `app/models.py`, mirrored incl. kundali set + 014 scaffolding + qa_records (016) + temple columns (019) + puja mode pricing (020) + NRI packages/orders (021) + coupon scope/redemptions (022) |
 | FE | 8 JS files, ~1130 LOC + `account.js` | hash router in `main.js`; portals in `portal-admin.js` |
 | Reports | 30 ids | 28 + `payout-audit` + `dakshina` + `transactions`; REPORTS registry + openpyxl twin (`reports.py`, `xlsx.py`) |
-| Tests | Node 74 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI + 5 coupons + 1 incident-reopen digest), Python 139 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/incident-digest.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `tests/nri.test.js`, `tests/coupons.test.js`, `backend-python/tests/` |
+| Tests | Node 76 (30 API + 4 security + 2 KYC/lifecycle + 1 agreements + 1 KYC sweeper + 2 QA/profile + 7 ledger/tiers + 4 cancellation + 2 trial + 6 incident + 3 media date-gate + 2 temple + 3 pricing + 2 NRI + 5 coupons + 1 incident-reopen digest + 1 kundali-history), Python 142 | `tests/api.test.js`, `tests/security.test.js`, `tests/kyc.test.js`, `tests/agreements.test.js`, `tests/qa.test.js`, `tests/ledger.test.js`, `tests/cancellation.test.js`, `tests/trial.test.js`, `tests/incident.test.js`, `tests/incident-digest.test.js`, `tests/mediagate.test.js`, `tests/temple.test.js`, `tests/pricing.test.js`, `tests/nri.test.js`, `tests/coupons.test.js`, `backend-python/tests/` |
 
 **Standing Python-parity gaps** (recorded pre-audit, re-confirmed): admin puja editing,
 pandit registration/KYC uploads, campaigns/leads management, Excel admin-kundali
@@ -109,12 +109,12 @@ a parity exception.
 | Status | **IMPLEMENTED** — migration 022 adds `scope` (ALL | PUJA | KUNDALI), `puja_id` per-puja restriction, `starts`/`expires` epoch-ms window, `per_user` cap and a `coupon_redemptions(code, user_id, source, ref_id, amount)` ledger of money-moment redemptions. The shared `couponProblem()` (both twins) now enforces window, scope, per-puja and per-user on top of active+minimum; kundali `quoteFor` reuses it (identical wording, KUNDALI scope) instead of its inline checks; cart `POST /orders` gains ALL-scope redemption (`orders.coupon`/`discount`, delivery computed on the post-coupon subtotal) plus a `POST /orders/coupon` live check; redemptions are recorded at the money moment in all three surfaces (booking creation, kundali PAID settle + gateway /pay/verify, order placement) and per_user counts them. Admin: `GET /admin/coupons` (Node NEW), create with scope/window/per-user fields, toggle (Python gains PATCH); audited `coupon.create`/`coupon.toggle`. FE: finance-tab coupon form (scope, per-puja, dates, per-user) + extended table; cart modal coupon field with check-and-apply. `tests/coupons.test.js` + `test_coupons.py` cover scoping both ways, window, per-user cap across surfaces, cart discount, kundali redemption, audits and access |
 | Required | Add scope columns to existing coupons table + validation in all three checkout paths (booking, kundali, orders); admin form fields |
 
-### Phase 15 — Kundali history
+### Phase 15 — Kundali history — **IMPLEMENTED (Phase 15 complete)**
 | Aspect | Finding |
 |---|---|
 | Existing | `kundalis` table keyed to `customer_id`, full chart/panchang/dosh/recommendations persisted; `GET /kundali/mine` + customer account view; admin kundalis report; family members linked |
-| Status | **WORKING** — linkage exists; needs only richer history view (filters) if desired |
-| Required | Small FE polish; no schema work |
+| Now | The history is filterable end to end. `GET /kundali/mine` (both twins) accepts `?billing=` (FREE/PAID/PENDING_PAYMENT/REFUNDED), `?kind=personal|family` (empty vs set relationship) and `?q=` (LIKE on kundali name, order id and id; `%`/`_` stripped) — the same filter style as the admin list, applied per-customer. Python gains the missing admin twin `GET /api/admin/kundalis` (LEFT JOIN users for customer name/mobile, `?billing`/`?kind`/`?q` incl. customer name + mobile, newest first, LIMIT 500), closing a Node-only parity gap; rows carry the joined customer fields. Python customer state now carries `myKundalis` (kundaliId, name, relationship, billing, price, gst, final, paymentStatus, orderId, createdAt) exactly like Node's `state.js`, so the account kundalis tab renders under the Python backend too. FE: the account "My Kundalis" tab gains a filter bar (search, billing select, personal/family type) served by `GET /kundali/mine` with the query params (Apply/Clear actions, filtered empty-state wording). Tests: `tests/api.test.js` sections 5b/7b (filters both ways, no-match, access control) + new `backend-python/tests/test_kundali_history.py` (mine filters, state parity, admin list filters + access) |
+| Status | **IMPLEMENTED** |
 
 ### Phase 16 — Cancellation/rescheduling engine — **IMPLEMENTED (Phase 16 complete)**
 | Aspect | Finding |

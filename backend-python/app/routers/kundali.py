@@ -474,11 +474,25 @@ async def generate(body: dict, request: Request,
 
 
 # --- GET /mine (customer) --------------------------------------------------------
+# Phase 15 history filters: ?billing= ?kind=personal|family ?q= (name/order id)
+# — same filter style as the admin list, applied per-customer (Node parity).
 @router.get("/mine")
-async def mine(auth: dict = Depends(customer_dep), db: AsyncSession = Depends(get_db)):
+async def mine(request: Request, auth: dict = Depends(customer_dep),
+               db: AsyncSession = Depends(get_db)):
     u = await db.get(User, auth["uid"])
+    conds = [Kundali.customer_id == u.id]
+    if mine_billing := request.query_params.get("billing"):
+        conds.append(Kundali.billing == mine_billing)
+    kind = request.query_params.get("kind")
+    if kind == "family":
+        conds.append(Kundali.relationship != "")
+    elif kind == "personal":
+        conds.append(Kundali.relationship == "")
+    if q := request.query_params.get("q"):
+        like = f"%{q.replace('%', '').replace('_', '')}%"
+        conds.append(Kundali.name.like(like) | Kundali.order_id.like(like) | Kundali.id.like(like))
     rows = (await db.execute(
-        select(Kundali).where(Kundali.customer_id == u.id)
+        select(Kundali).where(*conds)
         .order_by(Kundali.created_at.desc()))).scalars().all()
     inc = await KB.included_count(db, u)
     used = await KB.used_count(db, u.id)

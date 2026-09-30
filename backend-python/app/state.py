@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .services import payments as pay
-from .models import (Banner, Booking, Coupon, Festival, Kit, Notif, Order,
+from .models import (Banner, Booking, Coupon, Festival, Kit, Kundali, Notif, Order,
                      Pandit, Prasad, Payout, Puja, Temple, Ticket, User)
 from .serialize import (booking, coupon, festival, kit, notif, order, pandit,
                         prasad, puja, temple, ticket, payout as s_payout, user)
@@ -84,6 +84,14 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
             .limit(100))).scalars().all()]
         st["tickets"] = [ticket(t) for t in (await db.execute(
             select(Ticket).where(Ticket.user_id == u.id).order_by(Ticket.id.desc()))).scalars().all()]
+        st["myKundalis"] = [{
+            "kundaliId": k.id, "name": k.name, "relationship": k.relationship or "Self",
+            "billing": k.billing, "price": k.price, "gst": k.gst, "final": k.final_amount,
+            "paymentStatus": k.payment_status, "orderId": k.order_id,
+            "createdAt": k.created_at,
+        } for k in (await db.execute(
+            select(Kundali).where(Kundali.customer_id == u.id)
+            .order_by(Kundali.created_at.desc()))).scalars().all()]
     elif role == "pandit":
         st["bookings"] = [booking(b) for b in (await db.execute(
             select(Booking).where(Booking.pandit_id == auth["pid"],

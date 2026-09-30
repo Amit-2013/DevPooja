@@ -12,8 +12,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import (AuditLog, Booking, Coupon, KycDocument, Kit, Order, Pandit,
-                      Prasad, Puja, Setting, Temple, User)
+from ..models import (AuditLog, Booking, Coupon, Kundali, KycDocument, Kit, Order,
+                      Pandit, Prasad, Puja, Setting, Temple, User)
 from ..pricing import MODES
 from ..security import require_role
 from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout, temple as s_temple
@@ -933,3 +933,38 @@ async def delete_prasad(prasad_id: str, auth: dict = Depends(admin_dep),
     await db.delete(pr)
     await db.flush()
     return {"ok": True}
+
+
+# --- Phase 15: admin kundali list with filters (matches the Reports export
+# source and the Node admin.js route): ?billing= ?kind=personal|family ?q=
+# (kundali name/id, customer name/mobile, order id), newest first, LIMIT 500.
+@router.get("/kundalis")
+async def kundalis(request: Request, auth: dict = Depends(admin_dep),
+                   db: AsyncSession = Depends(get_db)):
+    conds = []
+    if billing := request.query_params.get("billing"):
+        conds.append(Kundali.billing == billing)
+    kind = request.query_params.get("kind")
+    if kind == "family":
+        conds.append(Kundali.relationship != "")
+    elif kind == "personal":
+        conds.append(Kundali.relationship == "")
+    if q := request.query_params.get("q"):
+        like = f"%{q.replace('%', '').replace('_', '')}%"
+        conds.append(Kundali.name.like(like) | Kundali.id.like(like)
+                     | User.name.like(like) | User.mobile.like(like)
+                     | Kundali.order_id.like(like))
+    stmt = (select(Kundali, User.name, User.mobile)
+            .join(User, User.id == Kundali.customer_id, isouter=True)
+            .order_by(Kundali.created_at.desc()).limit(500))
+    if conds:
+        stmt = stmt.where(*conds)
+    rows = (await db.execute(stmt)).all()
+    return {"kundalis": [{
+        "kundaliId": k.id, "name": k.name, "customer": (un or ""),
+        "mobile": (um or ""), "relationship": k.relationship or "Self",
+        "billing": k.billing, "price": k.price, "discount": k.discount, "gst": k.gst,
+        "final": k.final_amount, "currency": k.currency,
+        "paymentStatus": k.payment_status, "orderId": k.order_id,
+        "paymentId": k.payment_id, "createdAt": k.created_at,
+    } for k, un, um in rows]}
