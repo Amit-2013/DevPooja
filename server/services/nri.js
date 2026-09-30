@@ -21,7 +21,8 @@ const out = (r) => r && ({
 });
 const outOrder = (r) => r && ({
   id: r.id, packageId: r.package_id, userId: r.user_id, amount: r.amount, currency: r.currency,
-  inrEquiv: r.inr_equiv, status: r.status, created: r.created
+  inrEquiv: r.inr_equiv, status: r.status, gatewayOrderId: r.gateway_order_id || '',
+  gatewayPaymentId: r.gateway_payment_id || '', created: r.created
 });
 
 const get = (id) => db.prepare('SELECT * FROM nri_packages WHERE id=?').get(id);
@@ -81,7 +82,10 @@ function deletePackage(uid, id) {
 }
 
 /* Customer checkout. Idempotent per client key: a retried POST with the same
-   key returns the original order (the partial unique index backs the guard). */
+   key returns the original order (the partial unique index backs the guard).
+   Mock mode settles PAID instantly (legacy behaviour); razorpay mode holds the
+   order PENDING_PAYMENT and returns the gateway order for checkout.js — the
+   NRI_PAYMENT ledger row is then written by verify() at the money moment. */
 function checkout(uid, userId, { packageId, idem } = {}) {
   const p = get(String(packageId || ''));
   if (!p || !p.active) throw notFound('Package not available');
@@ -91,15 +95,47 @@ function checkout(uid, userId, { packageId, idem } = {}) {
   const existing = db.prepare('SELECT result FROM idempotency_keys WHERE key=? AND scope=?').get(key.slice(0, 120), scope);
   if (existing) return JSON.parse(existing.result);
   const id = 'NR' + nextSeq('nri_seq', 5001);
-  const order = { id, packageId: p.id, userId, amount: p.price, currency: p.currency, inrEquiv: p.inr_equiv, status: 'PAID', created: Date.now() };
+  const gateway = require('./payments').mode() === 'razorpay';
+  const order = { id, packageId: p.id, userId, amount: p.price, currency: p.currency, inrEquiv: p.inr_equiv, status: gateway ? 'PENDING_PAYMENT' : 'PAID', created: Date.now() };
   tx(() => {
-    db.prepare('INSERT INTO nri_orders(id,package_id,user_id,amount,currency,inr_equiv,status,idem,created) VALUES(?,?,?,?,?,?,?,?,?)')
-      .run(id, p.id, userId, p.price, p.currency, p.inr_equiv, 'PAID', key.slice(0, 120), order.created);
+    db.prepare('INSERT INTO nri_orders(id,package_id,user_id,amount,currency,inr_equiv,status,idem,gateway_order_id,created) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(id, p.id, userId, p.price, p.currency, p.inr_equiv, order.status, key.slice(0, 120), gateway ? 'pending' : '', order.created);
     db.prepare('INSERT INTO idempotency_keys(key,scope,result,created_at) VALUES(?,?,?,?)').run(key.slice(0, 120), scope, JSON.stringify(order), Date.now());
   })();
-  /* one ledger row per order, in INR (inr_equiv) so money reports stay single-currency */
-  ledger.dedupe({ type: 'NRI_PAYMENT', amount: p.inr_equiv, userId, refTable: 'nri_orders', refId: id, note: 'NRI package ' + p.name + ' (' + p.currency + ' ' + p.price + ')' });
+  if (!gateway) {
+    /* one ledger row per order, in INR (inr_equiv) so money reports stay single-currency */
+    ledger.dedupe({ type: 'NRI_PAYMENT', amount: p.inr_equiv, userId, refTable: 'nri_orders', refId: id, note: 'NRI package ' + p.name + ' (' + p.currency + ' ' + p.price + ')' });
+  }
   return order;
 }
 
-module.exports = { CURRENCIES, out, outOrder, get, list, listActive, ordersFor, allOrders, createPackage, updatePackage, deletePackage, checkout };
+/* Gateway money moment: verify the Razorpay signature against the stored
+   gateway order, flip PENDING_PAYMENT -> PAID and write the (deduped) INR
+   ledger row — the same contract as the kundali pay/verify path. */
+function verify(uid, userId, id, { razorpay_order_id, razorpay_payment_id, razorpay_signature } = {}) {
+  const pay = require('./payments');
+  const r = db.prepare('SELECT * FROM nri_orders WHERE id=?').get(String(id || ''));
+  if (!r || r.user_id !== userId) throw notFound('Order not found');
+  if (r.status === 'PAID') return { ok: true, orderId: r.id, status: 'PAID' };
+  if (r.status !== 'PENDING_PAYMENT') throw bad('This order is not awaiting payment');
+  if (pay.mode() === 'razorpay') {
+    if (!r.gateway_order_id || r.gateway_order_id !== String(razorpay_order_id || '') ||
+        !pay.verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
+      throw bad('Payment verification failed');
+    }
+  }
+  tx(() => {
+    db.prepare("UPDATE nri_orders SET status='PAID', gateway_order_id=?, gateway_payment_id=? WHERE id=?")
+      .run(String(razorpay_order_id || r.gateway_order_id || '').slice(0, 80),
+           String(razorpay_payment_id || 'MOCK' + rid(4)).slice(0, 80), r.id);
+    /* replay-safe: a stored idem key of 'pending' is promoted to the verify key */
+    const idem = db.prepare('SELECT idem FROM nri_orders WHERE id=?').get(r.id).idem;
+    db.prepare("UPDATE idempotency_keys SET result=? WHERE key=? AND scope='nri_order' AND result LIKE '%PENDING_PAYMENT%'")
+      .run(JSON.stringify({ ...outOrder(db.prepare('SELECT * FROM nri_orders WHERE id=?').get(r.id)), status: 'PAID' }), idem);
+  })();
+  const p = get(r.package_id);
+  ledger.dedupe({ type: 'NRI_PAYMENT', amount: r.inr_equiv, userId, refTable: 'nri_orders', refId: r.id, note: 'NRI package ' + (p ? p.name : r.package_id) + ' (' + r.currency + ' ' + r.amount + ')' });
+  return { ok: true, orderId: r.id, status: 'PAID' };
+}
+
+module.exports = { CURRENCIES, out, outOrder, get, list, listActive, ordersFor, allOrders, createPackage, updatePackage, deletePackage, checkout, verify };

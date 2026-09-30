@@ -149,6 +149,9 @@ class NriOrder(Base):
     inr_equiv: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(30), default="PENDING_PAYMENT")
     idem: Mapped[str | None] = mapped_column(String(80))
+    # Phase 13 follow-up: real gateway payments (migration 023)
+    gateway_order_id: Mapped[str] = mapped_column(String(80), default="")
+    gateway_payment_id: Mapped[str] = mapped_column(String(80), default="")
     created: Mapped[int] = mapped_column(MS)
 
 

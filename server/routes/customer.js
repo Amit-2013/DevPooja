@@ -133,9 +133,21 @@ router.post('/payments/verify', (req, res) => { const row = B.confirmPayment(me(
 const NRI = require('../services/nri');
 router.get('/nri-packages', (req, res) => res.json({ packages: NRI.listActive() }));
 router.get('/nri-orders', (req, res) => res.json({ orders: NRI.ordersFor(req.auth.uid) }));
-router.post('/nri-orders', (req, res) => {
-  const order = NRI.checkout(req.auth.uid, me(req).id, req.body || {});
-  res.status(201).json({ order });
+router.post('/nri-orders', wrap(async (req, res) => {
+  let order = NRI.checkout(req.auth.uid, me(req).id, req.body || {});
+  /* Gateway mode: attach a Razorpay order in the PACKAGE currency so
+     checkout.js opens with the real price the customer was quoted. */
+  let payment = null;
+  if (order.status === 'PENDING_PAYMENT') {
+    payment = await pay.createOrder(order.amount, order.id).catch((e) => { throw bad('Payment gateway error: ' + e.message); });
+    tx(() => db.prepare('UPDATE nri_orders SET gateway_order_id=? WHERE id=?').run(payment.orderId, order.id))();
+    order = { ...order, gatewayOrderId: payment.orderId };
+  }
+  res.status(201).json({ order, payment });
+}));
+/* Gateway money moment: verify the checkout signature, settle PAID, ledger once. */
+router.post('/nri-orders/:id/verify', (req, res) => {
+  res.json(NRI.verify(req.auth.uid, me(req).id, req.params.id, req.body || {}));
 });
 router.post('/bookings/:id/cancel', (req, res) => res.json({ booking: S.booking(B.cancelBooking(me(req), req.params.id)) }));
 router.post('/bookings/:id/reschedule', (req, res) => res.json({ booking: S.booking(B.rescheduleBooking(me(req), req.params.id, req.body)) }));

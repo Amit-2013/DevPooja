@@ -30,7 +30,8 @@ async def create_order(amount_rupees: int, receipt: str) -> dict:
     body = r.json() if r.content else {}
     if r.status_code >= 400:
         raise RuntimeError((body.get("error") or {}).get("description") or "Payment gateway error")
-    return {"orderId": body.get("id"), "amount": body.get("amount"), "keyId": key}
+    return {"orderId": body.get("id"), "amount": body.get("amount"),
+            "currency": body.get("currency") or "INR", "keyId": key}
 
 
 def verify_signature(order_id, payment_id, signature, secret: str | None = None) -> bool:

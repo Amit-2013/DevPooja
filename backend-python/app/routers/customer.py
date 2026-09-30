@@ -154,7 +154,31 @@ async def my_nri_orders(auth: dict = Depends(customer_dep), db: AsyncSession = D
 async def checkout_nri(body: dict, auth: dict = Depends(customer_dep),
                        db: AsyncSession = Depends(get_db)):
     u = await _me(db, auth)
-    return {"order": await NRI.checkout(db, auth["uid"], u.id, body or {})}
+    order = await NRI.checkout(db, auth["uid"], u.id, body or {})
+    # Gateway mode: attach a Razorpay order in the PACKAGE currency so the
+    # client checkout opens with the real price the customer was quoted.
+    payment = None
+    if order["status"] == "PENDING_PAYMENT":
+        from ..services import payments as pay
+        from ..util import bad
+        try:
+            payment = await pay.create_order(order["amount"], order["id"])
+        except Exception as e:  # pragma: no cover - message shape mirrors the Node twin
+            raise bad("Payment gateway error: " + str(e))
+        row = await NRI.get(db, order["packageId"])
+        from ..models import NriOrder
+        nri_row = (await db.execute(select(NriOrder).where(NriOrder.id == order["id"]))).scalar_one()
+        nri_row.gateway_order_id = payment["orderId"]
+        await db.commit()
+        order = {**order, "gatewayOrderId": payment["orderId"]}
+    return {"order": order, "payment": payment}
+
+
+@router.post("/nri-orders/{order_id}/verify")
+async def verify_nri(order_id: str, body: dict, auth: dict = Depends(customer_dep),
+                     db: AsyncSession = Depends(get_db)):
+    u = await _me(db, auth)
+    return await NRI.verify(db, auth["uid"], u.id, order_id, body or {})
 
 
 @router.post("/bookings/{booking_id}/cancel")

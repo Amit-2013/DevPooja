@@ -13,7 +13,7 @@ async function createOrder(amountRupees, receipt) {
   });
   const j = await r.json();
   if (!r.ok) throw new Error((j.error && j.error.description) || 'Payment gateway error');
-  return { orderId: j.id, amount: j.amount, keyId: key };
+  return { orderId: j.id, amount: j.amount, currency: j.currency || 'INR', keyId: key };
 }
 
 function verifySignature(orderId, paymentId, signature, secret = process.env.RAZORPAY_KEY_SECRET) {

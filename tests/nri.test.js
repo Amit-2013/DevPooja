@@ -111,3 +111,73 @@ test('NRI checkout: package currency, INR ledger once, idempotent, delisted refu
   assert.equal((await call('GET', '/nri-orders')).status, 401);
   assert.equal((await call('POST', '/nri-orders', { body: { packageId: pkg.id, idem: 'anon' } })).status, 401);
 });
+
+test('NRI gateway payments: checkout holds PENDING with a currency Razorpay order, signature settles PAID + ledger', async () => {
+  const at = await admin(), ct = await login('customer');
+  const pkg = (await call('POST', '/admin/nri-packages', { token: at, body: { name: 'Abroad Gateway Pack', price: 75, currency: 'GBP', inrEquiv: 8000, includes: ['Puja + prasad'] } })).json.package;
+
+  process.env.PAYMENT_MODE = 'razorpay';
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_x';
+  process.env.RAZORPAY_KEY_SECRET = 'shh';
+  const realFetch = global.fetch;
+  global.fetch = (u, o) => String(u).startsWith('https://api.razorpay.com') ? Promise.resolve(new Response(JSON.stringify({ id: 'order_GBP1', amount: 7500, currency: 'GBP' }), { status: 200 })) : realFetch(u, o);
+  try {
+    /* checkout: PAID is NOT settled in gateway mode; a Razorpay order in the
+       package currency comes back for checkout.js */
+    const r = await call('POST', '/nri-orders', { token: ct, body: { packageId: pkg.id, idem: 'gw-key-1' } });
+    assert.equal(r.status, 201, JSON.stringify(r.json));
+    const o = r.json.order;
+    assert.equal(o.status, 'PENDING_PAYMENT', 'gateway checkout holds the order');
+    assert.equal(o.currency, 'GBP');
+    assert.equal(o.gatewayOrderId, 'order_GBP1');
+    assert.equal(r.json.payment.currency, 'GBP', 'checkout opens in the package currency');
+    assert.equal(r.json.payment.amount, 7500, '75 GBP = 7500 pence, no conversion');
+    assert.equal(r.json.payment.keyId, 'rzp_test_x');
+    assert.equal(db.prepare("SELECT status FROM nri_orders WHERE id=?").get(o.id).status, 'PENDING_PAYMENT');
+    /* no ledger row for THIS order before the money moment (rows for other
+       orders may legitimately exist from earlier tests in this file) */
+    assert.ok(!db.prepare("SELECT ref_id FROM transactions WHERE type='NRI_PAYMENT'").all().some((r) => r.ref_id === o.id), 'no ledger row for this order yet');
+
+    /* idempotent replay still returns the original held order (no duplicate) */
+    const replay = await call('POST', '/nri-orders', { token: ct, body: { packageId: pkg.id, idem: 'gw-key-1' } });
+    assert.equal(replay.json.order.id, o.id);
+
+    /* a bad signature is refused and the order stays pending */
+    const badSig = await call('POST', '/nri-orders/' + o.id + '/verify', { token: ct, body: { razorpay_order_id: 'order_GBP1', razorpay_payment_id: 'pay_g1', razorpay_signature: 'deadbeef' } });
+    assert.equal(badSig.status, 400);
+    assert.match(badSig.json.error, /verification failed/);
+
+    /* a forged gateway order id is refused */
+    const forged = await call('POST', '/nri-orders/' + o.id + '/verify', { token: ct, body: { razorpay_order_id: 'order_OTHER', razorpay_payment_id: 'pay_g1', razorpay_signature: 'x' } });
+    assert.equal(forged.status, 400);
+
+    /* real signature: HMAC-SHA256(secret, order|payment) settles the order */
+    const sig = require('crypto').createHmac('sha256', 'shh').update('order_GBP1|pay_g1').digest('hex');
+    const ok = await call('POST', '/nri-orders/' + o.id + '/verify', { token: ct, body: { razorpay_order_id: 'order_GBP1', razorpay_payment_id: 'pay_g1', razorpay_signature: sig } });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.equal(ok.json.status, 'PAID');
+    const row = db.prepare('SELECT * FROM nri_orders WHERE id=?').get(o.id);
+    assert.equal(row.status, 'PAID');
+    assert.equal(row.gateway_payment_id, 'pay_g1');
+    assert.equal(row.gateway_order_id, 'order_GBP1');
+
+    /* ledger written exactly once at the money moment, in INR (inr_equiv) */
+    const ledger = db.prepare("SELECT * FROM transactions WHERE type='NRI_PAYMENT' AND ref_id=?").all(o.id);
+    assert.equal(ledger.length, 1);
+    assert.equal(ledger[0].amount, 8000, 'INR equivalent, not the GBP amount');
+    assert.equal(ledger[0].currency, 'INR');
+
+    /* replaying verify is an idempotent no-op (same contract as kundali) */
+    const again = await call('POST', '/nri-orders/' + o.id + '/verify', { token: ct, body: { razorpay_order_id: 'order_GBP1', razorpay_payment_id: 'pay_g1', razorpay_signature: sig } });
+    assert.equal(again.status, 200);
+    assert.equal(db.prepare("SELECT COUNT(*) c FROM transactions WHERE type='NRI_PAYMENT' AND ref_id=?").all(o.id).length, 1);
+
+    /* another customer cannot verify someone else's order (demo logins all
+       resolve to u1, so a distinct OTP customer is needed) */
+    await call('POST', '/auth/otp/send', { body: { mobile: '9811188777' } });
+    const other = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811188777', otp: '123456' } })).json.token;
+    const o2 = (await call('POST', '/nri-orders', { token: other, body: { packageId: pkg.id, idem: 'gw-key-2' } })).json.order;
+    const foreign = await call('POST', '/nri-orders/' + o2.id + '/verify', { token: ct, body: { razorpay_order_id: 'x', razorpay_payment_id: 'y', razorpay_signature: 'z' } });
+    assert.equal(foreign.status, 404, 'ownership enforced on verify');
+  } finally { global.fetch = realFetch; process.env.PAYMENT_MODE = 'mock'; }
+});

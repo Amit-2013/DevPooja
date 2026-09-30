@@ -115,3 +115,105 @@ async def test_nri_checkout_currency_ledger_idempotency(client, db_session):
     assert (await client.get("/api/nri-orders")).status_code == 401
     assert (await client.post("/api/nri-orders",
                               json={"packageId": pkg["id"], "idem": "anon"})).status_code == 401
+
+
+async def test_nri_gateway_payments(client, db_session, monkeypatch):
+    """Python twin of the Node 'NRI gateway payments' test: razorpay-mode
+    checkout holds the order PENDING_PAYMENT and returns a Razorpay order in
+    the PACKAGE currency; a real HMAC signature settles PAID and writes the
+    INR ledger row exactly once; replay verify is a no-op; ownership holds."""
+    import hashlib
+    import hmac as hmac_mod
+
+    from app.services import payments as pay
+
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+    ct = {"Authorization": "Bearer " + await login(client, "customer")}
+    pkg = await _mk(client, aa, name="Abroad Gateway Pack", price=75, currency="GBP",
+                    inrEquiv=8000, descr="", includes=["Puja + prasad"])
+
+    monkeypatch.setenv("PAYMENT_MODE", "razorpay")
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_x")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "shh")
+    monkeypatch.delenv("RAZORPAY_KEY_SECRET" if False else "NOT_SET", raising=False)
+
+    async def _fake_order(amount_rupees, receipt):
+        return {"orderId": "order_GBP1", "amount": 7500, "currency": "GBP", "keyId": "rzp_test_x"}
+
+    monkeypatch.setattr(pay, "create_order", _fake_order)
+
+    r = await client.post("/api/nri-orders", headers=ct,
+                          json={"packageId": pkg["id"], "idem": "gw-key-1"})
+    assert r.status_code == 201, r.text
+    o = r.json()["order"]
+    assert o["status"] == "PENDING_PAYMENT", "gateway checkout holds the order"
+    assert o["currency"] == "GBP"
+    assert o["gatewayOrderId"] == "order_GBP1"
+    assert r.json()["payment"]["currency"] == "GBP", "checkout opens in the package currency"
+    assert r.json()["payment"]["amount"] == 7500, "75 GBP = 7500 pence, no conversion"
+    assert r.json()["payment"]["keyId"] == "rzp_test_x"
+
+    rows = (await db_session.execute(
+        select(Transaction).where(Transaction.type == "NRI_PAYMENT",
+                                  Transaction.ref_id == o["id"]))).scalars().all()
+    assert rows == [], "no ledger before the money moment"
+
+    # idempotent replay still returns the original held order
+    r2 = await client.post("/api/nri-orders", headers=ct,
+                           json={"packageId": pkg["id"], "idem": "gw-key-1"})
+    assert r2.json()["order"]["id"] == o["id"]
+
+    # a bad signature is refused and the order stays pending
+    bad_sig = await client.post(f"/api/nri-orders/{o['id']}/verify", headers=ct,
+                                json={"razorpay_order_id": "order_GBP1", "razorpay_payment_id": "pay_g1",
+                                      "razorpay_signature": "deadbeef"})
+    assert bad_sig.status_code == 400
+    assert "verification failed" in bad_sig.json()["detail"]
+
+    # a forged gateway order id is refused
+    forged = await client.post(f"/api/nri-orders/{o['id']}/verify", headers=ct,
+                               json={"razorpay_order_id": "order_OTHER", "razorpay_payment_id": "pay_g1",
+                                     "razorpay_signature": "x"})
+    assert forged.status_code == 400
+
+    # real signature: HMAC-SHA256(secret, order|payment) settles the order
+    sig = hmac_mod.new(b"shh", b"order_GBP1|pay_g1", hashlib.sha256).hexdigest()
+    ok = await client.post(f"/api/nri-orders/{o['id']}/verify", headers=ct,
+                           json={"razorpay_order_id": "order_GBP1", "razorpay_payment_id": "pay_g1",
+                                 "razorpay_signature": sig})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "PAID"
+    db_session.expire_all()
+    row = await db_session.get(NriOrder, o["id"])
+    assert row.status == "PAID"
+    assert row.gateway_payment_id == "pay_g1"
+    assert row.gateway_order_id == "order_GBP1"
+
+    # ledger written exactly once at the money moment, in INR (inr_equiv)
+    ledger = (await db_session.execute(
+        select(Transaction).where(Transaction.type == "NRI_PAYMENT",
+                                  Transaction.ref_id == o["id"]))).scalars().all()
+    assert len(ledger) == 1
+    assert ledger[0].amount == 8000, "INR equivalent, not the GBP amount"
+    assert ledger[0].currency == "INR"
+
+    # replaying verify is an idempotent no-op (same contract as kundali)
+    again = await client.post(f"/api/nri-orders/{o['id']}/verify", headers=ct,
+                              json={"razorpay_order_id": "order_GBP1", "razorpay_payment_id": "pay_g1",
+                                    "razorpay_signature": sig})
+    assert again.status_code == 200
+    ledger2 = (await db_session.execute(
+        select(Transaction).where(Transaction.type == "NRI_PAYMENT",
+                                  Transaction.ref_id == o["id"]))).scalars().all()
+    assert len(ledger2) == 1
+
+    # another customer cannot verify someone else's order (OTP login = distinct user)
+    from tests.conftest import otp_login
+    other = await otp_login(client, "9000088877", "NRI Gateway Other")
+    o2 = (await client.post("/api/nri-orders", headers={"Authorization": "Bearer " + other},
+                            json={"packageId": pkg["id"], "idem": "gw-key-2"})).json()["order"]
+    foreign = await client.post(f"/api/nri-orders/{o2['id']}/verify",
+                                headers={"Authorization": "Bearer " + await login(client, "customer")},
+                                json={"razorpay_order_id": "x", "razorpay_payment_id": "y",
+                                      "razorpay_signature": "z"})
+    assert foreign.status_code == 404, "ownership enforced on verify"

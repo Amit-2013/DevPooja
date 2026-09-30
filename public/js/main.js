@@ -112,6 +112,13 @@ const ACT={
  adel(d){run(()=>api('/me/addresses/'+d.id,{method:'DELETE'}))},
  async fadd(){try{await api('/me/family',{body:{relationship:val('frel')||undefined,name:val('fn'),gender:val('fgen')||undefined,dob:val('fdob')||undefined,tob:val('ftob')||undefined,gotra:val('fg')||undefined,city:val('fcity')||undefined}});await sync();toast('Family member saved');render(true)}catch(e){toast(e.message)}},
  async akf(){PAGE.kf={billing:val('akb')||'',kind:val('akk')||'',q:val('akq').trim()};const p=[];if(PAGE.kf.billing)p.push('billing='+encodeURIComponent(PAGE.kf.billing));if(PAGE.kf.kind)p.push('kind='+PAGE.kf.kind);if(PAGE.kf.q)p.push('q='+encodeURIComponent(PAGE.kf.q));render(true);try{const m=await api('/kundali/mine'+(p.length?'?'+p.join('&'):''));db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}catch(e){toast(e.message)}},
+/* NRI gateway flow: open Razorpay in the PACKAGE currency, then verify the
+   signature server-side (the money moment). Mirrors razorpayCheckout for bookings. */
+ async nriGateway(payment,order,pkg){const u=me();await loadScript('https://checkout.razorpay.com/v1/checkout.js',()=>window.Razorpay);
+  await new Promise((resolve,reject)=>{new Razorpay({key:payment.keyId,amount:payment.amount,currency:payment.currency||order.currency,name:'DaivikPooja',description:pkg.name+' — package '+order.id,order_id:payment.orderId,prefill:u?{name:u.n,contact:u.m,email:u.e}:{},theme:{color:'#0c4b49'},
+   handler:async resp=>{try{await api('/nri-orders/'+order.id+'/verify',{body:resp});resolve()}catch(e){reject(e)}},
+   modal:{ondismiss:()=>reject(new Error('Payment was not completed. Your package order is held — retry purchase to pay.'))}}).open()});
+  toast('Package paid — '+order.id);},
  akfc(){PAGE.kf={billing:'',kind:'',q:''};try{api('/kundali/mine').then(m=>{db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}).catch(()=>{})}catch(e){}render(true)},
  fdel(d){run(()=>api('/me/family/'+d.id,{method:'DELETE'}))},
  tadd(){run(()=>api('/tickets',{body:{b:val('tb'),t:val('tt')}}),'Ticket raised')},
@@ -219,7 +226,12 @@ const ACT={
  apr(d){run(()=>api('/admin/pujas/'+d.id,{method:'PATCH',body:{price:val('pp_'+d.id)}}),'Price saved')},
  ahide(d,el){run(()=>api('/admin/pujas/'+d.id,{method:'PATCH',body:{hidden:!el.checked}}))},
  anp(){const modes=$$('.npm').filter(c=>c.checked).map(c=>c.value);if(!modes.length)return toast('Choose at least one puja type');run(()=>api('/admin/pujas',{body:{name:val('npn'),hindi:val('nph'),cat:val('npc'),dur:val('npd'),price:val('npp'),kit:val('npk'),modes}}),'Puja added')},
- async nribuy(d){const key='nri-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);try{const r=await api('/nri-orders',{body:{packageId:d.id,idem:key}});toast('Package purchased — '+r.order.id);PAGE.nriOrders=null;const pk=await api('/nri-orders');PAGE.nriOrders=pk.orders;render(true)}catch(e){toast(e.message)}},
+ async nribuy(d){const key='nri-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);try{
+  const r=await api('/nri-orders',{body:{packageId:d.id,idem:key}});
+  if(r.payment){await nriGateway(r.payment,r.order,d);}
+  else toast('Package purchased — '+r.order.id);
+  PAGE.nriOrders=null;const pk=await api('/nri-orders');PAGE.nriOrders=pk.orders;render(true);
+ }catch(e){toast(e.message)}},
  nriedit(d){const p=(PAGE.nriPkgs||[]).find(x=>x.id===d.id);if(!p)return;
   modal('<h2>Edit NRI package</h2><div class="frm mt"><label class="f">Name<input id="nrn" value="'+esc(p.name)+'"></label><label class="f">Description<textarea id="nrd">'+esc(p.descr||'')+'</textarea></label><div class="row mt"><label class="f" style="flex:1">Price<input id="nrp" type="number" value="'+p.price+'"></label><label class="f" style="flex:1">Currency<select id="nrc">'+['USD','GBP','AED','INR'].map(c=>'<option'+(p.currency===c?' selected':'')+'>'+c+'</option>').join('')+'</select></label><label class="f" style="flex:1">INR equivalent<input id="nri" type="number" value="'+p.inrEquiv+'"></label></div><label class="f">What is included (one per line)<textarea id="nrx" style="min-height:80px">'+esc((p.includes||[]).join('\n'))+'</textarea></label><label class="row mt"><input type="checkbox" id="nra" '+(p.active?'checked':'')+'> On sale</label><button class="btn mt" data-act="nrieditok" data-id="'+esc(p.id)+'">Save package</button></div>')},
  async nrieditok(d){const includes=$('#nrx').value.split('\n').map(s=>s.trim()).filter(Boolean);await closeAnd(run(()=>api('/admin/nri-packages/'+d.id,{method:'PATCH',body:{name:val('nrn'),descr:val('nrd'),price:+val('nrp'),currency:val('nrc'),inrEquiv:+val('nri'),includes,active:$('#nra').checked}}),'Package saved'))},

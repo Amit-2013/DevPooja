@@ -35,7 +35,9 @@ def out(r: NriPackage) -> dict:
 
 def out_order(r: NriOrder) -> dict:
     return {"id": r.id, "packageId": r.package_id, "userId": r.user_id, "amount": r.amount,
-            "currency": r.currency, "inrEquiv": r.inr_equiv, "status": r.status, "created": r.created}
+            "currency": r.currency, "inrEquiv": r.inr_equiv, "status": r.status,
+            "gatewayOrderId": r.gateway_order_id or "", "gatewayPaymentId": r.gateway_payment_id or "",
+            "created": r.created}
 
 
 async def get(db, pid: str) -> NriPackage | None:
@@ -163,19 +165,60 @@ async def checkout(db, uid, user_id: str, b: dict) -> dict:
     if hit:
         return json.loads(hit)
     from .bookings import next_seq  # Node parity: shared sequence helper
+    from . import payments as pay  # local import: avoid a settings round-trip at module load
     oid = "NR" + str(await next_seq(db, "nri_seq", 5001))
     now = _now_ms()
+    gateway = pay.mode() == "razorpay"
     order = NriOrder(id=oid, package_id=p.id, user_id=user_id, amount=p.price,
-                     currency=p.currency, inr_equiv=p.inr_equiv, status="PAID",
-                     idem=key, created=now)
+                     currency=p.currency, inr_equiv=p.inr_equiv,
+                     status="PENDING_PAYMENT" if gateway else "PAID",
+                     idem=key, gateway_order_id="pending" if gateway else "", created=now)
     db.add(order)
     db.add(IdempotencyKey(key=key, scope=scope, result=json.dumps(out_order(order)),
                           created_at=now))
     await db.flush()
-    from ..models import Transaction
-    from ..services.ledger import dedupe
-    await dedupe(db, type="NRI_PAYMENT", amount=p.inr_equiv, user_id=user_id,
-                 ref_table="nri_orders", ref_id=oid,
-                 note="NRI package " + p.name + " (" + p.currency + " " + str(p.price) + ")")
+    if not gateway:
+        # one ledger row per order, in INR (inr_equiv) so money reports stay single-currency
+        await _ledger_payment(db, user_id, oid, p, p.inr_equiv)
     await db.commit()
     return out_order(order)
+
+
+async def _ledger_payment(db, user_id: str, oid: str, p: NriPackage, inr_equiv: int) -> None:
+    from ..models import Transaction
+    from ..services.ledger import dedupe
+    await dedupe(db, type="NRI_PAYMENT", amount=inr_equiv, user_id=user_id,
+                 ref_table="nri_orders", ref_id=oid,
+                 note="NRI package " + p.name + " (" + p.currency + " " + str(p.price) + ")")
+
+
+async def verify(db, uid, user_id: str, oid: str, b: dict) -> dict:
+    """Gateway money moment: verify the Razorpay signature against the stored
+    gateway order, flip PENDING_PAYMENT -> PAID and write the (deduped) INR
+    ledger row — the same contract as the kundali pay/verify path."""
+    from . import payments as pay
+    b = b or {}
+    r = await db.get(NriOrder, str(oid or ""))
+    if not r or r.user_id != user_id:
+        raise not_found("Order not found")
+    if r.status == "PAID":
+        return {"ok": True, "orderId": r.id, "status": "PAID"}
+    if r.status != "PENDING_PAYMENT":
+        raise bad("This order is not awaiting payment")
+    if pay.mode() == "razorpay":
+        if (not r.gateway_order_id or r.gateway_order_id != str(b.get("razorpay_order_id") or "")
+                or not pay.verify_signature(b.get("razorpay_order_id"), b.get("razorpay_payment_id"),
+                                            b.get("razorpay_signature"))):
+            raise bad("Payment verification failed")
+    r.status = "PAID"
+    r.gateway_order_id = str(b.get("razorpay_order_id") or r.gateway_order_id or "")[:80]
+    r.gateway_payment_id = str(b.get("razorpay_payment_id") or "MOCK" + rid(4))[:80]
+    # replay-safe: the stored idem result is promoted from pending to paid
+    stored = (await db.execute(select(IdempotencyKey).where(
+        IdempotencyKey.key == r.idem, IdempotencyKey.scope == "nri_order"))).scalar_one_or_none()
+    if stored:
+        stored.result = json.dumps(out_order(r))
+    await _ledger_payment(db, user_id, r.id,
+                          await db.get(NriPackage, r.package_id), r.inr_equiv)
+    await db.commit()
+    return {"ok": True, "orderId": r.id, "status": "PAID"}
