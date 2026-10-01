@@ -64,9 +64,10 @@ function adminQueueAlerts(id) {
     .all(`Repeat-reopen alert: incident ${id} is on the review queue (%`).map((n) => ({ id: n.id, userId: n.user_id, channel: n.channel, message: n.message, ts: n.ts }));
 }
 /* All queue-entry alerts across every incident (Operations notifications panel).
-   Also matches daily-digest lines so sweep summaries surface alongside them. */
+   Also matches daily-digest lines (flag/cleanup summaries AND due-follow-up
+   lines) so sweep summaries surface alongside them. */
 function allQueueAlerts() {
-  return db.prepare("SELECT id, user_id, channel, message, ts FROM notifs WHERE channel='In-App' AND (message LIKE 'Repeat-reopen alert: incident %' OR message LIKE 'Daily reopen digest — %') ORDER BY ts DESC, id DESC LIMIT 100")
+  return db.prepare("SELECT id, user_id, channel, message, ts FROM notifs WHERE channel='In-App' AND (message LIKE 'Repeat-reopen alert: incident %' OR message LIKE 'Daily reopen digest — %' OR message LIKE 'Follow-up due: lead %') ORDER BY ts DESC, id DESC LIMIT 100")
     .all().map((n) => ({ id: n.id, userId: n.user_id, channel: n.channel, message: n.message, ts: n.ts }));
 }
 function forPandit(panditId) {

@@ -1,19 +1,22 @@
 """Daily reopen-digest sweep — Python twin of server/services/digestSweep.js.
 
-Notifies admins of NEWLY flagged pandits, newly flagged customers and fresh
-repeat-reopen queue entries without anyone opening Operations. Diffing
-contract: a JSON snapshot of the previous sweep's state (flagged pandit ids,
-flagged customer ids, live queue incident ids) lives in the settings table
-under 'digest_sweep_state'; each pass notifies only what is new since last
-time, so repeated runs never duplicate alerts. Tests drive tick() directly
-instead of waiting on timers (scheduler.py contract)."""
+Notifies admins of NEWLY flagged pandits, newly flagged customers, fresh
+repeat-reopen queue entries and leads whose follow-up date has come due —
+without anyone opening Operations. Diffing contract: a JSON snapshot of the
+previous sweep's state (flagged pandit ids, flagged customer ids, live queue
+incident ids, lead ids whose due follow-up was already reported) lives in the
+settings table under 'digest_sweep_state'; each pass notifies only what is new
+since last time, so repeated runs never duplicate alerts. A lead re-alerts
+exactly when a NEW follow-up comes due (its id leaves the snapshot once the
+follow-up is moved, converted or lost). Tests drive tick() directly instead of
+waiting on timers (scheduler.py contract)."""
 import json
 import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Notif, User
+from ..models import Lead, Notif, User
 from .reopen_digest import reopen_digest
 
 KEY = "digest_sweep_state"
@@ -43,17 +46,32 @@ async def tick(db: AsyncSession) -> int:
     flagged_pandits = [x["panditId"] for x in (digest.get("flaggedPandits") or [])]
     flagged_customers = [x["customerId"] for x in (digest.get("flaggedCustomers") or [])]
     queue = [x["id"] for x in (digest.get("incidents") or [])]
-    prev = await _get_setting(db, KEY, {"flaggedPandits": [], "flaggedCustomers": [], "queue": []}) or {}
+    prev = await _get_setting(db, KEY, {"flaggedPandits": [], "flaggedCustomers": [],
+                                        "queue": [], "dueLeads": []}) or {}
 
     def added(now, before):
         return [x for x in now if x not in (before or [])]
 
+    # Due follow-ups: LIVE pipeline rows whose follow_up_at is set and past.
+    # CONVERTED/LOST are out of the pipeline — nothing to chase. Sorted for a
+    # stable snapshot; a lead re-alerts only when a NEW follow-up comes due.
+    due_rows = (await db.execute(
+        select(Lead.id, Lead.name, Lead.mobile)
+        .where(Lead.status.in_(("NEW", "CONTACTED", "QUALIFIED")),
+               Lead.follow_up_at.is_not(None), Lead.follow_up_at > 0,
+               Lead.follow_up_at <= _now_ms())
+        .order_by(Lead.id))).all()
+    due = [{"id": i, "name": n, "mobile": m} for i, n, m in due_rows]
+    due_ids = [x["id"] for x in due]
+
     new_pandits = added(flagged_pandits, prev.get("flaggedPandits"))
     new_customers = added(flagged_customers, prev.get("flaggedCustomers"))
     new_queue = added(queue, prev.get("queue"))
+    new_due = added(due_ids, prev.get("dueLeads"))
 
-    snapshot = {"flaggedPandits": flagged_pandits, "flaggedCustomers": flagged_customers, "queue": queue}
-    if not new_pandits and not new_customers and not new_queue:
+    snapshot = {"flaggedPandits": flagged_pandits, "flaggedCustomers": flagged_customers,
+                "queue": queue, "dueLeads": due_ids}
+    if not new_pandits and not new_customers and not new_queue and not new_due:
         await _set_setting(db, KEY, snapshot)
         return 0
 
@@ -81,6 +99,15 @@ async def tick(db: AsyncSession) -> int:
         lines.append(f"Review queue entry: incident {iid} ({cat}) is back with {x.get('reopenCount', '?')} reopens.")
     if len(new_queue) > 10:
         lines.append(f"…and {len(new_queue) - 10} more queue entries.")
+    by_l = {x["id"]: x for x in due}
+    for lid in new_due[:10]:
+        x = by_l.get(lid) or {}
+        lines.append(f"Follow-up due: lead {lid}"
+                     + (f" — {x.get('name')}" if x.get("name") else "")
+                     + (f" ({x.get('mobile')})" if x.get("mobile") else "")
+                     + " has a follow-up that came due.")
+    if len(new_due) > 10:
+        lines.append(f"…and {len(new_due) - 10} more due follow-ups.")
 
     msg = f"Daily reopen digest — {len(lines)} update{'s' if len(lines) > 1 else ''}:\n" + "\n".join("• " + l for l in lines)
     for uid in admins:
