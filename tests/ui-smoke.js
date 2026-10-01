@@ -101,6 +101,9 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
   for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo']) await go('#/admin/' + t);
+  // analytics tab: the old 'Sample' visitors KPI is gone — conversion is derived from real rows
+  await go('#/admin/analytics');
+  console.log('analytics conversion KPI:', /Lead → booking conversion/.test(text()) && !/Visitors need analytics integration/.test(text()));
   // account management tab (migration 009): login IDs, statuses, actions
   await go('#/admin/accounts');
   console.log('accounts tab: login ids + actions:', /Reset password/.test(text()) && /Suspend/.test(text()));
