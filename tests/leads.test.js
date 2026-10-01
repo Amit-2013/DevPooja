@@ -190,3 +190,67 @@ test('leads: assignment-ready conversion through the availability engine', async
   assert.equal(clash.status, 409, 'availability conflict surfaces as 409');
   assert.match(clash.json.error || '', /not available|free|booked/i);
 });
+
+test('leads: capture dedupe — repeats merge into the existing lead, never duplicate rows', async () => {
+  const at = await admin();
+  const countRows = async (mobile) => (await call('GET', '/admin/leads?q=' + mobile, { token: at })).json.leads.length;
+
+  /* First capture creates; the repeat merges into it. */
+  const first = (await call('POST', '/leads', { body: { type: 'Contact', name: 'Dup Probe', mobile: '9876510001', email: 'dupprobe@example.com', location: 'Varanasi' } })).json.lead;
+  assert.ok(first.id);
+  const rep = await call('POST', '/leads', { body: { type: 'Astrology', name: 'Dup Probe Again', mobile: '9876510001', details: 'Called again about navagraha.' } });
+  assert.equal(rep.status, 201);
+  const merged = rep.json.lead;
+  assert.equal(merged.id, first.id, 'the repeat returns the EXISTING lead');
+  assert.equal(merged.merged, true, 'the response says merged');
+  assert.equal(await countRows('9876510001'), 1, 'no second row exists');
+  assert.equal(merged.dupCount, 1, 'dup counter advanced');
+  assert.ok(merged.lastDupAt > 0, 'last dup time stamped');
+  assert.ok(merged.details.includes('Called again about navagraha'), 'the new message is kept in the notes');
+  assert.ok(merged.details.includes('Astrology'), 'the note line names the source');
+
+  /* Email match merges too (same person, new mobile field absent). */
+  const rep2 = (await call('POST', '/leads', { body: { type: 'Corporate', name: 'Dup By Email', email: 'DUPPROBE@example.com', service: 'Office puja' } })).json.lead;
+  assert.equal(rep2.id, first.id, 'email match is case-insensitive');
+  assert.equal(rep2.dupCount, 2);
+  assert.equal(rep2.service, 'Office puja', 'empty fields are backfilled from the repeat');
+  assert.equal(rep2.mobile, '9876510001', 'existing fields are never overwritten');
+
+  /* Distinct prospect → a real new row. */
+  const other = (await call('POST', '/leads', { body: { type: 'Kundli', name: 'Fresh Prospect', mobile: '9876510002' } })).json.lead;
+  assert.notEqual(other.id, first.id);
+  assert.ok(!other.merged);
+  assert.equal(other.dupCount, 0);
+
+  /* A LOST lead asking again re-opens as NEW (same row, fresh opportunity). */
+  const lostR = await call('POST', '/admin/leads/' + other.id + '/status', { token: at, body: { status: 'LOST', reason: 'Went cold.' } });
+  assert.equal(lostR.json.lead.status, 'LOST');
+  const re = (await call('POST', '/leads', { body: { type: 'Contact', name: 'Fresh Prospect', mobile: '9876510002', details: 'Back after the festival.' } })).json.lead;
+  assert.equal(re.id, other.id, 'the repeat still merges');
+  assert.equal(re.status, 'NEW', 'lost lead re-opened by the new enquiry');
+  assert.ok(re.details.includes('Back after the festival'));
+
+  /* A CONVERTED lead is terminal — a re-enquiry starts a fresh row. */
+  const convSrc = (await call('POST', '/admin/leads', { token: at, body: { source: 'Walk-in', name: 'Converted Prospect', mobile: '9876510003' } })).json.lead;
+  const conv = await call('POST', '/admin/leads/' + convSrc.id + '/convert', { token: at, body: { pujaId: 'satyanarayan', mode: 'home', slot: '10:00 AM' } });
+  assert.equal(conv.status, 201);
+  const reConv = (await call('POST', '/leads', { body: { type: 'Contact', name: 'Converted Prospect', mobile: '9876510003' } })).json.lead;
+  assert.notEqual(reConv.id, convSrc.id, 'converted rows never merge');
+  assert.equal(reConv.merged, undefined);
+  assert.equal(await countRows('9876510003'), 2, 'the new enquiry created its own row');
+
+  /* No contact channels → always a new row (nothing to match on). */
+  const anon1 = (await call('POST', '/leads', { body: { type: 'Kundli', name: 'Anon A', details: 'x' } })).json.lead;
+  const anon2 = (await call('POST', '/leads', { body: { type: 'Kundli', name: 'Anon A', details: 'y' } })).json.lead;
+  assert.notEqual(anon1.id, anon2.id, 'contact-less enquiries cannot dedupe');
+
+  /* Audits + admin list visibility. */
+  const acts = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries;
+  const dedupes = acts.filter((a) => a.action === 'lead.deduped');
+  assert.ok(dedupes.length >= 3, 'lead.deduped audited');
+  assert.ok(dedupes.some((a) => a.role === 'public'), 'public merges audit as public');
+  assert.ok(dedupes.every((a) => a.detail && JSON.stringify(a.detail).includes('"mode":"merge"')));
+  const lst = (await call('GET', '/admin/leads?dupes=1', { token: at })).json;
+  assert.ok(lst.leads.every((x) => x.dupCount > 0), 'dupes filter returns only merged rows');
+  assert.ok(lst.leads.some((x) => x.id === first.id));
+});

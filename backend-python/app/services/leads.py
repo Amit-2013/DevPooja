@@ -3,7 +3,12 @@ the leads table. A lead is a prospective customer captured from a public
 enquiry (contact / corporate / astrology / kundli forms), the pandit partner
 form or manual admin entry; the pipeline NEW → CONTACTED → QUALIFIED →
 CONVERTED | LOST is what turns enquiries into bookings. `type` doubles as the
-capture SOURCE (the legacy rows only ever came from the four enquiry forms)."""
+capture SOURCE (the legacy rows only ever came from the four enquiry forms).
+
+Capture dedupe (migration 027 twin): the pipeline stores one row per PROSPECT,
+not one per submission. An incoming capture whose mobile or email matches an
+existing lead MERGES into it (backfill empty fields + dated note line + dup
+counter) instead of creating a near-copy."""
 import json
 import time
 
@@ -30,7 +35,8 @@ def out(l: Lead) -> dict | None:
             "service": l.service or "", "location": l.location or "",
             "assignedTo": l.assigned_to or None, "status": l.status,
             "followUpAt": l.follow_up_at or None,
-            "convertedBookingId": l.converted_booking_id or None}
+            "convertedBookingId": l.converted_booking_id or None,
+            "dupCount": l.dup_count or 0, "lastDupAt": l.last_dup_at or None}
 
 
 async def _capture_input(body: dict, *, public: bool) -> dict:
@@ -47,9 +53,62 @@ async def _capture_input(body: dict, *, public: bool) -> dict:
             "notes": str(body.get("notes") or body.get("details") or "").strip()[:800]}
 
 
+async def _find_match(db: AsyncSession, i: dict) -> Lead | None:
+    """The dedupe key: the earliest lead row with the same mobile (Indian
+    numbers are 1:1 with people) or the same email. Converted rows are
+    terminal — a converted prospect lives in the bookings engine, so a
+    re-enquiry starts a fresh lead rather than corrupting a closed row."""
+    if i["mobile"]:
+        row = (await db.execute(
+            select(Lead).where(Lead.mobile == i["mobile"], Lead.status != "CONVERTED")
+            .order_by(Lead.id).limit(1))).scalars().first()
+        if row:
+            return row
+    if i["email"]:
+        return (await db.execute(
+            select(Lead).where(Lead.email == i["email"], Lead.status != "CONVERTED")
+            .order_by(Lead.id).limit(1))).scalars().first()
+    return None
+
+
 async def capture(db: AsyncSession, body: dict, actor: str | None = None, ip: str = "") -> dict:
-    """Public/admin capture. Returns the created lead."""
+    """Public/admin capture. Returns the created lead — or, when the prospect
+    already exists, the EXISTING lead after merging (the response says
+    `merged: true` so callers can show 'merged' instead of 'created')."""
     i = await _capture_input(body or {}, public=not actor)
+    existing = await _find_match(db, i)
+    now_ms = int(time.time() * 1000)
+    role = "admin" if actor else "public"
+
+    # Merge: backfill every field the older row left empty, append a dated note
+    # line (the note column is the CRM's working memory — losing the new
+    # message would defeat the point of capturing it), bump the dup counter.
+    if existing:
+        was_lost = existing.status == "LOST"
+        add = (existing.details or "").strip()
+        note = f" [{i['source']} · {time.strftime('%Y-%m-%d')}] {i['notes']}" if i["notes"] else ""
+        existing.name = existing.name or i["name"]
+        existing.mobile = existing.mobile or i["mobile"]
+        existing.email = existing.email or i["email"]
+        existing.service = existing.service or i["service"]
+        existing.location = existing.location or i["location"]
+        existing.details = ((add + note).strip())[:800]
+        existing.dup_count = (existing.dup_count or 0) + 1
+        existing.last_dup_at = now_ms
+        if existing.status == "LOST":
+            existing.status = "NEW"  # a lost lead asking again IS a new opportunity
+        await db.flush()
+        _audit(db, actor_user_id=actor or None, actor_role=role,
+               action="lead.deduped", entity="lead", entity_id=str(existing.id),
+               detail=json.dumps({"by": "mobile" if i["mobile"] else "email",
+                                  "mode": "merge", "source": i["source"],
+                                  **({"reopened": "NEW"} if was_lost else {})}),
+               ip=(ip or None) if not actor else None,
+               created_at=now_ms)
+        r = out(existing)
+        r["merged"] = True
+        return r
+
     lead = Lead(type=i["source"], name=i["name"], details=i["notes"],
                 date=time.strftime("%Y-%m-%d"), mobile=i["mobile"], email=i["email"],
                 service=i["service"], location=i["location"], status="NEW")
@@ -84,6 +143,8 @@ async def list_leads(db: AsyncSession, f: dict) -> dict:
         w.append(Lead.follow_up_at.is_not(None))
         w.append(Lead.follow_up_at <= int(time.time() * 1000))
         w.append(Lead.status.in_(LIVE))
+    if f.get("dupes"):
+        w.append(Lead.dup_count > 0)
     q = str(f.get("q") or "").replace("%", "").replace("_", "").strip()
     if q:
         like = f"%{q}%"

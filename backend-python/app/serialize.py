@@ -136,4 +136,5 @@ def lead(r) -> dict:
             "service": r.service or "", "location": r.location or "",
             "st": r.status or "NEW", "assignedTo": r.assigned_to or None,
             "followUpAt": r.follow_up_at or None,
-            "convertedBookingId": r.converted_booking_id or None}
+            "convertedBookingId": r.converted_booking_id or None,
+            "dupCount": r.dup_count or 0, "lastDupAt": r.last_dup_at or None}

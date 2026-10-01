@@ -3,7 +3,13 @@ const ROUTES={'':home,pujas,puja:pujaDetail,book,pandits:panditsPage,pandit:pand
 function render(keep){const r=route();if(r.page!=='book')W=null;const fn=ROUTES[r.page]||nf;header();$('#view').innerHTML=fn(r);const h=$('#view h1');document.title=(h?h.textContent.slice(0,60)+' | ':'')+'DaivikPooja';if(!keep)scrollTo(0,0)}
 async function logout(){setToken(null);try{await sync()}catch(e){}location.hash='#/';render()}
 const chk=v=>v&&v.trim().length>0;
-const lead=(type,name,details)=>api('/leads',{body:{type,name,details}});
+/* Lead capture helper. `contact` carries STRUCTURED mobile/email when the form
+   collected one that passes a cheap client check — junk stays in the details
+   text and the server never rejects the form for it. The server dedupes:
+   a matching mobile/email merges into the existing lead (dup badge in admin). */
+const lead=(type,name,details,contact)=>api('/leads',{body:Object.assign({type,name,details},contact||{})});
+const leadMob=(s)=>{const m=String(s||'').replace(/\D/g,'');return /^[6-9]\d{9}$/.test(m)?m:undefined};
+const leadEm=(s)=>{const e=String(s||'').trim();return /^\S+@\S+\.\S+$/.test(e)?e:undefined};
 const B=id=>db.bookings.find(b=>b.id===id);
 const isImg=u=>/\.(jpe?g|png|webp)$/i.test(u);
 
@@ -126,10 +132,10 @@ const ACT={
  plusx(){run(()=>api('/me/plus',{body:{on:false}}),'Membership cancelled')},
  /* public forms */
  astr(d){modal('<h2>'+esc(d.n)+'</h2><div class="frm mt"><label class="f">Name<input id="an"></label><label class="f">Mobile<input id="am" inputmode="numeric" maxlength="10"></label></div><button class="btn mt" data-act="astrok" data-n="'+esc(d.n)+'">Request callback</button>')},
- async astrok(d){if(!chk(val('an'))||!/^\d{10}$/.test(val('am')))return toast('Enter your name and a 10-digit mobile');try{await lead('Astrology',val('an'),d.n+', '+val('am'));closeModal();toast('Request received. We will call you.')}catch(e){toast(e.message)}},
+ async astrok(d){if(!chk(val('an'))||!/^\d{10}$/.test(val('am')))return toast('Enter your name and a 10-digit mobile');try{await lead('Astrology',val('an'),d.n+', '+val('am'),{mobile:val('am')});closeModal();toast('Request received. We will call you.')}catch(e){toast(e.message)}},
  async kundli(){if(!chk(val('kn'))||!val('kd')||!chk(val('kp')))return toast('Fill name, date and place of birth');try{await lead('Kundli',val('kn'),'Born '+val('kd')+' '+val('kt')+', '+val('kp')+', '+val('km'));toast('Kundli request received')}catch(e){toast(e.message)}},
- async corp(){if(!chk(val('cc'))||!/^\S+@\S+\.\S+$/.test(val('ce')))return toast('Enter company and a valid email');try{await lead('Corporate',val('cc'),val('cty')+', '+val('cat')+' attendees, '+val('cn')+', '+val('ce')+', '+val('cp'));toast('Request sent. Your account manager will reach out.')}catch(e){toast(e.message)}},
- async contact(){if(!chk(val('ctn'))||!chk(val('ctm')))return toast('Enter your name and message');try{await lead('Contact',val('ctn'),val('ctm')+' | '+val('ctc')+(val('ctb')?' | Booking '+val('ctb'):''));$('#ctm').value='';toast('Message sent. We reply within one working day.')}catch(e){toast(e.message)}},
+ async corp(){if(!chk(val('cc'))||!/^\S+@\S+\.\S+$/.test(val('ce')))return toast('Enter company and a valid email');try{await lead('Corporate',val('cc'),val('cty')+', '+val('cat')+' attendees, '+val('cn')+', '+val('ce')+', '+val('cp'),{email:leadEm(val('ce')),mobile:leadMob(val('cp'))});toast('Request sent. Your account manager will reach out.')}catch(e){toast(e.message)}},
+ async contact(){if(!chk(val('ctn'))||!chk(val('ctm')))return toast('Enter your name and message');try{const c=val('ctc');await lead('Contact',val('ctn'),val('ctm')+' | '+c+(val('ctb')?' | Booking '+val('ctb'):''),{email:leadEm(c),mobile:leadMob(c)});$('#ctm').value='';toast('Message sent. We reply within one working day.')}catch(e){toast(e.message)}},
  async rotp(){try{const r=await api('/auth/otp/send',{body:{mobile:val('rm')}});$('#rotpm').textContent=r.devOtp?'Demo OTP: '+r.devOtp:'OTP sent by SMS'}catch(e){toast(e.message)}},
  async regp(){const f=new FormData();f.append('name',val('rn'));f.append('mobile',val('rm'));f.append('otp',val('rotp'));f.append('city',val('rc'));f.append('exp',val('rx')||'0');f.append('idType',val('rid'));f.append('spec',$$('.rsp:checked').map(x=>x.value).join(','));f.append('langs',$$('.rsl:checked').map(x=>x.value).join(','));
   [['rf1','idDoc'],['rf2','cert'],['rf3','photo']].forEach(([id,k])=>{const e=$('#'+id);if(e&&e.files[0])f.append(k,e.files[0])});
@@ -336,7 +342,7 @@ const ACT={
  atk(d){run(()=>api('/admin/tickets/'+d.id+'/resolve',{body:{}}),'Ticket resolved')},
  /* Leads CRM (Phase 26): filters, pipeline moves, notes, follow-ups, assignment,
     conversion into a real manual booking, delete (LOST/CONVERTED only). */
- aldf(d,el){PAGE.ldF={q:val('ldfq'),st:val('ldfs'),src:val('ldfsrc'),fu:$('#ldfu').checked};render(true)},
+ aldf(d,el){PAGE.ldF={q:val('ldfq'),st:val('ldfs'),src:val('ldfsrc'),fu:$('#ldfu').checked,dup:$('#ldfdup')?$('#ldfdup').checked:false};render(true)},
  aldfc(){PAGE.ldF={};render(true)},
  alst(d){if(d.v==='LOST'){modal('<h2>Mark lead #'+d.id+' lost</h2><label class="f mt">Reason (required, kept in the audit trail)<textarea id="llostr" style="min-height:60px"></textarea></label><button class="btn bad mt" data-act="alstok" data-id="'+d.id+'">Mark lost</button>')}else run(()=>api('/admin/leads/'+d.id+'/status',{body:{status:d.v}}),'Lead moved to '+d.v)},
  async alstok(d){await closeAnd(run(()=>api('/admin/leads/'+d.id+'/status',{body:{status:'LOST',reason:val('llostr')}}),'Lead marked lost'))},

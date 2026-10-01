@@ -381,6 +381,10 @@ class Lead(Base):
     status: Mapped[str | None] = mapped_column(String(20), default="NEW")
     follow_up_at: Mapped[int | None] = mapped_column(MS)
     converted_booking_id: Mapped[str | None] = mapped_column(String(40))
+    # Capture dedupe (migration 027 twin — additive, defaulted): how many later
+    # submissions merged into this row + when the last one landed.
+    dup_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_dup_at: Mapped[int | None] = mapped_column(MS)
 
 
 class Payout(Base):

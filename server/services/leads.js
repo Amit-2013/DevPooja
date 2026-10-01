@@ -4,7 +4,12 @@
    manual admin entry; the pipeline NEW → CONTACTED → QUALIFIED → CONVERTED |
    LOST is what turns enquiries into bookings. `type` doubles as the capture
    SOURCE (the legacy rows only ever came from the four enquiry forms) — the
-   master plan maps type → source. Mirrors app/services/leads.py. */
+   master plan maps type → source. Mirrors app/services/leads.py.
+
+   Capture dedupe (migration 027): the pipeline stores one row per PROSPECT,
+   not one per submission. An incoming capture whose mobile or email matches an
+   existing lead MERGES into it (backfill empty fields + dated note line +
+   dup counter) instead of creating a near-copy. */
 'use strict';
 const { db, nextSeq } = require('../db');
 const { v, bad, notFound, conflict } = require('../lib/util');
@@ -19,7 +24,8 @@ const out = (l) => l && ({
   mobile: l.mobile || '', email: l.email || '', service: l.service || '',
   location: l.location || '', assignedTo: l.assigned_to || null,
   status: l.status, followUpAt: l.follow_up_at || null,
-  convertedBookingId: l.converted_booking_id || null
+  convertedBookingId: l.converted_booking_id || null,
+  dupCount: l.dup_count || 0, lastDupAt: l.last_dup_at || null
 });
 
 /* Shared capture validator — the public route and the admin manual path both
@@ -42,15 +48,61 @@ function captureInput(body, { public: isPublic } = {}) {
   };
 }
 
-/* Public/admin capture. Returns the created lead. */
+/* The dedupe key: the earliest lead row with the same mobile (Indian numbers
+   are 1:1 with people) or the same email. Trailing junk (spaces) is already
+   normalised by the validators. Converted rows are terminal — a converted
+   prospect lives in the bookings engine, so a re-enquiry starts a fresh lead
+   rather than corrupting a closed pipeline row. */
+function matchLead(i) {
+  if (i.mobile) {
+    const m = db.prepare("SELECT * FROM leads WHERE mobile=? AND status!='CONVERTED' ORDER BY id LIMIT 1").get(i.mobile);
+    if (m) return m;
+  }
+  if (i.email) {
+    return db.prepare("SELECT * FROM leads WHERE email=? AND status!='CONVERTED' ORDER BY id LIMIT 1").get(i.email) || null;
+  }
+  return null;
+}
+
+/* Public/admin capture. Returns the created lead — or, when the prospect
+   already exists, the EXISTING lead after merging (the response says
+   `merged: true` so callers can show 'merged' instead of 'created'). */
 function capture(body, actor, ip) {
   const i = captureInput(body, { public: !actor });
+  const existing = matchLead(i);
+  const audit = require('../lib/audit');
+
+  /* Merge: backfill every field the older row left empty, append a dated note
+     line (the note column is the CRM's working memory — losing the new
+     message would defeat the point of capturing it), bump the dup counter. */
+  if (existing) {
+    const add = String(existing.details || '').trim();
+    const note = (i.notes ? ' [' + i.source + ' · ' + new Date().toISOString().slice(0, 10) + '] ' + i.notes : '');
+    db.prepare(`UPDATE leads SET
+      name=CASE WHEN name='' OR name IS NULL THEN ? ELSE name END,
+      mobile=CASE WHEN mobile='' OR mobile IS NULL THEN ? ELSE mobile END,
+      email=CASE WHEN email='' OR email IS NULL THEN ? ELSE email END,
+      service=CASE WHEN service='' OR service IS NULL THEN ? ELSE service END,
+      location=CASE WHEN location='' OR location IS NULL THEN ? ELSE location END,
+      details=?, dup_count=dup_count+1, last_dup_at=?,
+      status=CASE WHEN status='LOST' THEN 'NEW' ELSE status END
+      WHERE id=?`).run(
+      i.name, i.mobile, i.email, i.service, i.location,
+      (add + note).trim().slice(0, 800), Date.now(), existing.id);
+    const lead = db.prepare('SELECT * FROM leads WHERE id=?').get(existing.id);
+    audit.audit(actor || null, 'lead.deduped', 'lead', lead.id,
+      { by: i.mobile ? 'mobile' : 'email', mode: 'merge', source: i.source,
+        reopened: existing.status === 'LOST' ? 'NEW' : undefined },
+      actor ? undefined : { role: 'public', ip });
+    return Object.assign(out(lead), { merged: true });
+  }
+
   const ins = db.prepare(`INSERT INTO leads(type,name,details,date,mobile,email,service,location,status)
     VALUES(?,?,?,?,?,?,?,?,'NEW')`);
   const r = ins.run(i.source, i.name, i.notes, new Date().toISOString().slice(0, 10),
     i.mobile, i.email, i.service, i.location);
   const lead = db.prepare('SELECT * FROM leads WHERE id=?').get(r.lastInsertRowid);
-  require('../lib/audit').audit(actor || null, 'lead.captured', 'lead', lead.id,
+  audit.audit(actor || null, 'lead.captured', 'lead', lead.id,
     { source: lead.type, name: lead.name, hasContact: !!(lead.mobile || lead.email) },
     actor ? undefined : { role: 'public', ip });
   return out(lead);
@@ -69,6 +121,7 @@ function list(f = {}) {
   if (f.from && /^\d{4}-\d{2}-\d{2}$/.test(f.from)) { w.push('date>=?'); a.push(f.from); }
   if (f.to && /^\d{4}-\d{2}-\d{2}$/.test(f.to)) { w.push('date<=?'); a.push(f.to); }
   if (f.followup) { w.push("follow_up_at IS NOT NULL AND follow_up_at<=? AND status IN ('NEW','CONTACTED','QUALIFIED')"); a.push(Date.now()); }
+  if (f.dupes) { w.push('dup_count>0'); }
   if (f.q) {
     const q = String(f.q).replace(/[%_]/g, '').trim();
     if (q) { w.push("(name LIKE ? OR mobile LIKE ? OR email LIKE ? OR details LIKE ? OR CAST(id AS TEXT)=?)"); a.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, q); }
