@@ -67,7 +67,7 @@ function adminQueueAlerts(id) {
    Also matches daily-digest lines (flag/cleanup summaries AND due-follow-up
    lines) so sweep summaries surface alongside them. */
 function allQueueAlerts() {
-  return db.prepare("SELECT id, user_id, channel, message, ts FROM notifs WHERE channel='In-App' AND (message LIKE 'Repeat-reopen alert: incident %' OR message LIKE 'Daily reopen digest — %' OR message LIKE 'Follow-up due: lead %') ORDER BY ts DESC, id DESC LIMIT 100")
+  return db.prepare("SELECT id, user_id, channel, message, ts FROM notifs WHERE channel='In-App' AND (message LIKE 'Repeat-reopen alert: incident %' OR message LIKE 'Customer-conduct alert: %' OR message LIKE 'Daily reopen digest — %' OR message LIKE 'Follow-up due: lead %') ORDER BY ts DESC, id DESC LIMIT 100")
     .all().map((n) => ({ id: n.id, userId: n.user_id, channel: n.channel, message: n.message, ts: n.ts }));
 }
 function forPandit(panditId) {
@@ -129,6 +129,17 @@ function flaggedCustomers(limit) {
     customerId: r.customer_id, customer: r.customer_name || '', reopens: r.reopens || 0,
     bookings: r.bookings || 0, incidents: r.incidents || 0, latest: r.latest || null
   }));
+}
+/* The customer's live reopened-incident footprint for the crossing check: one
+   row with the distinct-booking count — the EXACT left side of the
+   flaggedCustomers HAVING clause, so the alert fires on the same reopen that
+   puts the customer on the digest list (not one reopen later). */
+function customerFootprint(customerId) {
+  return db.prepare(`SELECT COUNT(DISTINCT i.booking_id) AS bookings,
+    SUM(i.reopen_count) AS reopens, COUNT(*) AS incidents
+    FROM incidents i
+    WHERE i.customer_id IS NOT NULL AND i.reopen_count > 0 AND i.status IN ('OPEN','UNDER_REVIEW')
+    AND i.customer_id = ?`).get(customerId) || { bookings: 0, reopens: 0, incidents: 0 };
 }
 function counts() {
   const rows = db.prepare('SELECT status, COUNT(*) n FROM incidents GROUP BY status').all();
@@ -216,6 +227,12 @@ function reopen(actorUserId, id, { reason } = {}) {
   if (row.status !== 'DISMISSED') throw bad('Only dismissed incidents can be reopened');
   const why = String(reason || '').trim();
   if (!why) throw bad('A reopening reason is required');
+  /* Crossing semantics: the alert fires when the reopen CROSSES the threshold
+     — the pre-reopen footprint excludes this (still-DISMISSED) incident, so
+     crossing means pre.bookings <= LIMIT < post.bookings. A dismiss-then-reopen
+     loop on one booking therefore re-crosses (the incident left the live window
+     and came back), exactly like the queue-entry alert it mirrors. */
+  const pre = row.customer_id ? customerFootprint(row.customer_id) : { bookings: 0 };
   tx(() => {
     db.prepare('UPDATE incidents SET status=?, reopen_count=reopen_count+1, reopen_reason=? WHERE id=?')
       .run('UNDER_REVIEW', why.slice(0, 1000), id);
@@ -234,6 +251,21 @@ function reopen(actorUserId, id, { reason } = {}) {
     const admins = db.prepare("SELECT id FROM users WHERE role='admin'").all();
     admins.forEach((a) => notify(a.id, 'In-App',
       `Repeat-reopen alert: incident ${id} is on the review queue (${fresh.reopen_count} reopens, threshold ${REOPEN_LIMIT}). Latest reason: ${why.slice(0, 140)}`));
+  }
+  /* Customer-conduct crossing alert: the same reopen may push the CUSTOMER
+     over the distinct-bookings threshold — the demand-side mirror of the
+     queue-entry alert above, so admins hear at crossing time rather than
+     waiting for the next daily digest tick. Resolving/dismissing every live
+     reopened incident drops the customer off the list and the footprint
+     returns to zero, so a genuinely fresh pattern re-alerts from scratch. */
+  if (fresh.customer_id) {
+    const fp = customerFootprint(fresh.customer_id);
+    if (fp.bookings > REOPEN_LIMIT && pre.bookings <= REOPEN_LIMIT) {
+      const cu = db.prepare('SELECT name FROM users WHERE id=?').get(fresh.customer_id);
+      const admins = db.prepare("SELECT id FROM users WHERE role='admin'").all();
+      admins.forEach((a) => notify(a.id, 'In-App',
+        `Customer-conduct alert: ${cu ? cu.name : fresh.customer_id} now has reopened incidents across ${fp.bookings} distinct bookings (threshold ${REOPEN_LIMIT}) — they joined the conduct watchlist.`));
+    }
   }
   return out(get(id));
 }

@@ -223,3 +223,61 @@ test('per-customer flagging: the customer-conduct mirror flags demand-side patte
   /* access: admin-only (envelope key invisible without admin) */
   assert.equal((await call('GET', '/admin/incidents/reopen-digest', { token: ct })).status, 403);
 });
+
+test('customer-conduct crossing alert: admins are notified in-app the moment a customer crosses the distinct-bookings threshold', async () => {
+  const pt = await login('pandit'), at = await admin();
+  /* a FRESH customer via OTP signup: earlier tests in this file already leave
+     the demo customer flagged, and the alert is footprint-based (a fresh reopen
+     on an already-flagged customer re-alerts by design) */
+  await call('POST', '/auth/otp/send', { body: { mobile: '9876599999' } });
+  const ct = (await call('POST', '/auth/otp/verify', { body: { mobile: '9876599999', otp: '123456', name: 'Fresh Crosser' } })).json.token;
+
+  /* the panel is global — earlier tests in this file already fire crossing
+     alerts for the demo customer — so every assertion below is a DELTA over
+     the baseline captured here */
+  const base = await (async () => (await call('GET', '/admin/incidents/queue-alerts', { token: at })).json.alerts
+    .filter((a) => a.message.includes('Customer-conduct alert:')).length)();
+  const alertCount = async () => (await call('GET', '/admin/incidents/queue-alerts', { token: at })).json.alerts
+    .filter((a) => a.message.includes('Customer-conduct alert:')).length - base;
+
+  /* three bookings for the SAME customer, one reopened incident each:
+     reopen #3 is the first reopen that puts the footprint at 3 distinct
+     bookings > threshold 2 -> the alert fires exactly at that reopen. */
+  const ids = [];
+  for (let k = 0; k < 3; k++) {
+    const b = (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(50 + k) }) })).json.booking;
+    const inc = (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId: b.id, category: 'CUSTOMER_CONDUCT', description: 'Crossing probe ' + k + ': conduct dispute during the puja.' } })).json.incident;
+    await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'Dismiss ' + k } });
+    await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'Reopen ' + k } });
+    ids.push(inc.id);
+    const n = await alertCount();
+    if (k < 2) assert.equal(n, 0, 'below threshold: no customer alert yet (after booking ' + k + ')');
+    else assert.equal(n, 1, 'the third distinct booking crosses the threshold exactly once');
+  }
+
+  /* the SAME booking re-looping (dismiss + reopen again) RE-CROSSES: the
+     dismissal took that incident out of the live window, so the reopen walks
+     the count from 2 back to 3 — the same per-crossing behaviour as the
+     queue-entry alert this mirrors (every crossing reopen is fresh news). */
+  const inc0 = ids[0];
+  await call('PATCH', '/admin/incidents/' + inc0, { token: at, body: { status: 'DISMISSED', reason: 'Dismiss again' } });
+  await call('POST', '/admin/incidents/' + inc0 + '/reopen', { token: at, body: { reason: 'Same-booking re-loop' } });
+  assert.equal(await alertCount(), 2, 'a dismiss-then-reopen loop re-crosses and re-alerts');
+
+  /* resolve every live reopened incident -> footprint drops to zero */
+  for (const id of ids) {
+    await call('PATCH', '/admin/incidents/' + id, { token: at, body: { status: 'RESOLVED', resolution: 'Pattern closed out.' } });
+  }
+  const digest = (await call('GET', '/admin/incidents/reopen-digest', { token: at })).json;
+  const meId = (await call('GET', '/state', { token: ct })).json.me.id;
+  assert.ok(!(digest.flaggedCustomers || []).some((x) => x.customerId === meId && x.bookings > 2), 'resolved customer off the watchlist');
+
+  /* a genuinely FRESH pattern (new bookings, reopened incidents) re-alerts */
+  for (let k = 0; k < 3; k++) {
+    const b = (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(60 + k) }) })).json.booking;
+    const inc = (await call('POST', '/pandit/incidents', { token: pt, body: { bookingId: b.id, category: 'CUSTOMER_CONDUCT', description: 'Fresh pattern ' + k + ': repeated conduct dispute.' } })).json.incident;
+    await call('PATCH', '/admin/incidents/' + inc.id, { token: at, body: { status: 'DISMISSED', reason: 'D ' + k } });
+    await call('POST', '/admin/incidents/' + inc.id + '/reopen', { token: at, body: { reason: 'R ' + k } });
+  }
+  assert.equal(await alertCount(), 3, 'a fresh crossing after full resolution re-alerts');
+});

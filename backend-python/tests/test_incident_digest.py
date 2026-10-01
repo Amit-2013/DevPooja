@@ -293,3 +293,70 @@ async def test_per_pandit_flagging_across_distinct_bookings(client, db_session):
     ct_h = {"Authorization": "Bearer " + ct}
     assert (await client.get("/api/admin/incidents/reopen-digest", headers=ct_h)).status_code == 403
     assert (await client.get("/api/admin/incidents/reopen-digest")).status_code == 401
+
+
+async def test_customer_conduct_crossing_alert(client, db_session):
+    """Twin of the Node crossing test: admins get an in-app alert the moment a
+    customer's live reopened incidents cross the distinct-bookings threshold —
+    every crossing reopen alerts (dismiss-then-reopen re-crosses, like the
+    queue-entry alert this mirrors), resolving everything drops the footprint
+    and a genuinely fresh pattern re-alerts from scratch."""
+    import datetime
+
+    pt = await login(client, "pandit")
+    aa = {"Authorization": "Bearer " + await admin_login(client)}
+
+    # a FRESH customer via OTP: earlier tests leave the demo customer flagged,
+    # and the panel is global — every assertion below is a delta over baseline
+    await client.post("/api/auth/otp/send", json={"mobile": "9876599998"})
+    r = await client.post("/api/auth/otp/verify", json={"mobile": "9876599998", "otp": "123456",
+                                                        "name": "Fresh Crosser Py"})
+    assert r.status_code == 200, r.text
+    ct = r.json()["token"]
+
+    async def alert_count() -> int:
+        panel = await client.get("/api/admin/incidents/queue-alerts", headers=aa)
+        return sum(1 for a in panel.json()["alerts"] if "Customer-conduct alert:" in a["message"])
+
+    base = await alert_count()
+
+    day = lambda n: (datetime.date.today() + datetime.timedelta(days=n)).isoformat()
+    ids = []
+    for k in range(3):
+        b = await _booking(client, ct, day(50 + k))
+        inc = await _incident(client, pt, b["id"], "CUSTOMER_CONDUCT",
+                              f"Crossing probe {k}: conduct dispute during the puja.")
+        await _dismiss(client, aa, inc["id"], f"Dismiss {k}")
+        rr = await _reopen(client, aa, inc["id"], f"Reopen {k}")
+        assert rr.status_code == 200, rr.text
+        ids.append(inc["id"])
+        n = await alert_count() - base
+        if k < 2:
+            assert n == 0, f"below threshold: no customer alert yet (after booking {k})"
+        else:
+            assert n == 1, "the third distinct booking crosses the threshold exactly once"
+
+    # a dismiss-then-reopen loop on the SAME booking re-crosses (the dismissal
+    # took the incident out of the live window) — mirror of the queue alert
+    await _dismiss(client, aa, ids[0], "Dismiss again")
+    await _reopen(client, aa, ids[0], "Same-booking re-loop")
+    assert await alert_count() - base == 2, "a dismiss-then-reopen loop re-crosses and re-alerts"
+
+    # resolve every live reopened incident -> footprint drops to zero
+    me = (await client.get("/api/state", headers={"Authorization": "Bearer " + ct})).json()["me"]["id"]
+    for iid in ids:
+        r = await client.patch(f"/api/admin/incidents/{iid}", headers=aa,
+                               json={"status": "RESOLVED", "resolution": "Pattern closed out."})
+        assert r.status_code == 200, r.text
+    digest = (await client.get("/api/admin/incidents/reopen-digest", headers=aa)).json()
+    assert not any(x["customerId"] == me and x["bookings"] > 2
+                   for x in digest["flaggedCustomers"]), "resolved customer off the watchlist"
+
+    # a genuinely FRESH pattern re-alerts from scratch
+    for k in range(3):
+        b = await _booking(client, ct, day(60 + k))
+        inc = await _incident(client, pt, b["id"], "CUSTOMER_CONDUCT",
+                              f"Fresh pattern {k}: repeated conduct dispute.")
+        await _dismiss(client, aa, inc["id"], f"D {k}")
+        await _reopen(client, aa, inc["id"], f"R {k}")
+    assert await alert_count() - base == 3, "a fresh crossing after full resolution re-alerts"

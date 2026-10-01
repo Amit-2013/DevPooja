@@ -23,7 +23,7 @@ the pandit is notified on triage; admins are notified of new reports.
 import json
 import time
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..models import AuditLog, Booking, Incident, Notif, Pandit, User
 from ..util import bad, conflict, not_found, rid
@@ -79,17 +79,33 @@ async def admin_queue_alerts(db, iid: str) -> list[dict]:
 
 async def all_queue_alerts(db) -> list[dict]:
     """All queue-entry alerts across every incident (Operations notifications panel).
-    Also matches daily-digest lines (including due-lead follow-up lines) so sweep
-    summaries surface alongside them."""
+    Also matches daily-digest lines (including due-lead follow-up and
+    customer-conduct crossing lines) so sweep summaries surface alongside them."""
     from ..models import Notif
     rows = (await db.execute(
         select(Notif).where(Notif.channel == "In-App",
                             Notif.message.like("Repeat-reopen alert: incident %")
+                            | Notif.message.like("Customer-conduct alert: %")
                             | Notif.message.like("Daily reopen digest — %")
                             | Notif.message.like("Follow-up due: lead %"))
         .order_by(Notif.ts.desc()).limit(100))).scalars().all()
     return [{"id": n.id, "userId": n.user_id, "channel": n.channel,
              "message": n.message, "ts": n.ts} for n in rows]
+
+
+async def customer_footprint(db, customer_id: str) -> dict:
+    """The customer's live reopened-incident footprint for the crossing check:
+    the EXACT left side of the flaggedCustomers HAVING clause (distinct bookings
+    over live reopened incidents), so the alert fires on the same reopen that
+    puts the customer on the digest list (not one reopen later)."""
+    row = (await db.execute(
+        select(func.count(func.distinct(Incident.booking_id)),
+               func.coalesce(func.sum(Incident.reopen_count), 0),
+               func.count())
+        .where(Incident.customer_id == customer_id,
+               Incident.reopen_count > 0,
+               Incident.status.in_(("OPEN", "UNDER_REVIEW"))))).one()
+    return {"bookings": row[0] or 0, "reopens": row[1] or 0, "incidents": row[2] or 0}
 
 
 async def counts(db) -> dict:
@@ -217,6 +233,12 @@ async def reopen(db, actor, iid: str, body: dict) -> dict:
     why = str((body or {}).get("reason") or "").strip()
     if not why:
         raise bad("A reopening reason is required")
+    # Crossing semantics: the alert fires when the reopen CROSSES the threshold
+    # — the pre-reopen footprint excludes this (still-DISMISSED) incident, so
+    # crossing means pre.bookings <= LIMIT < post.bookings. A dismiss-then-reopen
+    # loop on one booking therefore re-crosses (the incident left the live window
+    # and came back), exactly like the queue-entry alert it mirrors.
+    pre = await customer_footprint(db, row.customer_id) if row.customer_id else {"bookings": 0}
     row.status = "UNDER_REVIEW"
     row.reopen_count = (getattr(row, "reopen_count", 0) or 0) + 1
     row.reopen_reason = why[:1000]
@@ -242,4 +264,21 @@ async def reopen(db, actor, iid: str, body: dict) -> dict:
                                  f"({row.reopen_count} reopens, threshold {REOPEN_LIMIT}). "
                                  f"Latest reason: {why[:140]}",
                          ts=_now_ms()))
+    # Customer-conduct crossing alert: the same reopen may push the CUSTOMER
+    # over the distinct-bookings threshold — the demand-side mirror of the
+    # queue-entry alert above, so admins hear at crossing time rather than
+    # waiting for the next daily digest tick. Resolving/dismissing every live
+    # reopened incident drops the customer off the list and the footprint
+    # returns to zero, so a genuinely fresh pattern re-alerts from scratch.
+    if row.customer_id:
+        fp = await customer_footprint(db, row.customer_id)
+        if fp["bookings"] > REOPEN_LIMIT and pre["bookings"] <= REOPEN_LIMIT:
+            cu = await db.get(User, row.customer_id)
+            admins = (await db.execute(select(User.id).where(User.role == "admin"))).scalars().all()
+            for a in admins:
+                db.add(Notif(user_id=a, channel="In-App",
+                             message=f"Customer-conduct alert: {cu.name if cu else row.customer_id} now has "
+                                     f"reopened incidents across {fp['bookings']} distinct bookings "
+                                     f"(threshold {REOPEN_LIMIT}) — they joined the conduct watchlist.",
+                             ts=_now_ms()))
     return out(row)
