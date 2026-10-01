@@ -176,7 +176,7 @@ app.use('/api', (_q, _r, next) => next(new HttpError(404, 'Not found')));
    Filenames are server-generated and unique per upload, so browsers can cache them hard. */
 app.use('/media', express.static(upload.dirs.media, { index: false, dotfiles: 'deny', maxAge: '30d', setHeaders: (r) => r.setHeader('Content-Disposition', 'inline') }));
 app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
-app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], setHeaders: (r) => r.setHeader('Cache-Control', 'no-cache') }));
 
 app.use((err, _req, res, _next) => {
   const status = err.status || (err.name === 'MulterError' ? 400 : 500);
@@ -192,5 +192,6 @@ if (require.main === module) {
   require('./services/digestSweep').startSweeper(); // Daily reopen-digest digest sweep (DIGEST_SWEEP_MS, default 24h; 0 disables)
   require('./services/comms').startSweeper(); // Phases 27-29: due-campaign send sweep (CAMPAIGN_SWEEP_MS, default 60s; 0 disables)
   require('./services/reviewHold').sweep(); // Per-pandit flagging follow-up: release holds whose flag cleared
+  require('./services/customerHold').sweep(); // Customer-conduct escalation: release soft flags whose flag cleared
 }
 module.exports = app;

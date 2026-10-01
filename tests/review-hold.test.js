@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const { db } = require('../server/db');
 const seedMod = require('../server/seed');
 const app = require('../server/index.js');
+const { SLOTS } = require('../shared/pricing');
 
 let server, base;
 test.before(async () => {
@@ -103,4 +104,79 @@ test('review hold: flagged pandit booking holds, guard fires, release and auto-r
 
   /* access: admin-only release */
   assert.equal((await call('POST', '/admin/bookings/' + b1.id + '/release-hold', { token: ct })).status, 403);
+});
+
+/* Customer-conduct escalation — twin of the pandit review-hold test above and
+   of backend-python/tests/test_customer_hold.py. While a CUSTOMER is flagged
+   by the reopen digest (live incidents reopened across DISTINCT bookings beyond
+   REOPEN_LIMIT), NEW bookings they create carry a SOFT review flag:
+   customer_hold=1 + a reason. Unlike the pandit hold there is NO guard — the
+   pandit can still accept/start (the flag is a trust signal for ops, not a
+   fulfilment blocker). Admin release clears it; resolving every live incident
+   auto-releases held bookings at the next digest view. */
+test('customer hold: flagged customer bookings carry a soft flag, fulfilment proceeds, release and auto-release free it', async () => {
+  const at = await admin();
+  /* Direct pandit tokens for p1/p2/p3. The three probe bookings are spread
+     across three pandits so NO single pandit accumulates the reopened-
+     incidents pattern (only the CUSTOMER crosses the threshold). */
+  const { sign } = require('../server/auth');
+  const panditToken = (pid) => sign(db.prepare('SELECT * FROM users WHERE id=(SELECT user_id FROM pandits WHERE id=?)').get(pid), pid);
+  const pt1 = panditToken('p1'), pt2 = panditToken('p2'), pt3 = panditToken('p3');
+
+  /* Fresh OTP customer — this customer's conduct is what we flag. */
+  const mobile = '9812200450';
+  await call('POST', '/auth/otp/send', { body: { mobile } });
+  const ct = (await call('POST', '/auth/otp/verify', { body: { mobile, otp: '123456', name: 'Conduct Probe' } })).json.token;
+  assert.ok(ct, 'OTP customer logged in');
+
+  /* Three DISTINCT live bookings (different days + slots + pandits), one
+     incident each, each dismissed and reopened once: the cross-booking
+     pattern crosses the threshold (>2 distinct bookings with reopens). */
+  const mkBooking = async (day, slot, pid) => (await call('POST', '/bookings', { token: ct, body: bookingBody({ date: dayPlus(day), slot, panditId: pid }) })).json.booking;
+  const b1 = await mkBooking(40, SLOTS[0], 'p1'), b2 = await mkBooking(41, SLOTS[1], 'p2'), b3 = await mkBooking(42, SLOTS[2], 'p3');
+  const i1 = (await call('POST', '/pandit/incidents', { token: pt1, body: { bookingId: b1.id, category: 'CUSTOMER_CONDUCT', description: 'Conduct probe C1: abusive behaviour reported.' } })).json.incident;
+  const i2 = (await call('POST', '/pandit/incidents', { token: pt2, body: { bookingId: b2.id, category: 'CUSTOMER_CONDUCT', description: 'Conduct probe C2: repeated no-show conduct.' } })).json.incident;
+  const i3 = (await call('POST', '/pandit/incidents', { token: pt3, body: { bookingId: b3.id, category: 'OTHER', description: 'Conduct probe C3: payment dispute conduct.' } })).json.incident;
+  await dismissReopen(at, i1.id, 'C1', 1);
+  await dismissReopen(at, i2.id, 'C2', 1);
+  await dismissReopen(at, i3.id, 'C3', 1);
+  const digest = (await call('GET', '/admin/incidents/reopen-digest', { token: at })).json;
+  assert.ok(digest.flaggedCustomers.some((x) => x.customerId === b1.userId), 'the customer is flagged now');
+  assert.ok(!digest.flaggedPandits.some((x) => ['p1', 'p2', 'p3'].includes(x.panditId)), 'no pandit is dragged into the flag by the customer pattern');
+
+  /* A NEW booking by the flagged customer carries the soft flag… */
+  const b4 = await mkBooking(43, SLOTS[3], 'p1');
+  assert.equal(b4.ch, 1, 'new booking of flagged customer carries customer_hold');
+  assert.ok(String(b4.chr).includes('watchlist'), 'the reason explains the conduct watchlist');
+  assert.equal(b4.reviewHold, false, 'the pandit-side hold is NOT set by the customer flag');
+
+  /* …and fulfilment is deliberately NOT blocked: the pandit accepts normally. */
+  const accepted = await call('POST', '/pandit/bookings/' + b4.id + '/accept', { token: pt1, body: {} });
+  assert.equal(accepted.status, 200, 'pandit can accept a customer-held booking (soft flag only)');
+
+  /* Older bookings (created before the flag) are untouched. */
+  const old = (await call('GET', '/state', { token: at })).json.bookings.find((x) => x.id === b1.id);
+  assert.equal(old.ch, 0, 'pre-flag booking was not stamped');
+
+  /* Admin release: clears the flag and leaves an audit trail. */
+  const rel = await call('POST', '/admin/bookings/' + b4.id + '/release-customer-hold', { token: at, body: {} });
+  assert.equal(rel.json.released, true);
+  assert.equal(rel.json.booking.ch, 0);
+  assert.ok(db.prepare("SELECT id FROM audit_logs WHERE action='booking.customer_hold_released' AND entity_id=?").get(b4.id), 'release audited');
+  const again = await call('POST', '/admin/bookings/' + b4.id + '/release-customer-hold', { token: at, body: {} });
+  assert.equal(again.json.released, false, 'releasing a clean booking is a no-op');
+
+  /* Auto-release: resolving every live incident clears the flag; the lazy
+     sweep in the digest view frees any booking still carrying it. */
+  const b5 = await mkBooking(44, SLOTS[4], 'p1');
+  assert.equal(b5.ch, 1, 'still-flagged customer bookings keep being stamped');
+  const live = (await call('GET', '/admin/incidents', { token: at })).json.incidents
+    .filter((x) => x.customerId === b1.userId && (x.reopenCount || 0) > 0 && ['OPEN', 'UNDER_REVIEW'].includes(x.status));
+  for (const row of live) await call('PATCH', '/admin/incidents/' + row.id, { token: at, body: { status: 'RESOLVED', resolution: 'Conduct probe closed.' } });
+  await call('GET', '/admin/incidents/reopen-digest', { token: at });
+  const swept = (await call('GET', '/state', { token: at })).json.bookings.filter((x) => x.userId === b1.userId && x.ch);
+  assert.equal(swept.length, 0, 'all held bookings auto-released after the flag cleared');
+
+  /* Access: admin-only release. */
+  assert.equal((await call('POST', '/admin/bookings/' + b1.id + '/release-customer-hold', { token: ct })).status, 403);
 });

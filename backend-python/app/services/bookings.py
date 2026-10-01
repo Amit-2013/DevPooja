@@ -252,6 +252,10 @@ async def create_booking(db: AsyncSession, user: User, body: dict) -> dict:
     # pandit is flagged by the reopen digest waits under a review hold.
     from .review_hold import stamp_on_create
     await stamp_on_create(db, id, row.pandit_id)
+    # Customer-conduct escalation: a booking created by a flagged customer
+    # carries a SOFT review flag for the ops team (fulfilment proceeds).
+    from .customer_hold import stamp_on_create as stamp_customer_hold
+    await stamp_customer_hold(db, id, user.id)
     return row
 
 

@@ -64,9 +64,11 @@ async def lifespan(_app: FastAPI):
         pass
     # Per-pandit flagging follow-up: release holds whose flag cleared (Node boot sweep parity).
     from .services.review_hold import sweep as hold_sweep
+    from .services.customer_hold import sweep as customer_hold_sweep
     from .db import SessionLocal as _SL
     async with _SL() as _db:
         await hold_sweep(_db)
+        await customer_hold_sweep(_db)
         await _db.commit()
     try:
         yield

@@ -257,6 +257,11 @@ class Booking(Base):
     # bookings created/assigned while the pandit is flagged by the reopen digest
     review_hold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     hold_reason: Mapped[str | None] = mapped_column(Text)
+    # Customer-conduct escalation (migration 028 twin): SOFT review flag on
+    # bookings created while the CUSTOMER is on the conduct watchlist —
+    # fulfilment proceeds, ops team reviews (no pandit-side guard)
+    customer_hold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    customer_hold_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class AuditLog(Base):

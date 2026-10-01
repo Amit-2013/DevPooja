@@ -112,13 +112,19 @@ router.get('/incidents', (req, res) => res.json({ incidents: INC.list({ status: 
    Returns { incidents, flaggedPandits, threshold }: flaggedPandits lists pandits whose
    reopens exceed the threshold across DISTINCT bookings (per-pandit pattern flag). */
 router.get('/incidents/reopen-digest', (req, res) => {
-  /* Lazily auto-release held bookings whose pandit's flag has cleared. */
+  /* Lazily auto-release held bookings whose pandit's/customer's flag cleared. */
   require('../services/reviewHold').sweep();
+  require('../services/customerHold').sweep();
   res.json({ ...INC.reopenDigest(req.query.limit ? +req.query.limit : undefined), threshold: INC.REOPEN_LIMIT });
 });
 /* Explicit admin release for a review-hold booking (per-pandit flagging follow-up). */
 router.post('/bookings/:id/release-hold', (req, res) => {
   const r = require('../services/reviewHold').release(req.params.id, req.auth.uid);
+  res.json({ booking: S.booking(r.booking), released: r.released });
+});
+/* Explicit admin release for the customer-conduct review flag (soft hold). */
+router.post('/bookings/:id/release-customer-hold', (req, res) => {
+  const r = require('../services/customerHold').release(req.params.id, req.auth.uid);
   res.json({ booking: S.booking(r.booking), released: r.released });
 });
 /* Queue-entry alerts across ALL incidents (Operations notifications panel) */

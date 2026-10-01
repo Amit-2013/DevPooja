@@ -48,7 +48,9 @@ def booking(r) -> dict:
             "mediaOverride": bool(getattr(r, "media_override", 0)),
             # Per-pandit flagging follow-up: bookings of flagged pandits wait under a review hold.
             "reviewHold": bool(getattr(r, "review_hold", 0)),
-            "holdReason": getattr(r, "hold_reason", None) or None}
+            "holdReason": getattr(r, "hold_reason", None) or None,
+            # Customer-conduct escalation: soft review flag on new bookings of flagged customers.
+            "ch": r.customer_hold or 0, "chr": r.customer_hold_reason or None}
 
 
 def puja(r, kit_items=None) -> dict:

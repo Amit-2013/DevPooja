@@ -23,7 +23,9 @@ const booking = (r) => {
     q: j(r.q, {}), status: r.status, pay: j(r.pay, {}), ops: j(r.ops, {}), media: media.length, mediaUrls: media, review: j(r.review, null),
     created: r.created, log: j(r.log, []), refund: j(r.refund, null), esc: !!r.esc, mediaOverride: !!r.media_override,
     /* Per-pandit flagging follow-up: bookings of flagged pandits wait under a review hold. */
-    reviewHold: !!r.review_hold, holdReason: r.hold_reason || null
+    reviewHold: !!r.review_hold, holdReason: r.hold_reason || null,
+    /* Customer-conduct escalation: soft review flag on new bookings of flagged customers. */
+    ch: r.customer_hold || 0, chr: r.customer_hold_reason || null
   };
 };
 const puja = (r, kitItems) => ({ id: r.id, n: r.name, h: r.hindi, cat: r.cat, ic: r.icon, dur: r.dur, price: r.price, deity: r.deity, ben: r.ben, benHi: r.ben_hi || '', kit: r.kit, pop: r.pop, tags: r.tags, hidden: !!r.hidden, sam: kitItems || [],

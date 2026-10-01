@@ -245,6 +245,8 @@ const ACT={
  amgateoff(d){run(()=>api('/admin/bookings/'+d.id+'/media-override',{body:{enable:false}}),'Photo upload override revoked')},
  async amanok(){await closeAnd(run(()=>api('/admin/bookings/manual',{body:{name:val('mn'),mobile:val('mm'),pujaId:val('mp'),mode:val('mt'),date:val('md'),slot:val('ms'),city:val('mc')}}),'Booking created'))},
  arf(d){run(()=>api('/admin/bookings/'+d.id+'/refund',{body:{}}),'Refund processed')},
+ arelease(d){run(()=>api('/admin/bookings/'+d.id+'/release-hold',{body:{}}),'Hold released — the pandit can act on this booking now')},
+ acrelease(d){run(()=>api('/admin/bookings/'+d.id+'/release-customer-hold',{body:{}}),'Customer hold released — booking proceeds normally')},
  aesc(d){run(()=>api('/admin/bookings/'+d.id+'/escalate',{body:{}}))},
  akyc(d){run(()=>api('/admin/pandits/'+d.id+'/kyc',{body:{status:d.v}}),'KYC '+d.v)},
  afeat(d){run(()=>api('/admin/pandits/'+d.id+'/feature',{body:{}}))},
@@ -429,7 +431,6 @@ const INP={
  rff(el){PAGE.rf=PAGE.rf||{};PAGE.rf.from=el.value},
  rft(el){PAGE.rf=PAGE.rf||{};PAGE.rf.to=el.value},
  aas(el){run(()=>api('/admin/bookings/'+el.dataset.id+'/assign',{body:{panditId:el.value}}),'Assignment updated')},
- arelease(d){run(()=>api('/admin/bookings/'+d.id+'/release-hold',{body:{}}),'Hold released — the pandit can act on this booking now')},
  lcvin(el){const c=PAGE.lcv;if(!c)return;const k=el.id==='lcvp'?'pujaId':el.id==='lcvm'?'mode':'date';c[k]=el.value;c.panditId='';const sel=$('#lcvpd');if(sel)sel.value='';ACT.lcvload()},
  ast(el){run(()=>api('/admin/bookings/'+el.dataset.id+'/status',{body:{status:el.value}}),'Status updated')},
 

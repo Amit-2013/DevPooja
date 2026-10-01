@@ -116,6 +116,9 @@ function createBooking(user, body) {
     /* Per-pandit flagging follow-up: a booking created while the assigned
        pandit is flagged by the reopen digest waits under a review hold. */
     reviewHold.stampOnCreate(id, pandit ? pandit.id : null);
+    /* Customer-conduct escalation: a booking created by a flagged customer
+       carries a SOFT review flag for the ops team (fulfilment proceeds). */
+    require('./customerHold').stampOnCreate(id, user.id);
     /* Phase 10: mock-gateway bookings settle at creation — record the ledger row
        here; gateway-mode payments record it in confirmPayment instead. */
     if (!gateway) LEDGER.dedupe({ type: 'SERVICE_PAYMENT', amount: q.total, userId: user.id, panditId: pandit ? pandit.id : null, bookingId: id, refTable: 'bookings', refId: id, note: 'Puja booking payment (mock)' });
