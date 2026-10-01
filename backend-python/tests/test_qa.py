@@ -104,8 +104,9 @@ async def test_qa_engine_scoring_validation_delete_audit(client):
     assert (await client.get("/api/admin/qa",
                              headers={"Authorization": "Bearer " + cr.json()["token"]})).status_code == 403
 
-    # delete recomputes the cached score
-    dele = await client.delete(f"/api/admin/qa/{r2.json()['id']}", headers=aa)
+    # delete recomputes the cached score; the deletion reason is audited
+    dele = await client.request("DELETE", f"/api/admin/qa/{r2.json()['id']}", headers=aa,
+                                json={"reason": "Duplicate entry — recorded twice by mistake"})
     assert dele.status_code == 200
     view = (await client.get("/api/admin/pandits/p1/qa", headers=aa)).json()
     assert view["qaScore"] == 4
@@ -114,6 +115,8 @@ async def test_qa_engine_scoring_validation_delete_audit(client):
     audits = (await client.get("/api/admin/audit?limit=300", headers=aa)).json()["entries"]
     acts = {a["action"] for a in audits}
     assert "qa.recorded" in acts and "qa.deleted" in acts
+    assert any(a["action"] == "qa.deleted" and "Duplicate entry" in (a["reason"] or "") for a in audits), \
+        "the delete reason reaches the audit trail"
 
     # pandit self-view: own records + derived metrics
     pr = await client.post("/api/auth/demo", json={"role": "pandit"})

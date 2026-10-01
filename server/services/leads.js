@@ -209,11 +209,11 @@ function convert(id, body, actor) {
   return { lead: out({ ...l, status: 'CONVERTED', converted_booking_id: booking.id }), bookingId: booking.id, panditId: body_.panditId || null };
 }
 
-function remove(id, actor) {
+function remove(id, actor, reason) {
   const l = one(id);
   if (LIVE.includes(l.status)) throw conflict('Live leads are never deleted — mark them LOST with a reason instead');
   db.prepare('DELETE FROM leads WHERE id=?').run(l.id);
-  require('../lib/audit').audit(actor, 'lead.deleted', 'lead', l.id, { status: l.status });
+  require('../lib/audit').audit(actor, 'lead.deleted', 'lead', l.id, { status: l.status }, reason);
   return { ok: true };
 }
 

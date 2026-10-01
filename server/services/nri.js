@@ -71,13 +71,13 @@ function updatePackage(uid, id, b) {
   audit(uid, 'nri.package_update', 'nri_package', id, { from: { price: p.price, active: p.active }, to: b }, { oldValue: { active: p.active }, newValue: { active: b.active !== undefined ? b.active : p.active } });
   return out(get(id));
 }
-function deletePackage(uid, id) {
+function deletePackage(uid, id, reason) {
   const p = get(id);
   if (!p) throw notFound('Package not found');
   const used = db.prepare('SELECT COUNT(*) c FROM nri_orders WHERE package_id=?').get(id).c;
   if (used) throw bad('Past orders reference this package. Deactivate it instead.');
   tx(() => db.prepare('DELETE FROM nri_packages WHERE id=?').run(id))();
-  audit(uid, 'nri.package_delete', 'nri_package', id, { name: p.name });
+  audit(uid, 'nri.package_delete', 'nri_package', id, { name: p.name }, reason);
   return { ok: true };
 }
 

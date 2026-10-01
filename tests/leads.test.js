@@ -131,13 +131,15 @@ test('leads: admin pipeline — list filters, status moves, assignment, follow-u
   /* delete rules */
   const delLive = await call('DELETE', '/admin/leads/' + l2.id, { token: at });
   assert.equal(delLive.status, 409, 'live leads are never deleted');
-  const delLost = await call('DELETE', '/admin/leads/' + l3.id, { token: at });
+  const delLost = await call('DELETE', '/admin/leads/' + l3.id, { token: at, body: { reason: 'Duplicate capture of the same prospect' } });
   assert.equal(delLost.status, 200, 'LOST leads can be removed');
   const delGone = await call('DELETE', '/admin/leads/' + l3.id, { token: at });
   assert.equal(delGone.status, 404);
 
   /* audits for the lifecycle */
-  const acts = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries.map((a) => a.action);
+  const entries = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries;
+  assert.ok(entries.some((a) => a.action === 'lead.deleted' && (a.reason || '').includes('Duplicate capture')), 'delete reason audited');
+  const acts = entries.map((a) => a.action);
   for (const a of ['lead.captured', 'lead.status', 'lead.assign', 'lead.followup', 'lead.notes', 'lead.converted', 'lead.deleted']) assert.ok(acts.includes(a), a + ' audited');
 });
 

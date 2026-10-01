@@ -64,13 +64,15 @@ async def test_temple_crud_audit_access(client, db_session):
     assert any(a for a in audits if a["action"] == "temple.create" and a["entityId"] == t["id"])
     assert any(a for a in audits if a["action"] == "temple.update" and a["entityId"] == t["id"])
 
-    # delete the fresh temple: no bookings reference it, so it goes
-    d = await client.delete("/api/admin/temples/" + t["id"], headers=aa)
+    # delete the fresh temple: no bookings reference it, so it goes; reason audited
+    d = await client.request("DELETE", "/api/admin/temples/" + t["id"], headers=aa,
+                             json={"reason": "Listed in error — never a real temple partner"})
     assert d.status_code == 200, d.text
     after = (await client.get("/api/admin/temples", headers=aa)).json()["temples"]
     assert all(x["id"] != t["id"] for x in after)
     audits2 = (await client.get("/api/admin/audit?limit=300", headers=aa)).json()["entries"]
-    assert any(a for a in audits2 if a["action"] == "temple.delete" and a["entityId"] == t["id"])
+    assert any(a for a in audits2 if a["action"] == "temple.delete" and a["entityId"] == t["id"]
+               and "never a real temple" in (a["reason"] or ""))
 
     # access: customers and pandits never reach the CRUD surface
     ct = {"Authorization": "Bearer " + await login(client, "customer")}

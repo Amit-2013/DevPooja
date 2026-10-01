@@ -40,9 +40,11 @@ def out(r: QaRecord, pandit_name: str | None = None) -> dict:
 
 
 async def _audit(db, actor: str, action: str, entity: str, entity_id: str,
-                 detail: dict, *, old: dict | None = None, new: dict | None = None) -> None:
+                 detail: dict, *, reason: str | None = None,
+                 old: dict | None = None, new: dict | None = None) -> None:
     db.add(AuditLog(actor_user_id=actor or None, actor_role="admin", action=action, entity=entity,
                     entity_id=entity_id, detail=__import__("json").dumps(detail or {}),
+                    reason=reason,
                     old_value=__import__("json").dumps(old) if old is not None else None,
                     new_value=__import__("json").dumps(new) if new is not None else None,
                     created_at=int(time.time() * 1000)))
@@ -137,12 +139,13 @@ async def create(db, *, evaluator: str, pandit_id: str, booking_id: str | None,
     return out(rec)
 
 
-async def remove(db, *, id: str, uid: str) -> dict:
+async def remove(db, *, id: str, uid: str, reason: str | None = None) -> dict:
     rec = (await db.execute(select(QaRecord).where(QaRecord.id == id))).scalar_one_or_none()
     if not rec:
         raise not_found("QA record not found")
     await db.delete(rec)
     await refresh_score(db, rec.pandit_id)
     await _audit(db, uid, "qa.deleted", "pandit", rec.pandit_id,
-                 {"qaId": id, "overall": rec.overall}, old={"overall": rec.overall})
+                 {"qaId": id, "overall": rec.overall}, reason=reason,
+                 old={"overall": rec.overall})
     return {"ok": True}

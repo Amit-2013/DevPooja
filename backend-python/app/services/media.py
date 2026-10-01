@@ -257,13 +257,15 @@ async def moderate(db: AsyncSession, *, uid: str, id: str, status: str | None = 
     return out(r)
 
 
-async def bulk(db: AsyncSession, *, uid: str, ids: list[str], op: str) -> dict:
-    """Bulk moderation; returns per-id results like the Node service."""
+async def bulk(db: AsyncSession, *, uid: str, ids: list[str], op: str,
+               reason: str | None = None) -> dict:
+    """Bulk moderation; returns per-id results like the Node service. A reason
+    rides along on deletes so every file removal carries WHY (audited per row)."""
     results = []
     for id in (ids or [])[:200]:
         try:
             if op == "delete":
-                await remove(db, uid=uid, role="admin", pid=None, id=id)
+                await remove(db, uid=uid, role="admin", pid=None, id=id, reason=reason)
                 results.append({"id": id, "ok": True})
                 continue
             patch = {"approve": dict(status="APPROVED"),
@@ -280,7 +282,8 @@ async def bulk(db: AsyncSession, *, uid: str, ids: list[str], op: str) -> dict:
 
 
 # --- delete: every artifact goes ---------------------------------------------------
-async def remove(db: AsyncSession, *, uid: str, role: str, pid: str | None, id: str) -> dict:
+async def remove(db: AsyncSession, *, uid: str, role: str, pid: str | None, id: str,
+                 reason: str | None = None) -> dict:
     r = (await db.execute(select(PujaMedia).where(PujaMedia.id == id))).scalar_one_or_none()
     if not r:
         raise not_found("Photo not found")
@@ -314,7 +317,7 @@ async def remove(db: AsyncSession, *, uid: str, role: str, pid: str | None, id: 
             pass
     await db.execute(PujaMedia.__table__.delete().where(PujaMedia.id == id))
     db.add(AuditLog(actor_user_id=uid, actor_role=role, action="media.delete",
-                    entity="puja_media", entity_id=id,
+                    entity="puja_media", entity_id=id, reason=reason,
                     detail=json.dumps({"pujaId": r.puja_id, "by": role, "files": len(names)}),
                     created_at=int(time.time() * 1000)))
     await db.flush()

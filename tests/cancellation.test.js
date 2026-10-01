@@ -112,7 +112,7 @@ test('pandit cancel: customer refunded, compensation only outside the notice win
   await call('POST', '/admin/bookings/' + st.id + '/status', { token: at, body: { status: 'Started' } });
   assert.equal((await call('POST', '/pandit/bookings/' + st.id + '/cancel', { token: p1tok, body: {} })).status, 400, 'started is refused');
   /* admin no-show for the started booking closes it instead */
-  const ns = await call('POST', '/admin/bookings/' + st.id + '/noshow', { token: at, body: { reason: 'test' } });
+  const ns = await call('POST', '/admin/bookings/' + st.id + '/noshow', { token: at, body: { reason: 'Customer never arrived — confirmed by pandit on call' } });
   assert.equal(ns.status, 200);
   assert.equal(ns.json.booking.status, 'Cancelled');
   const nsRefund = ledgerFor(st.id, 'REFUND');

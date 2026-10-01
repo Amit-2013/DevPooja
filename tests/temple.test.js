@@ -67,12 +67,12 @@ test('temple CRUD: create, edit, list, audit trail', async () => {
   const upd = audits.find((a) => a.action === 'temple.update' && a.entityId === t.id);
   assert.ok(upd, 'temple.update audited');
 
-  /* delete the fresh temple: no bookings reference it, so it goes */
-  const del = await call('DELETE', '/admin/temples/' + t.id, { token: at });
+  /* delete the fresh temple: no bookings reference it, so it goes; reason audited */
+  const del = await call('DELETE', '/admin/temples/' + t.id, { token: at, body: { reason: 'Listed in error — never a real temple partner' } });
   assert.equal(del.status, 200);
   assert.equal((await call('GET', '/admin/temples', { token: at })).json.temples.some((x) => x.id === t.id), false);
   const audits2 = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries;
-  assert.ok(audits2.find((a) => a.action === 'temple.delete' && a.entityId === t.id));
+  assert.ok(audits2.find((a) => a.action === 'temple.delete' && a.entityId === t.id && (a.reason || '').includes('never a real temple')));
 
   /* access: customers and pandits never reach the CRUD surface */
   const ct = await login('customer'), pt = await login('pandit');

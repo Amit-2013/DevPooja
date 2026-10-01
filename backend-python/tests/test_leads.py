@@ -110,7 +110,9 @@ async def test_public_capture_and_admin_pipeline(client, db_session):
 
     # delete rules
     assert (await client.delete(f"/api/admin/leads/{l2['id']}", headers=aa)).status_code == 409, "live leads are never deleted"
-    assert (await client.delete(f"/api/admin/leads/{l3['id']}", headers=aa)).status_code == 200
+    r = await client.request("DELETE", f"/api/admin/leads/{l3['id']}", headers=aa,
+                             json={"reason": "Duplicate capture of the same prospect"})
+    assert r.status_code == 200
     assert (await client.delete(f"/api/admin/leads/{l3['id']}", headers=aa)).status_code == 404
 
     # audit trail
@@ -122,6 +124,8 @@ async def test_public_capture_and_admin_pipeline(client, db_session):
     actions = {a.action for a in rows}
     assert {"lead.captured", "lead.status", "lead.assign", "lead.followup",
             "lead.notes", "lead.converted", "lead.deleted"} <= actions
+    assert any(a.action == "lead.deleted" and "Duplicate capture" in (a.reason or "")
+               for a in rows), "delete reason audited"
     assert any(a.actor_role == "public" for a in rows if a.action == "lead.captured"), \
         "anonymous captures audit as public"
 

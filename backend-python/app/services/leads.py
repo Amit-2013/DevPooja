@@ -269,12 +269,12 @@ async def convert(db: AsyncSession, lead_id, body: dict, actor: str) -> dict:
     return {"lead": out(l), "bookingId": booking.id, "panditId": body.get("panditId") or None}
 
 
-async def remove(db: AsyncSession, lead_id, actor: str) -> dict:
+async def remove(db: AsyncSession, lead_id, actor: str, reason: str | None = None) -> dict:
     l = await _one(db, lead_id)
     if l.status in LIVE:
         raise conflict("Live leads are never deleted — mark them LOST with a reason instead")
     db.add(AuditLog(actor_user_id=actor, actor_role="admin", action="lead.deleted",
-                    entity="lead", entity_id=str(l.id),
+                    entity="lead", entity_id=str(l.id), reason=reason,
                     detail=json.dumps({"status": l.status}),
                     created_at=int(time.time() * 1000)))
     await db.delete(l)

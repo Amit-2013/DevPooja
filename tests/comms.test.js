@@ -114,8 +114,10 @@ test('cancel while scheduled, and the due-sweep fires past-due campaigns', async
   let r = await call('POST', '/admin/campaigns', { token: at, body: { name: 'Later', channel: 'In-App', audience: 'All customers', message: 'Coming soon' } });
   const cid = r.json.campaign.id;
   await call('POST', '/admin/campaigns/' + cid + '/schedule', { token: at, body: { scheduledAt: Date.now() + 86400000 } });
-  assert.equal((await call('POST', '/admin/campaigns/' + cid + '/cancel', { token: at, body: {} })).json.campaign.status, 'CANCELLED');
+  assert.equal((await call('POST', '/admin/campaigns/' + cid + '/cancel', { token: at, body: { reason: 'Wrong audience selected' } })).json.campaign.status, 'CANCELLED');
   assert.equal((await call('POST', '/admin/campaigns/due-sweep', { token: at, body: {} })).json.sent, 0, 'cancelled never sends');
+  assert.ok((await call('GET', '/admin/audit?limit=300', { token: at })).json.entries
+    .some((a) => a.action === 'campaign.cancelled' && (a.reason || '').includes('Wrong audience')), 'cancel reason audited');
 
   /* Past-due (server was down past its scheduled_at) fires on the sweep. */
   r = await call('POST', '/admin/campaigns', { token: at, body: { name: 'Down then due', channel: 'In-App', audience: 'Plus members', message: 'Sweep fired me' } });

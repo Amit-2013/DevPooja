@@ -114,7 +114,8 @@ async def admin_media_moderate(media_id: str, body: dict,
 async def admin_media_bulk(body: dict, auth: dict = Depends(require_role("admin")),
                            db: AsyncSession = Depends(get_db)):
     op = v_one_of(body.get("op"), ["approve", "reject", "publish", "unpublish", "delete"], "Operation")
-    return await media.bulk(db, uid=auth["uid"], ids=body.get("ids", []), op=op)
+    return await media.bulk(db, uid=auth["uid"], ids=body.get("ids", []), op=op,
+                            reason=body.get("reason"))
 
 
 @router.get("/admin/media/credits")
@@ -125,9 +126,11 @@ async def admin_media_credits(auth: dict = Depends(require_role("admin")),
 
 
 @router.delete("/admin/media/{media_id}")
-async def admin_media_delete(media_id: str, auth: dict = Depends(require_role("admin")),
+async def admin_media_delete(media_id: str, body: dict | None = None,
+                             auth: dict = Depends(require_role("admin")),
                              db: AsyncSession = Depends(get_db)):
-    return await media.remove(db, uid=auth["uid"], role="admin", pid=None, id=media_id)
+    return await media.remove(db, uid=auth["uid"], role="admin", pid=None, id=media_id,
+                              reason=(body or {}).get("reason"))
 
 
 @router.get("/media/{media_id}/download")

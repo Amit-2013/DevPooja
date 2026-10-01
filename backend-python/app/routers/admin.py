@@ -60,7 +60,7 @@ async def media_override(booking_id: str, body: dict, auth: dict = Depends(admin
     before = bool(b.media_override)
     b.media_override = 1 if enabled else 0
     db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="media.date_gate_override",
-                    entity="booking", entity_id=b.id,
+                    entity="booking", entity_id=b.id, reason=(body or {}).get("reason"),
                     detail=json.dumps({"enabled": enabled}),
                     old_value=json.dumps({"mediaOverride": before}),
                     new_value=json.dumps({"mediaOverride": enabled}),
@@ -362,9 +362,9 @@ async def qa_create(body: dict, auth: dict = Depends(admin_dep),
 
 
 @router.delete("/qa/{qa_id}")
-async def qa_delete(qa_id: str, auth: dict = Depends(admin_dep),
+async def qa_delete(qa_id: str, body: dict | None = None, auth: dict = Depends(admin_dep),
                     db: AsyncSession = Depends(get_db)):
-    r = await QA_SVC.remove(db, id=qa_id, uid=auth["uid"])
+    r = await QA_SVC.remove(db, id=qa_id, uid=auth["uid"], reason=(body or {}).get("reason"))
     await db.commit()
     return r
 
@@ -838,9 +838,9 @@ async def patch_nri_package(package_id: str, body: dict, auth: dict = Depends(ad
 
 
 @router.delete("/nri-packages/{package_id}")
-async def delete_nri_package(package_id: str, auth: dict = Depends(admin_dep),
+async def delete_nri_package(package_id: str, body: dict | None = None, auth: dict = Depends(admin_dep),
                              db: AsyncSession = Depends(get_db)):
-    return await NRI.delete_package(db, auth["uid"], package_id)
+    return await NRI.delete_package(db, auth["uid"], package_id, (body or {}).get("reason"))
 
 
 # --- Phase 12: temple management. DELETE answers 409 when bookings reference
@@ -922,7 +922,7 @@ async def patch_temple(temple_id: str, body: dict, auth: dict = Depends(admin_de
 
 
 @router.delete("/temples/{temple_id}")
-async def delete_temple(temple_id: str, auth: dict = Depends(admin_dep),
+async def delete_temple(temple_id: str, body: dict | None = None, auth: dict = Depends(admin_dep),
                         db: AsyncSession = Depends(get_db)):
     t = await db.get(Temple, temple_id)
     if not t:
@@ -933,7 +933,7 @@ async def delete_temple(temple_id: str, auth: dict = Depends(admin_dep),
     await db.delete(t)
     db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin", action="temple.delete",
                     entity="temple", entity_id=t.id,
-                    detail=json.dumps({"name": t.name}),
+                    detail=json.dumps({"name": t.name}), reason=(body or {}).get("reason"),
                     created_at=int(time.time() * 1000)))
     await db.commit()
     return {"ok": True}
@@ -1071,9 +1071,9 @@ async def leads_convert(lead_id: int, body: dict, auth: dict = Depends(admin_dep
 
 
 @router.delete("/leads/{lead_id}")
-async def leads_delete(lead_id: int, auth: dict = Depends(admin_dep),
+async def leads_delete(lead_id: int, body: dict | None = None, auth: dict = Depends(admin_dep),
                        db: AsyncSession = Depends(get_db)):
-    return await LEADS.remove(db, lead_id, auth["uid"])
+    return await LEADS.remove(db, lead_id, auth["uid"], (body or {}).get("reason"))
 
 
 # --- Phases 27-29: communication engine (services/comms.py; Node parity: the
@@ -1083,7 +1083,7 @@ async def leads_delete(lead_id: int, auth: dict = Depends(admin_dep),
 # statelessly, commit applies it. ---
 from io import BytesIO  # noqa: E402
 
-from fastapi import File, UploadFile  # noqa: E402
+from fastapi import File, Form, UploadFile  # noqa: E402
 
 from ..services import comms as CM  # noqa: E402
 
@@ -1131,17 +1131,19 @@ async def campaigns_schedule(campaign_id: str, body: dict, auth: dict = Depends(
 
 
 @router.post("/campaigns/{campaign_id}/cancel")
-async def campaigns_cancel(campaign_id: str, auth: dict = Depends(admin_dep),
+async def campaigns_cancel(campaign_id: str, body: dict | None = None,
+                           auth: dict = Depends(admin_dep),
                            db: AsyncSession = Depends(get_db)):
-    r = await CM.cancel(db, campaign_id, auth["uid"])
+    r = await CM.cancel(db, campaign_id, auth["uid"], (body or {}).get("reason"))
     await db.commit()
     return {"campaign": r}
 
 
 @router.post("/campaigns/{campaign_id}/send")
-async def campaigns_send(campaign_id: str, auth: dict = Depends(admin_dep),
+async def campaigns_send(campaign_id: str, body: dict | None = None,
+                         auth: dict = Depends(admin_dep),
                          db: AsyncSession = Depends(get_db)):
-    r = await CM.send(db, campaign_id, auth["uid"])
+    r = await CM.send(db, campaign_id, auth["uid"], (body or {}).get("reason"))
     await db.commit()
     return {"campaign": r}
 
@@ -1208,7 +1210,8 @@ def _parse_xlsx_rows(content: bytes) -> list[dict]:
     return rows
 
 
-async def _import_run(kind: str, file: UploadFile, commit: bool, auth: dict, db: AsyncSession):
+async def _import_run(kind: str, file: UploadFile, commit: bool, auth: dict, db: AsyncSession,
+                      reason: str | None = None):
     if kind not in CM.IMPORT_KINDS:
         raise bad("Unknown import kind")
     content = await file.read(_XLSX_LIMIT + 1)
@@ -1222,7 +1225,7 @@ async def _import_run(kind: str, file: UploadFile, commit: bool, auth: dict, db:
     if len(rows) > 5000:
         raise bad("Too many rows (max 5000 per import)")
     if commit:
-        return await CM.import_commit(db, kind, rows, auth["uid"])
+        return await CM.import_commit(db, kind, rows, auth["uid"], reason)
     return await CM.import_preview(db, kind, rows)
 
 
@@ -1233,8 +1236,8 @@ async def import_preview(kind: str, file: UploadFile = File(...),
 
 
 @router.post("/import/{kind}/commit")
-async def import_commit(kind: str, file: UploadFile = File(...),
+async def import_commit(kind: str, file: UploadFile = File(...), reason: str = Form(None),
                         auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
-    r = await _import_run(kind, file, True, auth, db)
+    r = await _import_run(kind, file, True, auth, db, reason)
     await db.commit()
     return r

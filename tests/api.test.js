@@ -801,8 +801,10 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   const bulk2 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'publish' } });
   assert.equal(bulk2.json.changed, 1);
   assert.equal((await call('GET', '/pujas/' + tb.pujaId + '/photos')).json.photos.some((p) => p.id === pm.id), true, 'published after bulk publish');
-  const bulk3 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'delete' } });
+  const bulk3 = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [pm.id], op: 'delete', reason: 'Wrong puja gallery — bulk cleanup' } });
   assert.equal(bulk3.json.changed, 1);
+  assert.ok((await call('GET', '/admin/audit?limit=300', { token: admin })).json.entries
+    .some((a) => a.action === 'media.delete' && (a.reason || '').includes('bulk cleanup')), 'bulk delete reason audited');
   assert.equal((await call('GET', '/admin/media?source=pandit', { token: admin })).json.media.some((m) => m.id === pm.id), false, 'bulk delete removes the row');
   const badOp = await call('POST', '/admin/media/bulk', { token: admin, body: { ids: [], op: 'explode' } });
   assert.equal(badOp.status, 400);

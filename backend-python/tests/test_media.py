@@ -106,10 +106,13 @@ async def test_bulk_publish_and_delete(client):
                           json={"ids": [m["id"]], "op": "publish"})
     assert b.json()["changed"] == 1
     b2 = await client.post("/api/admin/media/bulk", headers={"Authorization": "Bearer " + tok},
-                           json={"ids": [m["id"]], "op": "delete"})
+                           json={"ids": [m["id"]], "op": "delete", "reason": "Wrong puja gallery — bulk cleanup"})
     assert b2.json()["changed"] == 1
     lst = await client.get("/api/admin/media", headers={"Authorization": "Bearer " + tok})
     assert all(x["id"] != m["id"] for x in lst.json()["media"])
+    audits = (await client.get("/api/admin/audit?limit=300", headers={"Authorization": "Bearer " + tok})).json()["entries"]
+    assert any(a["action"] == "media.delete" and "bulk cleanup" in (a["reason"] or "") for a in audits), \
+        "bulk delete reason audited"
 
 
 async def test_bulk_unknown_op_400(client):

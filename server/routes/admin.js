@@ -26,12 +26,13 @@ router.post('/bookings/:id/media-override', (req, res) => {
   db.prepare('UPDATE bookings SET media_override=? WHERE id=?').run(req.body.enable === false ? 0 : 1, b.id);
   AUDIT.audit(req.auth.uid, 'media.date_gate_override', 'booking', b.id,
     { enabled: req.body.enable !== false },
-    { oldValue: { mediaOverride: !!b.media_override }, newValue: { mediaOverride: req.body.enable !== false } });
+    { reason: (req.body || {}).reason,
+      oldValue: { mediaOverride: !!b.media_override }, newValue: { mediaOverride: req.body.enable !== false } });
   res.json({ booking: one(b.id) });
 });
 /* Phase 16: no-show handling + the settings-backed cancellation policy. */
 const CX = require('../services/cancellation');
-router.post('/bookings/:id/noshow', (req, res) => res.json({ booking: S.booking(CX.adminNoShow(req.params.id, req.auth.uid, req.body.reason)) }));
+router.post('/bookings/:id/noshow', (req, res) => res.json({ booking: S.booking(CX.adminNoShow(req.params.id, req.auth.uid, (req.body || {}).reason)) }));
 router.get('/cancellation-policy', (req, res) => res.json({ policy: CX.getPolicy() }));
 router.put('/cancellation-policy', (req, res) => res.json({ policy: CX.updatePolicy(req.auth.uid, req.body) }));
 router.post('/bookings/:id/refund', (req, res) => {
@@ -78,7 +79,7 @@ router.post('/qa', (req, res) => {
   res.status(201).json({ record: rec });
 });
 router.delete('/qa/:id', (req, res) => {
-  res.json(QA.remove({ id: req.params.id, uid: req.auth.uid }));
+  res.json(QA.remove({ id: req.params.id, uid: req.auth.uid, reason: (req.body || {}).reason }));
 });
 router.get('/pandits/:id/qa', (req, res) => {
   const p = db.prepare('SELECT * FROM pandits WHERE id=?').get(req.params.id);
@@ -183,7 +184,7 @@ const NRI = require('../services/nri');
 router.get('/nri-packages', (req, res) => res.json({ packages: NRI.list(), orders: NRI.allOrders() }));
 router.post('/nri-packages', (req, res) => res.status(201).json({ package: NRI.createPackage(req.auth.uid, req.body || {}) }));
 router.patch('/nri-packages/:id', (req, res) => res.json({ package: NRI.updatePackage(req.auth.uid, req.params.id, req.body || {}) }));
-router.delete('/nri-packages/:id', (req, res) => res.json(NRI.deletePackage(req.auth.uid, req.params.id)));
+router.delete('/nri-packages/:id', (req, res) => res.json(NRI.deletePackage(req.auth.uid, req.params.id, (req.body || {}).reason)));
 
 /* --- Phase 12: temple management. DELETE answers 409 when bookings reference
    the temple (the audit trail keeps the history) — deactivate instead; the
@@ -229,7 +230,7 @@ router.delete('/temples/:id', (req, res) => {
   const used = db.prepare('SELECT COUNT(*) c FROM bookings WHERE temple_id=?').get(t.id).c;
   if (used) throw conflict('Past bookings reference this temple. Deactivate it instead.');
   db.prepare('DELETE FROM temples WHERE id=?').run(t.id);
-  AUDIT.audit(req.auth.uid, 'temple.delete', 'temple', t.id, { name: t.name });
+  AUDIT.audit(req.auth.uid, 'temple.delete', 'temple', t.id, { name: t.name }, (req.body || {}).reason);
   res.json({ ok: true });
 });
 router.post('/settings', (req, res) => {
@@ -303,8 +304,8 @@ router.post('/campaigns', (req, res) => res.status(201).json({ campaign: CM.crea
 router.get('/campaigns/:id', (req, res) => res.json(CM.detail(req.params.id)));
 router.patch('/campaigns/:id', (req, res) => res.json({ campaign: CM.update(req.params.id, req.body, req.auth.uid) }));
 router.post('/campaigns/:id/schedule', (req, res) => res.json({ campaign: CM.schedule(req.params.id, req.body, req.auth.uid) }));
-router.post('/campaigns/:id/cancel', (req, res) => res.json({ campaign: CM.cancel(req.params.id, req.auth.uid) }));
-router.post('/campaigns/:id/send', (req, res) => res.json({ campaign: CM.send(req.params.id, req.auth.uid) }));
+router.post('/campaigns/:id/cancel', (req, res) => res.json({ campaign: CM.cancel(req.params.id, req.auth.uid, (req.body || {}).reason) }));
+router.post('/campaigns/:id/send', (req, res) => res.json({ campaign: CM.send(req.params.id, req.auth.uid, (req.body || {}).reason) }));
 router.post('/campaigns/due-sweep', (req, res) => res.json({ sent: CM.dueSweep() }));
 
 /* Legacy one-off push, now through the engine so it leaves delivery records. */
@@ -346,7 +347,7 @@ const importHandler = (commit) => wrap(async (req, res) => {
   const rows = await readXlsx(req.file.buffer);
   if (!rows.length) throw bad('No data rows found below the header');
   if (rows.length > 5000) throw bad('Too many rows (max 5000 per import)');
-  res.json(commit ? CM.importCommit(kind, rows, req.auth.uid) : CM.importPreview(kind, rows));
+  res.json(commit ? CM.importCommit(kind, rows, req.auth.uid, (req.body || {}).reason) : CM.importPreview(kind, rows));
 });
 router.post('/import/:kind/preview', xlsxUpload.single('file'), importHandler(false));
 router.post('/import/:kind/commit', xlsxUpload.single('file'), importHandler(true));
@@ -1041,7 +1042,7 @@ router.get('/leads/available-pandits', (req, res) => {
   res.json({ pandits: list });
 });
 router.post('/leads/:id/convert', (req, res) => res.status(201).json(LEADS.convert(req.params.id, req.body || {}, req.auth.uid)));
-router.delete('/leads/:id', (req, res) => res.json(LEADS.remove(req.params.id, req.auth.uid)));
+router.delete('/leads/:id', (req, res) => res.json(LEADS.remove(req.params.id, req.auth.uid, (req.body || {}).reason)));
 
 /* --- Account management: customers & pandits (login id, status, passwords) --- */
 const AUDIT = require('../lib/audit');
@@ -1092,7 +1093,7 @@ router.post('/users/:id/reset-password', (req, res) => {
   db.prepare('UPDATE users SET pass_hash=?, force_change=1, failed_logins=0, locked_until=NULL WHERE id=?').run(bcrypt.hashSync(temp, 10), u.id);
   db.prepare('INSERT INTO password_resets(user_id,token_hash,expires,used,created_by,created_at) VALUES(?,?,?,?,?,?)')
     .run(u.id, require('crypto').createHash('sha256').update(temp).digest('hex'), Date.now() + 30 * 60 * 1000, 1, req.auth.uid, Date.now());
-  AUDIT.audit(req.auth.uid, 'account.reset_password', 'user', u.id, { targetRole: u.role });
+  AUDIT.audit(req.auth.uid, 'account.reset_password', 'user', u.id, { targetRole: u.role }, (req.body || {}).reason);
   res.json({ ok: true, tempPassword: temp, mustChangePassword: true });
 });
 
@@ -1115,7 +1116,7 @@ router.post('/users/:id/status', (req, res) => {
   }
   db.prepare('UPDATE users SET status=? WHERE id=?').run(status, u.id);
   AUDIT.audit(req.auth.uid, 'account.status', 'user', u.id, { from: u.status || 'active', to: status },
-    'Account lifecycle change from the admin accounts screen');
+    (req.body || {}).reason || 'Account lifecycle change from the admin accounts screen');
   res.json({ ok: true, status });
 });
 
@@ -1146,11 +1147,11 @@ router.post('/media/reorder', (req, res) => res.json({ media: MEDIA.reorder(req.
 /* Bulk moderation: { ids: [...], op: approve|reject|publish|unpublish|delete } */
 router.post('/media/bulk', (req, res) => {
   const op = v.oneOf(req.body.op, ['approve', 'reject', 'publish', 'unpublish', 'delete'], 'Operation');
-  res.json(MEDIA.bulk(req.auth.uid, req.body.ids, op));
+  res.json(MEDIA.bulk(req.auth.uid, req.body.ids, op, (req.body || {}).reason));
 });
 /* Full attribution list for the Credits view (admin-only: includes unpublished). */
 router.get('/media/credits', (req, res) => res.json({ credits: MEDIA.creditsList() }));
-router.delete('/media/:id', (req, res) => res.json(MEDIA.remove({ uid: req.auth.uid, role: 'admin', pid: null, id: req.params.id })));
+router.delete('/media/:id', (req, res) => res.json(MEDIA.remove({ uid: req.auth.uid, role: 'admin', pid: null, id: req.params.id, reason: (req.body || {}).reason })));
 router.get('/media/:id/download', (req, res) => {
   const f = MEDIA.fileFor(req.params.id, req.auth);
   res.setHeader('Content-Type', f.mime);

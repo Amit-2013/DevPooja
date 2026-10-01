@@ -135,7 +135,7 @@ async def update_package(db, uid, pid: str, b: dict) -> dict:
     return out(p)
 
 
-async def delete_package(db, uid, pid: str) -> dict:
+async def delete_package(db, uid, pid: str, reason: str | None = None) -> dict:
     p = await db.get(NriPackage, pid)
     if not p:
         raise not_found("Package not found")
@@ -144,7 +144,7 @@ async def delete_package(db, uid, pid: str) -> dict:
         raise bad("Past orders reference this package. Deactivate it instead.")
     await db.delete(p)
     db.add(AuditLog(actor_user_id=uid, actor_role="admin", action="nri.package_delete",
-                    entity="nri_package", entity_id=pid,
+                    entity="nri_package", entity_id=pid, reason=reason,
                     detail=json.dumps({"name": p.name}), created_at=_now_ms()))
     await db.commit()
     return {"ok": True}

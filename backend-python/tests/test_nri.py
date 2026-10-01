@@ -48,10 +48,13 @@ async def test_nri_admin_crud_audits_delete_protection(client):
     assert any(a for a in audits if a["action"] == "nri.package_create" and a["entityId"] == p["id"])
     assert any(a for a in audits if a["action"] == "nri.package_update" and a["entityId"] == p["id"])
 
-    # never sold → deletable
-    assert (await client.delete("/api/admin/nri-packages/" + p["id"], headers=aa)).status_code == 200
+    # never sold → deletable; the reason is audited
+    r = await client.request("DELETE", "/api/admin/nri-packages/" + p["id"], headers=aa,
+                             json={"reason": "Duplicate of the Ganesh combo package"})
+    assert r.status_code == 200
     audits2 = (await client.get("/api/admin/audit?limit=300", headers=aa)).json()["entries"]
-    assert any(a for a in audits2 if a["action"] == "nri.package_delete" and a["entityId"] == p["id"])
+    assert any(a for a in audits2 if a["action"] == "nri.package_delete" and a["entityId"] == p["id"]
+               and "Duplicate of the Ganesh" in (a["reason"] or ""))
 
     # access
     ct = {"Authorization": "Bearer " + await login(client, "customer")}

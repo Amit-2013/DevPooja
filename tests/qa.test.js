@@ -82,8 +82,8 @@ test('QA engine: record, overall = mean, score cache, validation, delete recompu
   const cust = await login('customer');
   assert.equal((await call('GET', '/admin/qa', { token: cust })).status, 403, 'customers cannot read QA');
 
-  /* delete recomputes the cached score */
-  const del = await call('DELETE', '/admin/qa/' + r2.json.record.id, { token: at });
+  /* delete recomputes the cached score; the deletion reason is audited */
+  const del = await call('DELETE', '/admin/qa/' + r2.json.record.id, { token: at, body: { reason: 'Duplicate entry — recorded twice by mistake' } });
   assert.equal(del.status, 200);
   view = (await call('GET', '/admin/pandits/p1/qa', { token: at })).json;
   assert.equal(view.qaScore, 4, 'score recomputed after delete');
@@ -92,7 +92,7 @@ test('QA engine: record, overall = mean, score cache, validation, delete recompu
   /* every write is audited */
   const audits = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries.filter((a) => a.action.startsWith('qa.'));
   assert.ok(audits.some((a) => a.action === 'qa.recorded'));
-  assert.ok(audits.some((a) => a.action === 'qa.deleted'));
+  assert.ok(audits.some((a) => a.action === 'qa.deleted' && (a.reason || '').includes('Duplicate entry')), 'the delete reason reaches the audit trail');
 
   /* pandit self-view: own records + derived metrics, no admin leakage */
   const tp = await login('pandit');

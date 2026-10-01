@@ -83,7 +83,7 @@ function create({ evaluator, panditId, bookingId, dims, notes }) {
   return out(get(id));
 }
 
-function remove({ id, uid }) {
+function remove({ id, uid, reason }) {
   const row = get(id);
   if (!row) throw notFound('QA record not found');
   tx(() => {
@@ -91,7 +91,7 @@ function remove({ id, uid }) {
     db.prepare('UPDATE pandits SET qa_score=? WHERE id=?').run(refreshScore(row.pandit_id), row.pandit_id);
   })();
   audit(uid, 'qa.deleted', 'pandit', row.pandit_id, { qaId: id, overall: row.overall },
-    { oldValue: { overall: row.overall } });
+    { reason, oldValue: { overall: row.overall } });
   return { ok: true };
 }
 

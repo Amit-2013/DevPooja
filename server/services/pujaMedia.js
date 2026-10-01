@@ -75,12 +75,13 @@ function adminList({ status, source, limit } = {}) {
   return rows.map((r) => Object.assign(out(r), { pujaName: r.puja_name || '', panditName: r.pandit_name || '' }));
 }
 
-/* Bulk moderation for the admin UI. Returns per-id results. */
-function bulk(uid, ids, op) {
+/* Bulk moderation for the admin UI. Returns per-id results. A reason rides
+   along on deletes so every file removal carries WHY (audited per row). */
+function bulk(uid, ids, op, reason) {
   const results = [];
   for (const id of Array.isArray(ids) ? ids.slice(0, 200) : []) {
     try {
-      if (op === 'delete') { results.push({ id, ok: remove({ uid, role: 'admin', pid: null, id }).ok }); continue; }
+      if (op === 'delete') { results.push({ id, ok: remove({ uid, role: 'admin', pid: null, id, reason }).ok }); continue; }
       const patch = op === 'approve' ? { status: 'APPROVED' }
         : op === 'reject' ? { status: 'REJECTED' }
         : op === 'publish' ? { published: true, status: 'APPROVED' }
@@ -215,7 +216,7 @@ function reorder(uid, ids) {
    fill the Render disk — delete means delete. Variant names are taken from the
    row's columns; when a column is stale/empty (e.g. a crash mid-repair) the
    variant filename is derived from the stored original/thumb name instead. */
-function remove({ uid, role, pid, id }) {
+function remove({ uid, role, pid, id, reason }) {
   const r = row(id);
   if (!r) throw notFound('Photo not found');
   if (role === 'pandit') {
@@ -236,7 +237,7 @@ function remove({ uid, role, pid, id }) {
   }
   for (const name of files) { try { fs.unlinkSync(path.join(mediaDir, name)); } catch (e) { /* already gone */ } }
   db.prepare('DELETE FROM puja_media WHERE id=?').run(id);
-  auditMod.audit(uid, 'media.delete', 'puja_media', id, { pujaId: r.puja_id, by: role, files: files.size });
+  auditMod.audit(uid, 'media.delete', 'puja_media', id, { pujaId: r.puja_id, by: role, files: files.size }, reason);
   return { ok: true };
 }
 

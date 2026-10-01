@@ -54,10 +54,10 @@ test('NRI admin CRUD: create, edit, audits, delete protection', async () => {
   assert.ok(audits.find((a) => a.action === 'nri.package_create' && a.entityId === p.id));
   assert.ok(audits.find((a) => a.action === 'nri.package_update' && a.entityId === p.id));
 
-  /* never sold → deletable */
-  assert.equal((await call('DELETE', '/admin/nri-packages/' + p.id, { token: at })).status, 200);
+  /* never sold → deletable; the reason is audited */
+  assert.equal((await call('DELETE', '/admin/nri-packages/' + p.id, { token: at, body: { reason: 'Duplicate of the Ganesh combo package' } })).status, 200);
   const audits2 = (await call('GET', '/admin/audit?limit=300', { token: at })).json.entries;
-  assert.ok(audits2.find((a) => a.action === 'nri.package_delete' && a.entityId === p.id));
+  assert.ok(audits2.find((a) => a.action === 'nri.package_delete' && a.entityId === p.id && (a.reason || '').includes('Duplicate of the Ganesh')));
 
   /* access */
   const ct = await login('customer');

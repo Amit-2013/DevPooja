@@ -116,18 +116,18 @@ function schedule(id, body, actor) {
   return out(one(id));
 }
 
-function cancel(id, actor) {
+function cancel(id, actor, reason) {
   const c = one(id);
   if (!c) throw notFound('Campaign not found');
   if (!['DRAFT', 'SCHEDULED'].includes(c.status)) throw conflict('Only not-yet-sent campaigns can be cancelled');
   db.prepare("UPDATE campaigns SET status='CANCELLED' WHERE id=?").run(id);
-  require('../lib/audit').audit(actor, 'campaign.cancelled', 'campaign', id, { from: c.status });
+  require('../lib/audit').audit(actor, 'campaign.cancelled', 'campaign', id, { from: c.status }, reason);
   return out(one(id));
 }
 
 /* The send: DRAFT (send now) or SCHEDULED (due). Marks SENDING first so a
    crash mid-send is visible; per-recipient failures do not abort the send. */
-function send(id, actor) {
+function send(id, actor, reason) {
   const c = one(id);
   if (!c) throw notFound('Campaign not found');
   if (c.status === 'SENT' || c.status === 'FAILED' || c.status === 'CANCELLED') throw conflict('This campaign has already finished');
@@ -142,7 +142,7 @@ function send(id, actor) {
   }
   db.prepare("UPDATE campaigns SET status=?, sent=?, failed=?, sent_at=? WHERE id=?")
     .run(failed && !sent ? 'FAILED' : 'SENT', sent, failed, nowMs(), id);
-  require('../lib/audit').audit(actor, 'campaign.sent', 'campaign', id, { audience: c.audience, sent, failed });
+  require('../lib/audit').audit(actor, 'campaign.sent', 'campaign', id, { audience: c.audience, sent, failed }, reason);
   return { ...out(one(id)), delivered: sent, skipped: targets.length - sent - failed };
 }
 
@@ -222,7 +222,7 @@ function importPreview(kind, rows) {
   return result;
 }
 
-function importCommit(kind, rows, actor) {
+function importCommit(kind, rows, actor, reason) {
   if (!IMPORT_KINDS.includes(kind)) throw bad('Unknown import kind');
   const pv = importPreview(kind, rows);
   if (!pv.willCreate && !pv.willUpdate) return { committed: 0, ...pv };
@@ -246,7 +246,7 @@ function importCommit(kind, rows, actor) {
     }
   });
   run();
-  require('../lib/audit').audit(actor, 'import.committed', kind, null, { committed, total: pv.total });
+  require('../lib/audit').audit(actor, 'import.committed', kind, null, { committed, total: pv.total }, reason);
   return { committed, ...pv };
 }
 

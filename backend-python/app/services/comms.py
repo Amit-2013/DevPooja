@@ -119,7 +119,7 @@ async def get_campaign(db: AsyncSession, id: str) -> Campaign | None:
 
 
 async def _audit(db: AsyncSession, actor: str | None, action: str, entity: str,
-                 entity_id: str | None, detail: dict) -> None:
+                 entity_id: str | None, detail: dict, reason: str | None = None) -> None:
     """Node parity (server/lib/audit.js + incidents.py precedent): actor_role is
     derived from the users row, never assumed; created_at is explicit."""
     role = None
@@ -128,7 +128,7 @@ async def _audit(db: AsyncSession, actor: str | None, action: str, entity: str,
         role = u.role if u else "system"
     db.add(AuditLog(actor_user_id=actor or None, actor_role=role, action=action,
                     entity=entity, entity_id=entity_id, detail=json.dumps(detail),
-                    created_at=_now_ms()))
+                    reason=reason, created_at=_now_ms()))
 
 
 async def create(db: AsyncSession, body: dict, actor: str | None) -> dict:
@@ -189,7 +189,7 @@ async def schedule(db: AsyncSession, id: str, body: dict, actor: str | None) -> 
     return out(await get_campaign(db, id))
 
 
-async def cancel(db: AsyncSession, id: str, actor: str | None) -> dict:
+async def cancel(db: AsyncSession, id: str, actor: str | None, reason: str | None = None) -> dict:
     c = await get_campaign(db, id)
     if not c:
         raise not_found("Campaign not found")
@@ -197,12 +197,12 @@ async def cancel(db: AsyncSession, id: str, actor: str | None) -> dict:
         raise conflict("Only not-yet-sent campaigns can be cancelled")
     prev = c.status
     c.status = "CANCELLED"
-    await _audit(db, actor, "campaign.cancelled", "campaign", id, {"from": prev})
+    await _audit(db, actor, "campaign.cancelled", "campaign", id, {"from": prev}, reason)
     await db.flush()
     return out(await get_campaign(db, id))
 
 
-async def send(db: AsyncSession, id: str, actor: str | None) -> dict:
+async def send(db: AsyncSession, id: str, actor: str | None, reason: str | None = None) -> dict:
     """The send: DRAFT (send now) or SCHEDULED (due). Marks SENDING first so a
     crash mid-send is visible; per-recipient failures do not abort the send."""
     c = await get_campaign(db, id)
@@ -226,7 +226,7 @@ async def send(db: AsyncSession, id: str, actor: str | None) -> dict:
     c.status = "FAILED" if (failed and not sent) else "SENT"
     c.sent, c.failed, c.sent_at = sent, failed, _now_ms()
     await _audit(db, actor, "campaign.sent", "campaign", id,
-                 {"audience": c.audience, "sent": sent, "failed": failed})
+                 {"audience": c.audience, "sent": sent, "failed": failed}, reason)
     await db.flush()
     return {**out(await get_campaign(db, id)), "delivered": sent,
             "skipped": len(targets) - sent - failed}
@@ -359,7 +359,8 @@ async def import_preview(db: AsyncSession, kind: str, rows: list[dict]) -> dict:
     return result
 
 
-async def import_commit(db: AsyncSession, kind: str, rows: list[dict], actor: str | None) -> dict:
+async def import_commit(db: AsyncSession, kind: str, rows: list[dict], actor: str | None,
+                        reason: str | None = None) -> dict:
     if kind not in IMPORT_KINDS:
         raise bad("Unknown import kind")
     pv = await import_preview(db, kind, rows)
@@ -389,6 +390,6 @@ async def import_commit(db: AsyncSession, kind: str, rows: list[dict], actor: st
                     "UPDATE leads SET name=:n WHERE mobile=:m").bindparams(n=p["name"], m=p["mobile"]))
             committed += 1
     await _audit(db, actor, "import.committed", kind, None,
-                 {"committed": committed, "total": pv["total"]})
+                 {"committed": committed, "total": pv["total"]}, reason)
     await db.flush()
     return {"committed": committed, **pv}

@@ -127,10 +127,13 @@ async def test_cancelled_never_sends_and_due_sweep_fires(client, db_session):
     cid = r.json()["campaign"]["id"]
     await client.post(f"/api/admin/campaigns/{cid}/schedule", headers=H(at),
                       json={"scheduledAt": int(time.time() * 1000) + 86400000})
-    r = await client.post(f"/api/admin/campaigns/{cid}/cancel", headers=H(at), json={})
+    r = await client.post(f"/api/admin/campaigns/{cid}/cancel", headers=H(at), json={"reason": "Wrong audience selected"})
     assert r.json()["campaign"]["status"] == "CANCELLED"
     r = await client.post("/api/admin/campaigns/due-sweep", headers=H(at), json={})
     assert r.json()["sent"] == 0, "cancelled never sends"
+    audits = (await client.get("/api/admin/audit?limit=300", headers=H(at))).json()["entries"]
+    assert any(a["action"] == "campaign.cancelled" and "Wrong audience" in (a["reason"] or "") for a in audits), \
+        "cancel reason audited"
 
     # past-due (server was down past scheduled_at) fires on the sweep
     r = await client.post("/api/admin/campaigns", headers=H(at),
