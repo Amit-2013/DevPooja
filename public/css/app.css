@@ -161,3 +161,9 @@ details{border-bottom:1px solid var(--line);padding:14px 0}summary{cursor:pointe
 .phero.feat{background:linear-gradient(135deg,rgba(242,169,0,.08),transparent 60%);border:1px solid var(--gold);border-radius:12px;padding:20px}
 @media(max-width:480px){.pimg{width:84px;height:84px}.pcard.feat .pimg{width:100px;height:100px}.pshot img{height:130px}}
 .pcard .badge{white-space:nowrap}
+
+/* ---------- Social Media CMS footer icons (additional-requirements Phase C) ---------- */
+.ftr-socials{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.socialicon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.10);color:#fff;border:1px solid rgba(255,255,255,.28);transition:transform .15s ease,background .15s ease}
+.socialicon:hover{background:rgba(255,255,255,.24);transform:translateY(-2px)}
+.socialicon:focus-visible{outline:3px solid var(--gold);outline-offset:2px}

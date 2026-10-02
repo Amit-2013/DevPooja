@@ -208,6 +208,25 @@ function seedDemoPeople() {
     p.background || '', p.sanatanWork || '', p.video || '', JSON.stringify(p.socials || []), p.order || 0, now, now)))();
 }
 
+/* Additional-requirements Phase C: sample social links (DEMO_MODE only — the
+   footer stays empty until an admin adds the real profiles). Facebook,
+   Instagram and YouTube live; LinkedIn is seeded DISABLED so the admin list
+   shows the enable/disable flow on a fresh install. Guarded on an empty table
+   so an admin's own rows are never duplicated, and wiped by resetAll() so a
+   demo RESET rebuilds them. */
+function seedSocialLinks() {
+  if (db.prepare('SELECT COUNT(*) c FROM social_links').get().c) return;
+  const rows = [
+    ['facebook', 'https://www.facebook.com/daivikpooja', 1, 1],
+    ['instagram', 'https://www.instagram.com/daivikpooja', 1, 2],
+    ['youtube', 'https://www.youtube.com/@daivikpooja', 1, 3],
+    ['linkedin', 'https://www.linkedin.com/company/daivikpooja', 0, 4]
+  ];
+  const ins = db.prepare('INSERT INTO social_links(id,platform,icon,url,active,sort_order,created) VALUES(?,?,?,?,?,?,?)');
+  const now = Date.now();
+  tx(() => rows.forEach(([platform, url, active, order]) => ins.run('sl' + rid(4), platform, platform, url, active, order, now)))();
+}
+
 /* Kundali module seed: condition -> puja rules, havan kunds and samagri for the
    recommended pujas. Runs after seedCatalog (needs pujas). Idempotent, and safe on
    databases where pujas were added by migration 004 instead of the JSON seed. */
@@ -283,8 +302,9 @@ function resetAll() {
     'family_members', 'export_logs', 'idempotency_keys',
     /* Additional-requirements Phase B: demo people + their gallery go before
        the catalogue; the categories are reference data and survive a reset
-       (the migration seed restores them if ever missing). */
-    'people_photos', 'people',
+       (the migration seed restores them if ever missing). Phase C social
+       links are demo content too — production starts with an empty footer. */
+    'people_photos', 'people', 'social_links',
     'puja_media', 'login_activity', 'password_resets',
     'kyc_documents', 'trial_poojas', 'agreement_acceptances', 'agreements',
     'pandits', 'pujas', 'users'
@@ -371,7 +391,7 @@ function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); bac
   /* Demo people are seeded independently of seedDemo()'s early return, so an
      existing demo database that gains migration 030 also gets the sample CMS
      rows (the function itself no-ops once any person exists). */
-  if (demoOn()) { seedDemo(); seedDemoPeople(); }
+  if (demoOn()) { seedDemo(); seedDemoPeople(); seedSocialLinks(); }
   /* Bundled puja photos (freely licensed, see shared/seed-photos/CREDITS.md): copied
      into puja_media once per puja. Pujas that already have media are never touched.
      The chain is SEQUENTIAL on purpose: photoSeed and repairAll both run sharp over

@@ -1356,3 +1356,39 @@ async def patch_people_category(category_id: str, body: dict, auth: dict = Depen
 async def delete_people_category(category_id: str, body: dict | None = None,
                                  auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
     return await PEOPLE.delete_category(db, auth["uid"], category_id, (body or {}).get("reason"))
+
+
+# --- Additional-requirements Phase C: Social Media CMS. Footer links are rows,
+# never hard-coded markup; the icon column is a key into the FE's built-in
+# inline SVG set (unknown keys fall back to the globe glyph). Every write is
+# audited; the public footer reads the active rows from /state.
+from ..services import socials as SOCIALS  # noqa: E402
+
+
+@router.get("/social-links")
+async def social_links(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"links": await SOCIALS.list_all(db)}
+
+
+@router.post("/social-links", status_code=201)
+async def create_social_link(body: dict, auth: dict = Depends(admin_dep),
+                             db: AsyncSession = Depends(get_db)):
+    return {"link": await SOCIALS.create(db, auth["uid"], body or {})}
+
+
+@router.patch("/social-links/{link_id}")
+async def patch_social_link(link_id: str, body: dict, auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    return {"link": await SOCIALS.update(db, auth["uid"], link_id, body or {})}
+
+
+@router.delete("/social-links/{link_id}")
+async def delete_social_link(link_id: str, body: dict | None = None,
+                             auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await SOCIALS.delete(db, auth["uid"], link_id, (body or {}).get("reason"))
+
+
+@router.post("/social-links/order")
+async def reorder_social_links(body: dict, auth: dict = Depends(admin_dep),
+                               db: AsyncSession = Depends(get_db)):
+    return {"links": await SOCIALS.reorder(db, auth["uid"], (body or {}).get("ids"))}

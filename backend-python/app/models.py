@@ -953,6 +953,22 @@ class PersonPhoto(Base):
     created: Mapped[int | None] = mapped_column(MS)
 
 
+class SocialLink(Base):
+    """Additional-requirements Phase C (migration 031 twin): the footer's social
+    icons are admin-managed rows, never hard-coded markup. `icon` is a key into
+    the frontend's built-in inline SVG set — unknown keys fall back to the
+    generic globe glyph, so a new platform is safe to publish immediately."""
+    __tablename__ = "social_links"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(40))
+    icon: Mapped[str] = mapped_column(Text, default="")
+    url: Mapped[str] = mapped_column(Text)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created: Mapped[int | None] = mapped_column(MS)
+
+
 class QaRecord(Base):
     """Phase 17: one admin-scored QA observation per booking. Dimension
     vocabulary mirrors TrialPooja (014) so trial and live QA speak the same

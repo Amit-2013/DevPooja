@@ -29,11 +29,16 @@ function buildState(auth) {
     me: null, users: [], bookings: [], orders: [], notifs: [], tickets: [], coupons: [], payouts: [], inv: {}, campaigns: [], leads: [], set: {}, hidden: [],
     /* Additional-requirements Phase B: compact public Our People data for the
        directory/footer; admins additionally get the full rows (inactive too). */
-    peopleCats: [], peopleList: [], peopleAdmin: [], peopleCatsAdmin: []
+    peopleCats: [], peopleList: [], peopleAdmin: [], peopleCatsAdmin: [],
+    /* Additional-requirements Phase C: active social rows for the footer (every
+       role), plus the full list for the admin Social links tab. */
+    socials: [], socialsAdmin: []
   };
   const PEOPLE = require('../services/people');
+  const SOCIALS = require('../services/socials');
   st.peopleCats = PEOPLE.listActiveCategories();
   st.peopleList = PEOPLE.listActive();
+  st.socials = SOCIALS.listActive();
 
   const pRows = db.prepare('SELECT * FROM pandits').all();
   /* Per-pandit flagging follow-up: admins see which pandits are currently
@@ -84,6 +89,7 @@ function buildState(auth) {
     st.banners = db.prepare('SELECT * FROM banners').all().map((b) => ({ id: b.id, t: b.text, on: !!b.enabled }));
     st.peopleAdmin = PEOPLE.listAll();
     st.peopleCatsAdmin = PEOPLE.listCategories();
+    st.socialsAdmin = SOCIALS.list();
   }
   return st;
 }

@@ -78,7 +78,7 @@ function pCal(pd,av){const g=PAGE.pc,first=new Date(g.y,g.m,1),n=new Date(g.y,g.
  return '<div class="card"><div class="row sp mb"><button class="btn s ghost" data-act="pcm" data-d="-1">Previous</button><h3>'+first.toLocaleDateString('en-IN',{month:'long',year:'numeric'})+'</h3><button class="btn s ghost" data-act="pcm" data-d="1">Next</button></div><div class="cal big">'+cells+'</div><p class="sm mut mt">Tap a date to mark yourself unavailable, add a holiday, or block a date with a reason. Customers can only book you inside your rules above.</p></div>'}
 
 /* admin */
-const ANAV=[['dashboard','Dashboard'],['bookings','Bookings'],['pandits','Pandits'],['kyc','KYC documents'],['agreements','Agreements'],['qa','Service quality'],['pujas','Pujas and masters'],['kundali','Kundali settings'],['samagri','Samagri'],['prasad','Prasad'],['accounts','Logins and accounts'],['customers','Customers'],['people','Our People'],['people-cats','People categories'],['finance','Finance'],['marketing','Marketing'],['ops','Operations'],['analytics','Analytics'],['support','Support and reviews'],['reports','Reports'],['audit','Audit log'],['demo','Demo data']];
+const ANAV=[['dashboard','Dashboard'],['bookings','Bookings'],['pandits','Pandits'],['kyc','KYC documents'],['agreements','Agreements'],['qa','Service quality'],['pujas','Pujas and masters'],['kundali','Kundali settings'],['samagri','Samagri'],['prasad','Prasad'],['accounts','Logins and accounts'],['customers','Customers'],['people','Our People'],['people-cats','People categories'],['socials','Social links'],['finance','Finance'],['marketing','Marketing'],['ops','Operations'],['analytics','Analytics'],['support','Support and reviews'],['reports','Reports'],['audit','Audit log'],['demo','Demo data']];
 function admin(r){if(!session||session.role!=='admin')return'<div class="page"><div class="wrap" style="max-width:420px"><h1>Admin login</h1><div class="card mt"><label class="f">Email<input id="ae" type="email" autocomplete="username" '+(db.config.demo?'value="admin@daivikpuja.in"':'')+'></label><label class="f mt">Password<input id="ap2" type="password" autocomplete="current-password" '+(db.config.demo?'value="admin123"':'')+'></label><button class="btn blk mt" data-act="alogin">Login</button>'+(db.config.demo?'<p class="sm mut mt">Demo credentials are pre-filled.</p>':'')+'</div></div></div>';
  const tab=r.arg||'dashboard',B=db.bookings,today=iso(new Date());let c='';
  if(tab==='kundali'&&!PAGE.kdLoading){PAGE.kdLoading=true;api('/admin/kundali/conditions').then(x=>{db.kundali=Object.assign({},db.kundali,{conditions:x.conditions});api('/admin/kundali/analyses').then(y=>{db.kundali.analyses=y.analyses;PAGE.kdLoading=false;render(true)}).catch(()=>{PAGE.kdLoading=false;render(true)})}).catch(()=>{PAGE.kdLoading=false})}
@@ -153,6 +153,7 @@ function admin(r){if(!session||session.role!=='admin')return'<div class="page"><
  if(tab==='customers')c=TB(['Customer','Mobile','City','Bookings','Spent','Points','Plus'],db.users.map(u=>{const bs=B.filter(b=>b.userId===u.id&&live(b));return[esc(u.n),esc(u.m),esc(u.addr[0]?u.addr[0].city:'-'),bs.length,inr(sumBy(bs,b=>b.q.total)),u.pts,u.plus?badge('Paid'):'-']}));
  if(tab==='people')c=peopleAdminTab();
  if(tab==='people-cats')c=peopleCatsAdminTab();
+ if(tab==='socials')c=socialLinksTab();
  if(tab==='accounts'&&!PAGE.accts){PAGE.acctsLoading=true;api('/admin/accounts/customer').then(x=>{PAGE.accts={customer:x.accounts};PAGE.acctsLoading=false;render(true)}).catch(()=>{PAGE.acctsLoading=false;render(true)})}
  if(tab==='accounts'){const role=PAGE.acctRole||'customer',list=(PAGE.accts&&PAGE.accts[role])||[],q=(PAGE.acctQ||'').toLowerCase(),l2=list.filter(u=>!q||[u.name,u.mobile,u.email,u.loginId,u.id].some(x=>String(x||'').toLowerCase().includes(q)));
   const ST=s=>s==='active'?badge('Active'):s==='suspended'?'<span class="badge info">Suspended</span>':'<span class="badge bad">Disabled</span>';
@@ -268,6 +269,25 @@ function peopleCatsAdminTab(){
  return('<div class="note mb">These nine categories are the public grouping, in order, from Founder to Team. Rename or reorder them freely; people move between categories from the Our People tab. Hiding a category hides all of its people from the public page without deleting anything.</div>')+
   '<div class="row sp mb"><h3>Categories ('+cats.length+')</h3><button class="btn" data-act="pcnew">Add a category</button></div>'+
   TB(['Category','Order','People','Public page','Actions'],rows)}
+
+/* Additional-requirements Phase C: Social Media CMS tab. The footer renders
+   exactly these rows (active only) from /state — nothing is hard-coded, and an
+   unknown icon key falls back to the globe glyph in core.js. */
+function socialLinksTab(){
+ const links=db.socialsAdmin||[],keys=Object.keys(SOCIAL_ICONS);
+ const sel=(id,cur,blank)=>'<select id="'+id+'" aria-label="Platform">'+(blank?'<option value="">'+blank+'</option>':'')+keys.map(k=>'<option value="'+k+'"'+(k===cur?' selected':'')+'>'+k+'</option>').join('')+'</select>';
+ const rows=links.map(s=>[
+  socialIconSvg(s.icon||s.platform,20)+' '+esc(s.platform),
+  '<span class="sm mut">'+esc(s.url)+'</span>',
+  '<div class="row" style="flex-wrap:nowrap"><input type="number" value="'+(s.order||0)+'" id="slo_'+esc(s.id)+'" style="width:80px" aria-label="Order"><button class="btn s ghost" data-act="slorder" data-id="'+esc(s.id)+'">Save</button></div>',
+  s.active?'<span class="badge ok">Visible</span> <button class="btn s ghost" data-act="sltoggle" data-id="'+esc(s.id)+'" data-v="0">Hide</button>':'<span class="badge">Hidden</span> <button class="btn s ghost" data-act="sltoggle" data-id="'+esc(s.id)+'" data-v="1">Show</button>',
+  '<button class="btn s ghost" data-act="sledit" data-id="'+esc(s.id)+'">Edit</button> <button class="btn s bad" data-act="sldel" data-id="'+esc(s.id)+'">Delete</button>']);
+ return '<div class="note mb">These rows are the footer\'s social icons — added, ordered, hidden and deleted here, never hard-coded. The icon picks a glyph from the built-in inline SVG set; anything it does not know draws a generic globe, so a new platform is safe to publish immediately. Only visible links reach the public footer.</div>'+
+  '<div class="row sp mb"><h3>Social links ('+links.length+')</h3></div>'+
+  TB(['Platform','URL','Order','Public footer','Actions'],rows)+
+  '<div class="card mt"><h3>Add a link</h3><div class="frm mt"><div class="row"><label class="f" style="flex:1">Platform'+sel('slp','facebook')+'</label><label class="f" style="flex:1">Icon'+sel('sli','','same as platform')+'</label></div>'+
+  '<label class="f">URL<input id="slu" placeholder="https://…"></label><div class="row mt"><label class="f">Order<input id="slo" type="number" min="0" placeholder="after the last"></label></div>'+
+  '<button class="btn mt" data-act="sladd">Add link</button></div></div>'}
 
 /* Phases 27-29: import preview table (kept as a helper so the marketing tab stays readable). */
 function impPrevRows(){const p=PAGE.impPrev;const cls={create:'ok',update:'info',duplicate:'warn'};

@@ -260,6 +260,17 @@ router.patch('/people-categories/:id', (req, res) => res.json({ category: PEOPLE
 router.delete('/people-categories/:id', (req, res) => res.json(PEOPLE.deleteCategory(req.auth.uid, req.params.id, (req.body || {}).reason)));
 router.post('/people-categories/order', (req, res) => res.json({ categories: PEOPLE.reorderCategories(req.auth.uid, (req.body || {}).ids) }));
 
+/* --- Additional-requirements Phase C: Social Media CMS. Footer links are rows,
+   never hard-coded markup; the icon column is a key into the FE's built-in
+   inline SVG set (unknown keys fall back to the globe glyph). Every write is
+   audited; the public footer reads the active rows from /state. */
+const SOCIALS = require('../services/socials');
+router.get('/social-links', (req, res) => res.json({ links: SOCIALS.list() }));
+router.post('/social-links', (req, res) => res.status(201).json({ link: SOCIALS.create(req.auth.uid, req.body || {}) }));
+router.patch('/social-links/:id', (req, res) => res.json({ link: SOCIALS.update(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/social-links/:id', (req, res) => res.json(SOCIALS.remove(req.auth.uid, req.params.id, (req.body || {}).reason)));
+router.post('/social-links/order', (req, res) => res.json({ links: SOCIALS.reorder(req.auth.uid, (req.body || {}).ids) }));
+
 router.post('/settings', (req, res) => {
   const prev = db.prepare("SELECT value FROM settings WHERE key='commission'").get();
   setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 }));

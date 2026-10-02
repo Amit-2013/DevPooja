@@ -324,6 +324,22 @@ const ACT={
  pctoggle(d){run(()=>api('/admin/people-categories/'+d.id,{method:'PATCH',body:{active:d.v==='1'}}),d.v==='1'?'Category visible':'Category hidden')},
  pcdel(d){modal('<h2>Delete this category?</h2><p class="sm mut mt">A category with people still in it cannot be deleted — move them first, or hide the category instead.</p><div class="frm mt"><label class="f">Reason (required, audited)<textarea id="pcdr" style="min-height:70px"></textarea></label></div><div class="row mt"><button class="btn bad" data-act="pcdelok" data-id="'+esc(d.id)+'">Delete category</button><button class="btn ghost" data-act="close">Keep category</button></div>')},
  async pcdelok(d){const r=(val('pcdr')||'').trim();if(!r)return toast('A reason is required for the audit trail');await closeAnd(run(()=>api('/admin/people-categories/'+d.id,{method:'DELETE',body:{reason:r}}),'Category deleted'))},
+ /* Additional-requirements Phase C: Social Media CMS — the footer icons. */
+ async sladd(){const u=String(val('slu')||'').trim();if(!/^https?:\/\//i.test(u))return toast('URL must start with http:// or https://');
+  await run(()=>api('/admin/social-links',{body:{platform:val('slp'),icon:val('sli'),url:u,order:val('slo')===''?undefined:+val('slo')}}),'Social link added');
+  const u2=$('#slu');if(u2)u2.value='';const o=$('#slo');if(o)o.value='';},
+ sledit(d){const s=(db.socialsAdmin||[]).find(x=>x.id===d.id);if(!s)return;
+  const keys=Object.keys(SOCIAL_ICONS),k=s.icon||s.platform;
+  const opts=(id,cur,blank)=>'<select id="'+id+'" aria-label="Icon">'+(blank?'<option value="">'+blank+'</option>':'')+keys.map(x=>'<option value="'+x+'"'+(x===cur?' selected':'')+'>'+x+'</option>').join('')+'</select>';
+  modal('<h2>Edit social link</h2><div class="frm mt"><label class="f">Platform<input id="slpe" value="'+esc(s.platform)+'"></label><div class="row mt"><label class="f" style="flex:1">Icon'+opts('slie',k,'same as platform')+'</label><label class="f" style="flex:1">Order<input id="sloe" type="number" min="0" value="'+(s.order||0)+'"></label></div>'+
+  '<label class="f">URL<input id="slue" value="'+esc(s.url)+'"></label><label class="row mt"><input type="checkbox" id="slae" '+(s.active?'checked':'')+'> Visible in the public footer</label></div>'+
+  '<div class="row mt"><button class="btn" data-act="slsave" data-id="'+esc(s.id)+'">Save link</button><button class="btn ghost" data-act="close">Cancel</button></div>')},
+ async slsave(d){const u=String(val('slue')||'').trim();if(!/^https?:\/\//i.test(u))return toast('URL must start with http:// or https://');
+  await closeAnd(run(()=>api('/admin/social-links/'+d.id,{method:'PATCH',body:{platform:val('slpe'),icon:val('slie'),url:u,order:+val('sloe')||0,active:$('#slae').checked}}),'Social link saved'))},
+ sltoggle(d){run(()=>api('/admin/social-links/'+d.id,{method:'PATCH',body:{active:d.v==='1'}}),d.v==='1'?'Social link visible in the footer':'Social link hidden from the footer')},
+ slorder(d){const el=$('#slo_'+d.id);if(!el)return;run(()=>api('/admin/social-links/'+d.id,{method:'PATCH',body:{order:+el.value||0}}),'Order saved')},
+ sldel(d){modal('<h2>Delete this social link?</h2><p class="sm mut mt">The icon disappears from the footer. The deletion is audited with your reason.</p><div class="frm mt"><label class="f">Reason (required, audited)<textarea id="sldr" style="min-height:70px"></textarea></label></div><div class="row mt"><button class="btn bad" data-act="sldelok" data-id="'+esc(d.id)+'">Delete link</button><button class="btn ghost" data-act="close">Keep link</button></div>')},
+ async sldelok(d){const r=(val('sldr')||'').trim();if(!r)return toast('A reason is required for the audit trail');await closeAnd(run(()=>api('/admin/social-links/'+d.id,{method:'DELETE',body:{reason:r}}),'Social link deleted'))},
  acopy(d){try{navigator.clipboard.writeText(d.id||'');toast('Copied: '+(d.id||''))}catch(e){toast(d.id||'')}},
  acrstatus(d,el){run(()=>api('/admin/custom-requests/'+d.id,{method:'PATCH',body:{status:el.value}}),'Request updated')},  aexport(d){const rf=PAGE.rf||{};const qs=[];if(rf.status)qs.push('status='+encodeURIComponent(rf.status));if(rf.from)qs.push('from='+rf.from);if(rf.to)qs.push('to='+rf.to);window.open('/api/admin/export/'+d.id+'.xlsx'+(qs.length?'?'+qs.join('&'):''),'_blank');toast('Export started — check downloads');setTimeout(()=>{api('/admin/export-logs').then(x=>{PAGE.expLogs=x.logs;render(true)}).catch(()=>{})},1200)},
  arfc(){PAGE.rf={status:'',from:'',to:''};render(true)},
