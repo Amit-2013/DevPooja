@@ -12,6 +12,7 @@ from .serialize import (booking, coupon, festival, kit, lead as s_lead, notif, o
                         prasad, puja, temple, ticket, payout as s_payout, user)
 from .services import people as PEOPLE
 from .services import socials as SOCIALS
+from .services import gallery as GALLERY
 from .services.bookings import expire_unpaid, get_setting
 from .services.reopen_digest import flagged_pandit_ids
 from .util import j
@@ -61,11 +62,17 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         # Additional-requirements Phase C: active social rows for the footer
         # (every role), plus the full list for the admin Social links tab.
         "socials": [], "socialsAdmin": [],
+        # Additional-requirements Phase D: the public gallery overview (active
+        # albums + a first page of photos/videos) for every role, plus the
+        # full rows for the admin gallery tabs.
+        "gallery": {"albums": [], "photos": [], "videos": [], "totalPhotos": 0, "totalVideos": 0},
+        "galleryAdmin": {"albums": [], "photos": [], "videos": []},
     }
     _ = get_setting  # imported for parity; settings surfaced per-role below
     st["peopleCats"] = await PEOPLE.list_active_categories(db)
     st["peopleList"] = await PEOPLE.list_active(db)
     st["socials"] = await SOCIALS.list_active(db)
+    st["gallery"] = await GALLERY.overview(db)
 
     p_rows = (await db.execute(select(Pandit))).scalars().all()
     # Per-pandit flagging follow-up: admins see which pandits are currently
@@ -151,4 +158,5 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["peopleAdmin"] = await PEOPLE.list_all(db)
         st["peopleCatsAdmin"] = await PEOPLE.list_categories(db)
         st["socialsAdmin"] = await SOCIALS.list_all(db)
+        st["galleryAdmin"] = await GALLERY.admin_bundle(db)
     return st

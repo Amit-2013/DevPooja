@@ -36,12 +36,14 @@ async def lifespan(_app: FastAPI):
     from .seed_kundali import seed_kundali
     from .seed_people import seed_people
     from .seed_socials import seed_social_links
+    from .seed_gallery import seed_gallery
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with SessionLocal() as db:
         await seed_catalog(db)
         await seed_people(db)   # categories always; demo people only when DEMO_MODE
         await seed_social_links(db)  # footer links: DEMO_MODE only, production empty
+        await seed_gallery(db)  # gallery albums/photos/videos: DEMO_MODE only
         await seed_demo(db)
         await seed_kundali(db)
         await db.commit()

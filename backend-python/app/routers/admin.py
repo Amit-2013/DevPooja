@@ -1392,3 +1392,98 @@ async def delete_social_link(link_id: str, body: dict | None = None,
 async def reorder_social_links(body: dict, auth: dict = Depends(admin_dep),
                                db: AsyncSession = Depends(get_db)):
     return {"links": await SOCIALS.reorder(db, auth["uid"], (body or {}).get("ids"))}
+
+
+# --- Additional-requirements Phase D: Photo + Video Gallery. Albums, photos
+# and videos are ordinary admin-managed rows; photo uploads are magic-byte
+# verified in the service before anything is written and Pillow generates the
+# thumb/WebP pair. Videos are YouTube links — the embed id is derived on read.
+# Public reads live in routers/customer.py and only ever return active rows.
+from ..services import gallery as GALLERY  # noqa: E402
+
+
+@router.get("/gallery")
+async def gallery_bundle(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await GALLERY.admin_bundle(db)
+
+
+@router.post("/gallery/albums", status_code=201)
+async def create_gallery_album(body: dict, auth: dict = Depends(admin_dep),
+                               db: AsyncSession = Depends(get_db)):
+    return {"album": await GALLERY.create_album(db, auth["uid"], body or {})}
+
+
+@router.post("/gallery/albums/order")
+async def reorder_gallery_albums(body: dict, auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    return {"albums": await GALLERY.reorder_albums(db, auth["uid"], (body or {}).get("ids"))}
+
+
+@router.patch("/gallery/albums/{album_id}")
+async def patch_gallery_album(album_id: str, body: dict, auth: dict = Depends(admin_dep),
+                              db: AsyncSession = Depends(get_db)):
+    return {"album": await GALLERY.update_album(db, auth["uid"], album_id, body or {})}
+
+
+@router.delete("/gallery/albums/{album_id}")
+async def delete_gallery_album(album_id: str, body: dict | None = None,
+                               auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await GALLERY.delete_album(db, auth["uid"], album_id, (body or {}).get("reason"))
+
+
+@router.post("/gallery/photos", status_code=201)
+async def add_gallery_photo(photo: UploadFile | None = File(None),
+                            albumId: str = Form(""), caption: str = Form(""),
+                            altText: str = Form(""), license: str = Form(""),
+                            credit: str = Form(""), creditUrl: str = Form(""),
+                            order: str = Form(""), active: str = Form("true"),
+                            auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    data, claimed, _original = await _read_photo(photo)
+    return {"photo": await GALLERY.add_photo(
+        db, auth["uid"], data, claimed, _original,
+        album_id=albumId or None, caption=caption, alt_text=altText, license=license,
+        credit=credit, credit_url=creditUrl,
+        order=(int(order) if str(order).strip().lstrip("-").isdigit() else None),
+        active=active)}
+
+
+@router.post("/gallery/photos/order")
+async def reorder_gallery_photos(body: dict, auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    return await GALLERY.reorder_photos(db, auth["uid"], (body or {}).get("ids"))
+
+
+@router.patch("/gallery/photos/{photo_id}")
+async def patch_gallery_photo(photo_id: str, body: dict, auth: dict = Depends(admin_dep),
+                              db: AsyncSession = Depends(get_db)):
+    return {"photo": await GALLERY.update_photo(db, auth["uid"], photo_id, body or {})}
+
+
+@router.delete("/gallery/photos/{photo_id}")
+async def delete_gallery_photo(photo_id: str, body: dict | None = None,
+                               auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await GALLERY.delete_photo(db, auth["uid"], photo_id, (body or {}).get("reason"))
+
+
+@router.post("/gallery/videos", status_code=201)
+async def create_gallery_video(body: dict, auth: dict = Depends(admin_dep),
+                               db: AsyncSession = Depends(get_db)):
+    return {"video": await GALLERY.create_video(db, auth["uid"], body or {})}
+
+
+@router.post("/gallery/videos/order")
+async def reorder_gallery_videos(body: dict, auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    return await GALLERY.reorder_videos(db, auth["uid"], (body or {}).get("ids"))
+
+
+@router.patch("/gallery/videos/{video_id}")
+async def patch_gallery_video(video_id: str, body: dict, auth: dict = Depends(admin_dep),
+                              db: AsyncSession = Depends(get_db)):
+    return {"video": await GALLERY.update_video(db, auth["uid"], video_id, body or {})}
+
+
+@router.delete("/gallery/videos/{video_id}")
+async def delete_gallery_video(video_id: str, body: dict | None = None,
+                               auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await GALLERY.delete_video(db, auth["uid"], video_id, (body or {}).get("reason"))

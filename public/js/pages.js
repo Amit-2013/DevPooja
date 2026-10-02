@@ -166,3 +166,51 @@ function customPujaPage(){const L=lang==='hi';
  '<label class="f mt">'+(L?'विशेष निर्देश':'Special instructions')+'<textarea id="cuno" placeholder="'+(L?'परंपरा, विधि, सामग्री, भाषा, समय':'Tradition, method, samagri, language, timing')+'"></textarea></label></div>'+
  '<button class="btn blk mt" data-act="cpureq">'+(L?'अनुरोध भेजें':'Send request')+'</button>'+
  '<p class="sm mut mt">'+(L?'आपका अनुरोध सीधे हमारी टीम तक पहुँचता है। कोई भुगतान अब नहीं — पहले हम विवरण पुष्ट करेंगे।':'Your request goes straight to our team. No payment now — we confirm details with you first.')+'</p></div></div></div>'}
+
+/* Additional-requirements Phase D: the public Photo + Video Gallery. Albums,
+   photos and YouTube videos are admin-managed rows — nothing is hard-coded.
+   The tab and the album filter live in the URL (#/gallery?tab=videos&album=x)
+   so every view is linkable; the first page comes from /state so the page
+   renders instantly, and "load more" pages through GET /api/gallery. Photos
+   open in the shared lightbox; videos play in a modal embed. */
+const galAlbum=id=>((db.gallery||{}).albums||[]).find(a=>a.id===id)||null;
+function galPhotoCard(p,i){
+ return'<figure class="card flat gshot"><button type="button" class="gopen" data-act="gopen" data-i="'+i+'" aria-label="'+esc(p.caption||p.altText||'Open photo')+'"><picture>'+(p.thumbWebp?'<source type="image/webp" srcset="'+esc(mediaUrl(p.thumbWebp))+'">':'')+'<img src="'+esc(mediaUrl(p.thumb||p.url))+'" alt="'+esc(p.altText||p.caption||'Gallery photo')+'" loading="lazy" decoding="async"></picture></button>'+(p.caption?'<figcaption class="sm mut mt">'+esc(p.caption)+'</figcaption>':'')+'</figure>';
+}
+function galVideoCard(v){
+ const poster=v.yt?'<button type="button" class="gplay" data-act="vplay" data-id="'+esc(v.id)+'" aria-label="Play '+esc(v.n)+'"><img src="'+esc(v.thumb)+'" alt="'+esc(v.n)+'" loading="lazy" onerror="this.style.visibility=\'hidden\'"><span class="gpl" aria-hidden="true">&#9654;</span></button>':'<a class="gplay ext" href="'+esc(v.url)+'" target="_blank" rel="noopener noreferrer" aria-label="Open video"><span class="gpl" aria-hidden="true">&#8599;</span></a>';
+ const a=galAlbum(v.albumId);
+ return'<article class="card flat gvid">'+poster+'<h3 class="mt">'+esc(v.n)+'</h3>'+(v.d?'<p class="sm mut">'+esc(v.d)+'</p>':'')+(a?'<a class="sm mut" href="#/gallery?tab=videos&album='+encodeURIComponent(a.id)+'">'+esc(a.n)+' ↗</a>':'')+'</article>';
+}
+function galAlbumCard(a){
+ return'<a class="card gcover" href="#/gallery?tab=photos&album='+encodeURIComponent(a.id)+'">'+(a.cover?'<picture>'+(a.coverThumbWebp?'<source type="image/webp" srcset="'+esc(mediaUrl(a.coverThumbWebp))+'">':'')+'<img src="'+esc(mediaUrl(a.coverThumb||a.cover))+'" alt="'+esc(a.n)+'" loading="lazy"></picture>':'<div class="gcover none" aria-hidden="true">🪔</div>')+'<h3 class="mt">'+esc(a.n)+'</h3><p class="sm mut">'+a.photos+' photo'+(a.photos===1?'':'s')+(a.videos?' · '+a.videos+' video'+(a.videos===1?'':'s'):'')+'</p>'+(a.d?'<p class="sm mut mt">'+esc(a.d)+'</p>':'')+'</a>';
+}
+function galleryPage(r){
+ const g=db.gallery||{albums:[],photos:[],videos:[],totalPhotos:0,totalVideos:0};
+ const tab=['photos','videos','albums'].includes(r.q.tab)?r.q.tab:'photos',album=r.q.album||'',albums=g.albums||[];
+ const key=tab+'|'+album;
+ if(!PAGE.gv||PAGE.gv.key!==key){
+  /* First view of this filter: seed the paged cache from /state (the first
+     page is already in the payload); gmore appends further pages. */
+  const items=tab==='albums'?[]:(tab==='videos'?g.videos||[]:g.photos||[]);
+  const total=tab==='albums'?0:(tab==='videos'?(g.totalVideos||items.length):(g.totalPhotos||items.length));
+  PAGE.gv={key,kind:tab,album,items:items.slice(),total,nextOffset:items.length<total?items.length:null};
+ }
+ const gv=PAGE.gv,cur=galAlbum(album);
+ /* Each tab counts ITSELF: the active tab shows the (possibly album-filtered)
+    total from the paged cache, the others fall back to the /state totals. */
+ const counts={photos:tab==='photos'?gv.total:(g.totalPhotos||0),videos:tab==='videos'?gv.total:(g.totalVideos||0),albums:albums.length};
+ const tabbar='<div class="tabs mb">'+['photos','videos','albums'].map(k=>'<a href="#/gallery?tab='+k+'" class="'+(tab===k?'on':'')+'">'+(k==='photos'?'Photos':k==='videos'?'Videos':'Albums')+(counts[k]?' ('+counts[k]+')':'')+'</a>').join('')+'</div>';
+ let chips='';
+ if(tab!=='albums'&&albums.length){
+  chips='<div class="row mb galchips" style="flex-wrap:wrap;gap:8px"><a class="chip'+(album?'':' on')+'" href="#/gallery?tab='+tab+'">All</a>'+albums.filter(a=>a.active).map(a=>'<a class="chip'+(album===a.id?' on':'')+'" href="#/gallery?tab='+tab+'&album='+encodeURIComponent(a.id)+'">'+esc(a.n)+'</a>').join('')+'</div>';
+ }
+ const empty=tab==='videos'?'<div class="card">No videos have been published yet.</div>':tab==='albums'?'<div class="card">Albums will appear here once the team publishes them.</div>':'<div class="card">No photos have been published yet.</div>';
+ let body;
+ if(tab==='albums')body=albums.length?'<div class="grid g3">'+albums.map(galAlbumCard).join('')+'</div>':empty;
+ else if(tab==='videos')body=gv.items.length?'<div class="grid g3">'+gv.items.map(galVideoCard).join('')+'</div>':empty;
+ else body=gv.items.length?'<div class="grid g3">'+gv.items.map(galPhotoCard).join('')+'</div>':empty;
+ const more=gv.nextOffset!=null?'<div class="c mt"><button class="btn s ghost" data-act="gmore">Load more</button></div>':'';
+ const head=cur?'<p class="sm mut"><a href="#/gallery?tab='+tab+'">← All '+(tab==='videos'?'videos':'photos')+'</a></p>':'';
+ return'<div class="page"><div class="wrap"><h1>Photo and video gallery</h1><p class="mut mb">'+(cur?esc(cur.n)+(cur.d?' — '+esc(cur.d):''):'Pujas, temples and seva from across the platform — every photo and video here is published by the admin team.')+'</p>'+head+tabbar+chips+body+more+'</div></div>';
+}

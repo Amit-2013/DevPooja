@@ -989,3 +989,59 @@ class QaRecord(Base):
     overall: Mapped[float | None] = mapped_column(Float)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(MS)
+
+
+class GalleryAlbum(Base):
+    """Additional-requirements Phase D (migration 032 twin): an ordered public
+    grouping for the photo + video gallery. Deleting an album never deletes
+    media — its photos and videos become un-albumed (album_id NULL)."""
+    __tablename__ = "gallery_albums"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    created: Mapped[int | None] = mapped_column(MS)
+    updated: Mapped[int | None] = mapped_column(MS)
+
+
+class GalleryPhoto(Base):
+    """Additional-requirements Phase D (migration 032 twin): one uploaded image
+    plus its generated variants (320px JPEG thumb, full-size WebP, thumb WebP —
+    the people-photo pipeline) and PHOTO-MEDIA-SPEC-style provenance so copied
+    seed photos keep their attribution."""
+    __tablename__ = "gallery_photos"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    album_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    filename: Mapped[str] = mapped_column(String(120))
+    thumb: Mapped[str | None] = mapped_column(String(120))
+    webp: Mapped[str | None] = mapped_column(String(120))
+    thumb_webp: Mapped[str | None] = mapped_column(String(120))
+    caption: Mapped[str] = mapped_column(Text, default="")
+    alt_text: Mapped[str] = mapped_column(Text, default="")
+    license: Mapped[str] = mapped_column(Text, default="")
+    credit: Mapped[str] = mapped_column(Text, default="")
+    credit_url: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    created: Mapped[int | None] = mapped_column(MS)
+    updated: Mapped[int | None] = mapped_column(MS)
+
+
+class GalleryVideo(Base):
+    """Additional-requirements Phase D (migration 032 twin): a YouTube link with
+    a title and description — videos are external embeds, never file uploads;
+    the embed id is derived from the URL on read."""
+    __tablename__ = "gallery_videos"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    album_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    url: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    created: Mapped[int | None] = mapped_column(MS)
+    updated: Mapped[int | None] = mapped_column(MS)

@@ -78,7 +78,7 @@ function pCal(pd,av){const g=PAGE.pc,first=new Date(g.y,g.m,1),n=new Date(g.y,g.
  return '<div class="card"><div class="row sp mb"><button class="btn s ghost" data-act="pcm" data-d="-1">Previous</button><h3>'+first.toLocaleDateString('en-IN',{month:'long',year:'numeric'})+'</h3><button class="btn s ghost" data-act="pcm" data-d="1">Next</button></div><div class="cal big">'+cells+'</div><p class="sm mut mt">Tap a date to mark yourself unavailable, add a holiday, or block a date with a reason. Customers can only book you inside your rules above.</p></div>'}
 
 /* admin */
-const ANAV=[['dashboard','Dashboard'],['bookings','Bookings'],['pandits','Pandits'],['kyc','KYC documents'],['agreements','Agreements'],['qa','Service quality'],['pujas','Pujas and masters'],['kundali','Kundali settings'],['samagri','Samagri'],['prasad','Prasad'],['accounts','Logins and accounts'],['customers','Customers'],['people','Our People'],['people-cats','People categories'],['socials','Social links'],['finance','Finance'],['marketing','Marketing'],['ops','Operations'],['analytics','Analytics'],['support','Support and reviews'],['reports','Reports'],['audit','Audit log'],['demo','Demo data']];
+const ANAV=[['dashboard','Dashboard'],['bookings','Bookings'],['pandits','Pandits'],['kyc','KYC documents'],['agreements','Agreements'],['qa','Service quality'],['pujas','Pujas and masters'],['kundali','Kundali settings'],['samagri','Samagri'],['prasad','Prasad'],['accounts','Logins and accounts'],['customers','Customers'],['people','Our People'],['people-cats','People categories'],['socials','Social links'],['gallery','Photo gallery'],['gallery-videos','Video gallery'],['finance','Finance'],['marketing','Marketing'],['ops','Operations'],['analytics','Analytics'],['support','Support and reviews'],['reports','Reports'],['audit','Audit log'],['demo','Demo data']];
 function admin(r){if(!session||session.role!=='admin')return'<div class="page"><div class="wrap" style="max-width:420px"><h1>Admin login</h1><div class="card mt"><label class="f">Email<input id="ae" type="email" autocomplete="username" '+(db.config.demo?'value="admin@daivikpuja.in"':'')+'></label><label class="f mt">Password<input id="ap2" type="password" autocomplete="current-password" '+(db.config.demo?'value="admin123"':'')+'></label><button class="btn blk mt" data-act="alogin">Login</button>'+(db.config.demo?'<p class="sm mut mt">Demo credentials are pre-filled.</p>':'')+'</div></div></div>';
  const tab=r.arg||'dashboard',B=db.bookings,today=iso(new Date());let c='';
  if(tab==='kundali'&&!PAGE.kdLoading){PAGE.kdLoading=true;api('/admin/kundali/conditions').then(x=>{db.kundali=Object.assign({},db.kundali,{conditions:x.conditions});api('/admin/kundali/analyses').then(y=>{db.kundali.analyses=y.analyses;PAGE.kdLoading=false;render(true)}).catch(()=>{PAGE.kdLoading=false;render(true)})}).catch(()=>{PAGE.kdLoading=false})}
@@ -154,6 +154,8 @@ function admin(r){if(!session||session.role!=='admin')return'<div class="page"><
  if(tab==='people')c=peopleAdminTab();
  if(tab==='people-cats')c=peopleCatsAdminTab();
  if(tab==='socials')c=socialLinksTab();
+ if(tab==='gallery')c=galleryAdminTab();
+ if(tab==='gallery-videos')c=galleryVideosTab();
  if(tab==='accounts'&&!PAGE.accts){PAGE.acctsLoading=true;api('/admin/accounts/customer').then(x=>{PAGE.accts={customer:x.accounts};PAGE.acctsLoading=false;render(true)}).catch(()=>{PAGE.acctsLoading=false;render(true)})}
  if(tab==='accounts'){const role=PAGE.acctRole||'customer',list=(PAGE.accts&&PAGE.accts[role])||[],q=(PAGE.acctQ||'').toLowerCase(),l2=list.filter(u=>!q||[u.name,u.mobile,u.email,u.loginId,u.id].some(x=>String(x||'').toLowerCase().includes(q)));
   const ST=s=>s==='active'?badge('Active'):s==='suspended'?'<span class="badge info">Suspended</span>':'<span class="badge bad">Disabled</span>';
@@ -290,6 +292,46 @@ function socialLinksTab(){
   '<button class="btn mt" data-act="sladd">Add link</button></div></div>'}
 
 /* Phases 27-29: import preview table (kept as a helper so the marketing tab stays readable). */
+/* Additional-requirements Phase D: Photo + Video Gallery tabs. Everything the
+   public #/gallery page shows comes from these rows (db.galleryAdmin mirrors
+   /state); nothing is hard-coded. Albums, photos and videos each keep their own
+   order + visibility, and every destructive action asks for an audited reason. */
+function galleryAdminTab(){
+ const gal=db.galleryAdmin||{albums:[],photos:[],videos:[]},albums=gal.albums||[],photos=gal.photos||[];
+ const albumOpts=(cur)=>'<option value="">No album (un-albumed)</option>'+albums.map(a=>'<option value="'+esc(a.id)+'"'+(cur===a.id?' selected':'')+'>'+esc(a.n)+'</option>').join('');
+ const albRows=albums.map(a=>[
+  '<b>'+esc(a.n)+'</b>'+(a.active?'':' <span class="badge">hidden</span>')+(a.d?'<br><span class="sm mut">'+esc(a.d)+'</span>':''),
+  a.photos+' photo'+(a.photos===1?'':'s')+'<br><span class="sm mut">'+a.videos+' video'+(a.videos===1?'':'s')+'</span>',
+  a.active?'<span class="badge ok">Visible</span> <button class="btn s ghost" data-act="galbtoggle" data-id="'+esc(a.id)+'" data-v="0">Hide</button>':'<span class="badge">Hidden</span> <button class="btn s ghost" data-act="galbtoggle" data-id="'+esc(a.id)+'" data-v="1">Show</button>',
+  '<button class="btn s ghost" data-act="galbedit" data-id="'+esc(a.id)+'">Edit</button> <button class="btn s bad" data-act="galbdel" data-id="'+esc(a.id)+'">Delete</button>']);
+ const cards=photos.length?photos.map(p=>{
+  const a=albums.find(x=>x.id===p.albumId);
+  return'<div class="card flat" style="width:180px;padding:8px"><img src="'+esc(mediaUrl(p.thumbWebp||p.thumb||p.url))+'" alt="'+esc(p.altText||p.caption||'Gallery photo')+'" loading="lazy" style="width:100%;height:110px;object-fit:cover;border-radius:8px;background:#eee"><div class="sm mt">'+(p.caption?esc(p.caption):'<span class="mut">No caption</span>')+'</div><div class="sm mut">'+(a?esc(a.n):'No album')+(p.active?'':' · <span class="badge">hidden</span>')+'</div><div class="row mt" style="gap:4px;flex-wrap:wrap">'+(p.active?'<button class="btn s ghost" data-act="galptoggle" data-id="'+esc(p.id)+'" data-v="0">Hide</button>':'<button class="btn s ghost" data-act="galptoggle" data-id="'+esc(p.id)+'" data-v="1">Show</button>')+'<button class="btn s ghost" data-act="galpedit" data-id="'+esc(p.id)+'">Edit</button><button class="btn s bad" data-act="galdel" data-id="'+esc(p.id)+'">Del</button></div></div>';
+ }).join(''):'<div class="card">No photos yet — upload the first one above.</div>';
+ return '<div class="note mb">The public <a href="#/gallery" style="text-decoration:underline">Photo gallery</a> renders exactly these rows. Photos are verified before anything is written and stored as the original plus a 320px thumbnail and WebP variants; provenance (license, credit) is kept with each image. Deleting an album never deletes its media — the photos become un-albumed.</div>'+
+  '<div class="card mb"><h3>Upload photos</h3><div class="frm mt"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:end"><label class="f">Photo<input type="file" id="galf" accept="image/jpeg,image/png,image/webp"></label><label class="f">Album<select id="galalb">'+albumOpts('')+'</select></label><label class="f">Caption<input id="galcap" placeholder="Short description"></label><label class="f">Alt text<input id="galalt" placeholder="Accessibility description"></label><button class="btn" data-act="galpup">Upload photo</button></div></div><p class="sm mut mt">JPG / PNG / WEBP. Images are content-verified, then the thumb and WebP variants are generated automatically.</p></div>'+
+  '<div class="card mb"><div class="row sp mb"><h3>Albums ('+albums.length+')</h3><button class="btn s" data-act="galbnew">Add album</button></div>'+(albums.length?TB(['Album','Media','Public page','Actions'],albRows):'<p class="sm mut">No albums yet — photos without one still appear in the public Photos tab.</p>')+'</div>'+
+  '<div class="row sp mb"><h3>Photos ('+photos.length+')</h3><span class="sm mut">Newest uploads last — use Order in the Edit dialog to arrange.</span></div>'+
+  '<div class="row" style="flex-wrap:wrap">'+cards+'</div>';
+}
+function galleryVideosTab(){
+ const gal=db.galleryAdmin||{albums:[],videos:[]},albums=gal.albums||[],videos=gal.videos||[];
+ const rows=videos.map(v=>{
+  const a=albums.find(x=>x.id===v.albumId);
+  return[
+   (v.thumb?'<img src="'+esc(v.thumb)+'" alt="'+esc(v.n)+'" loading="lazy" onerror="this.style.visibility=\'hidden\'" style="width:84px;height:48px;object-fit:cover;border-radius:6px;background:#eee">':'<span style="font-size:1.6rem">🎬</span>')+' <b>'+esc(v.n)+'</b><br><span class="sm mut">'+esc(v.d||'').slice(0,60)+'</span>',
+   '<a class="sm" href="'+esc(v.url)+'" target="_blank" rel="noopener noreferrer">'+(v.yt?'YouTube ↗':'Link ↗')+'</a>',
+   a?esc(a.n):'<span class="mut">No album</span>',
+   '<div class="row" style="flex-wrap:nowrap"><input type="number" value="'+(v.order||0)+'" id="galo_'+esc(v.id)+'" style="width:80px" aria-label="Order"><button class="btn s ghost" data-act="galvorder" data-id="'+esc(v.id)+'">Save</button></div>',
+   v.active?'<span class="badge ok">Visible</span> <button class="btn s ghost" data-act="galvtoggle" data-id="'+esc(v.id)+'" data-v="0">Hide</button>':'<span class="badge">Hidden</span> <button class="btn s ghost" data-act="galvtoggle" data-id="'+esc(v.id)+'" data-v="1">Show</button>',
+   '<button class="btn s ghost" data-act="galvadd" data-id="'+esc(v.id)+'">Edit</button> <button class="btn s bad" data-act="galvdel" data-id="'+esc(v.id)+'">Delete</button>'];
+ });
+ return '<div class="note mb">The public <a href="#/gallery?tab=videos" style="text-decoration:underline">Gallery → Videos</a> tab plays these. A YouTube link is embedded in place; any other http(s) link opens externally. Nothing is stored on our servers — only the link, title and description.</div>'+
+  '<div class="row sp mb"><h3>Videos ('+videos.length+')</h3><button class="btn" data-act="galvadd">Add a video</button></div>'+
+  (videos.length?TB(['Video','Link','Album','Order','Public page','Actions'],rows):'<div class="card">No videos yet — add the first one.</div>')+
+  '<p class="sm mut mt">Tip: use <b>Edit</b> on a row to change its title, link, album or description.</p>';
+}
+
 function impPrevRows(){const p=PAGE.impPrev;const cls={create:'ok',update:'info',duplicate:'warn'};
  return '<h3 class="mt2 mb">Import preview — '+p.kind+'</h3>'+(p.invalid?"<div class='note mb'>"+p.invalid+" row(s) will be skipped: "+p.errors.map(e=>'row '+e.row+' ('+esc(e.error)+')').join(', ')+"</div>":'')+'<div class="tw"><table><thead><tr><th>Row</th><th>Action</th><th>Name</th><th>Mobile</th><th>Detail</th></tr></thead><tbody>'+p.preview.map(r=>'<tr><td>'+r.row+'</td><td><span class="badge '+(cls[r.action]||'')+'">'+r.action+'</span></td><td>'+esc(r.name||'')+'</td><td>'+esc(r.mobile||'')+'</td><td class="sm mut">'+esc([r.action==='update'?'updates existing record':(r.details||r.source||''),r.details?'details: '+r.details:'',r.source?'source: '+r.source:''].filter(Boolean).join(' · '))+'</td></tr>').join('')+'</tbody></table></div>'+(p.willCreate||p.willUpdate?'<div class="row mt" style="flex-wrap:wrap;gap:12px"><button class="btn" data-act="aimpcommit">Commit import — create '+p.willCreate+', update '+p.willUpdate+'</button><button class="btn s ghost" data-act="aimpclear">Discard</button></div>':'<div class="card mt">Nothing to import — every row was invalid or a duplicate.</div>');}
  return'<div class="page"><div class="wrap"><div class="row sp mb"><h1>Admin panel</h1><button class="btn s ghost" data-act="logout">Logout</button></div><div class="dash">'+side('admin',ANAV,tab)+'<div>'+c+'</div></div></div></div>'}

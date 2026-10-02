@@ -77,10 +77,34 @@ const personCard = (r) => ({ id: r.id, n: r.name, designation: r.designation || 
 const personPhoto = (r) => ({ id: r.id, url: '/media/' + r.filename, thumb: r.thumb ? '/media/' + r.thumb : '',
   webp: r.webp ? '/media/' + r.webp : '', thumbWebp: r.thumb_webp ? '/media/' + r.thumb_webp : '', caption: r.caption || '', order: r.sort_order || 0 });
 
+/* Additional-requirements Phase D: gallery rows. `yt` is the YouTube id derived
+   from the stored URL (empty for any other host), `thumb` the matching YouTube
+   poster; the FE embeds only when `yt` is present and links out otherwise. */
+const ytId = (u) => { const m = String(u || '').match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/); return m ? m[1] : ''; };
+const galleryAlbum = (r) => ({ id: r.id, n: r.name, d: r.description || '', order: r.sort_order || 0,
+  active: r.active === undefined || r.active === null ? 1 : r.active, created: r.created, updated: r.updated,
+  photos: r.photo_count || 0, videos: r.video_count || 0,
+  cover: r.cover_filename ? '/media/' + r.cover_filename : '',
+  coverThumb: r.cover_thumb ? '/media/' + r.cover_thumb : '',
+  coverWebp: r.cover_webp ? '/media/' + r.cover_webp : '',
+  coverThumbWebp: r.cover_thumb_webp ? '/media/' + r.cover_thumb_webp : '' });
+const galleryPhoto = (r) => ({ id: r.id, albumId: r.album_id || null, url: '/media/' + r.filename,
+  thumb: r.thumb ? '/media/' + r.thumb : '', webp: r.webp ? '/media/' + r.webp : '',
+  thumbWebp: r.thumb_webp ? '/media/' + r.thumb_webp : '',
+  caption: r.caption || '', altText: r.alt_text || '', license: r.license || '',
+  credit: r.credit || '', creditUrl: r.credit_url || '',
+  order: r.sort_order || 0, active: r.active === undefined || r.active === null ? 1 : r.active,
+  created: r.created, updated: r.updated });
+const galleryVideo = (r) => ({ id: r.id, albumId: r.album_id || null, n: r.title || '',
+  d: r.description || '', url: r.url || '', yt: ytId(r.url),
+  thumb: ytId(r.url) ? 'https://i.ytimg.com/vi/' + ytId(r.url) + '/hqdefault.jpg' : '',
+  order: r.sort_order || 0, active: r.active === undefined || r.active === null ? 1 : r.active,
+  created: r.created, updated: r.updated });
+
 const lead = (r) => ({ id: r.id, type: r.type, n: r.name, details: r.details || '', date: r.date,
   mobile: r.mobile || '', email: r.email || '', service: r.service || '', location: r.location || '',
   st: r.status || 'NEW', assignedTo: r.assigned_to || null, followUpAt: r.follow_up_at || null,
   convertedBookingId: r.converted_booking_id || null,
   dupCount: r.dup_count || 0, lastDupAt: r.last_dup_at || null });
 
-module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon, lead, peopleCategory, person, personCard, personPhoto };
+module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon, lead, peopleCategory, person, personCard, personPhoto, galleryAlbum, galleryPhoto, galleryVideo, ytId };

@@ -25,7 +25,8 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   for (let i = 0; i < 40 && !d.querySelector('#view h1'); i++) await sleep(100);
   console.log('home rendered:', /DaivikPooja|puja/i.test(text()));
 
-  for (const r of ['', 'pujas', 'pujas?q=peace', 'puja/lakshmi', 'pandits', 'pandit/p1', 'temples', 'samagri', 'prasad', 'festivals', 'astrology', 'kundali', 'corporate', 'about', 'contact', 'partner', 'register-pandit', 'rewards', 'plus', 'account', 'portal', 'admin']) await go('#/' + r);
+  for (const r of ['', 'pujas', 'pujas?q=peace', 'puja/lakshmi', 'pandits', 'pandit/p1', 'temples', 'samagri', 'prasad', 'festivals', 'gallery', 'gallery?tab=videos', 'gallery?tab=albums', 'astrology', 'kundali', 'corporate', 'about', 'contact', 'partner', 'register-pandit', 'rewards', 'plus', 'account', 'portal', 'admin']) await go('#/' + r);
+  await go('#/gallery'); console.log('gallery page renders:', /Photo and video gallery/.test(text()));
 
   // kundali: full generate -> result flow, with place verification before generate
   await go('#/kundali'); setv('kn', 'Kundali Tester'); setv('kd', '1990-08-15'); setv('kt', '10:30');
@@ -100,7 +101,8 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
-  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo']) await go('#/admin/' + t);
+  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo', 'gallery', 'gallery-videos']) await go('#/admin/' + t);
+  console.log('admin gallery tabs render:', /Upload photos/.test(text()) || /Videos \(/.test(text()));
   // analytics tab: the old 'Sample' visitors KPI is gone — conversion is derived from real rows
   await go('#/admin/analytics');
   console.log('analytics conversion KPI:', /Lead → booking conversion/.test(text()) && !/Visitors need analytics integration/.test(text()));

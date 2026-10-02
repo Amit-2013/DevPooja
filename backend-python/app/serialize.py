@@ -1,6 +1,7 @@
 """Row -> API shape. Port of server/lib/serialize.js — the browser app uses
 these short field names, so parity here keeps the SPA working unchanged."""
 import json
+import re
 
 from .util import j
 
@@ -175,6 +176,50 @@ def person_photo(r) -> dict:
     return {"id": r.id, "url": _photo_url(r.filename), "thumb": _photo_url(r.thumb),
             "webp": _photo_url(r.webp), "thumbWebp": _photo_url(r.thumb_webp),
             "caption": r.caption or "", "order": r.sort_order or 0}
+
+
+# Additional-requirements Phase D: gallery rows. `yt` is the YouTube id derived
+# from the stored URL (empty for any other host), `thumb` the matching YouTube
+# poster; the FE embeds only when `yt` is present and links out otherwise.
+def yt_id(u) -> str:
+    m = re.search(r"(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{6,20})",
+                  str(u or ""))
+    return m.group(1) if m else ""
+
+
+def gallery_album(r) -> dict:
+    out = {"id": r.id, "n": r.name, "d": r.description or "", "order": r.sort_order or 0,
+           "active": r.active if r.active is not None else 1,
+           "created": r.created, "updated": r.updated,
+           "photos": getattr(r, "photo_count", 0) or 0,
+           "videos": getattr(r, "video_count", 0) or 0,
+           "cover": "", "coverThumb": "", "coverWebp": "", "coverThumbWebp": ""}
+    if getattr(r, "cover_filename", None):
+        out["cover"] = _photo_url(r.cover_filename)
+        out["coverThumb"] = _photo_url(getattr(r, "cover_thumb", None))
+        out["coverWebp"] = _photo_url(getattr(r, "cover_webp", None))
+        out["coverThumbWebp"] = _photo_url(getattr(r, "cover_thumb_webp", None))
+    return out
+
+
+def gallery_photo(r) -> dict:
+    return {"id": r.id, "albumId": r.album_id or None, "url": _photo_url(r.filename),
+            "thumb": _photo_url(r.thumb), "webp": _photo_url(r.webp),
+            "thumbWebp": _photo_url(r.thumb_webp),
+            "caption": r.caption or "", "altText": r.alt_text or "",
+            "license": r.license or "", "credit": r.credit or "",
+            "creditUrl": r.credit_url or "",
+            "order": r.sort_order or 0, "active": r.active if r.active is not None else 1,
+            "created": r.created, "updated": r.updated}
+
+
+def gallery_video(r) -> dict:
+    yt = yt_id(r.url)
+    return {"id": r.id, "albumId": r.album_id or None, "n": r.title or "",
+            "d": r.description or "", "url": r.url or "", "yt": yt,
+            "thumb": ("https://i.ytimg.com/vi/" + yt + "/hqdefault.jpg") if yt else "",
+            "order": r.sort_order or 0, "active": r.active if r.active is not None else 1,
+            "created": r.created, "updated": r.updated}
 
 
 # Phase 26: compact CRM lead row for the admin state payload.

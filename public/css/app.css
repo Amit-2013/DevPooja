@@ -167,3 +167,21 @@ details{border-bottom:1px solid var(--line);padding:14px 0}summary{cursor:pointe
 .socialicon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.10);color:#fff;border:1px solid rgba(255,255,255,.28);transition:transform .15s ease,background .15s ease}
 .socialicon:hover{background:rgba(255,255,255,.24);transform:translateY(-2px)}
 .socialicon:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+
+/* ---------- Photo + Video Gallery (additional-requirements Phase D) ---------- */
+.gshot{padding:8px;margin:0}
+.gshot .gopen{display:block;width:100%;padding:0;border:0;background:none;cursor:pointer}
+.gshot img{display:block;width:100%;height:170px;object-fit:cover;border-radius:10px;background:var(--bg2);transition:transform .2s ease}
+.gshot .gopen:hover img,.gshot .gopen:focus-visible img{transform:scale(1.03)}
+.gvid .gplay{position:relative;display:block;width:100%;padding:0;border:0;background:none;cursor:pointer}
+.gvid .gplay img{display:block;width:100%;height:150px;object-fit:cover;border-radius:10px;background:var(--bg2)}
+.gvid .gpl{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:46px;height:46px;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+.gvid .gplay:hover .gpl{background:var(--pri);color:var(--priink)}
+.gcover{display:block;padding:0;overflow:hidden}
+.gcover img{display:block;width:100%;height:150px;object-fit:cover;background:var(--bg2)}
+.gcover .none{display:flex;align-items:center;justify-content:center;height:150px;font-size:2.4rem;background:var(--bg2)}
+.gcover h3{margin:12px 14px 6px}
+.gcover p{margin:0 14px 12px}
+.gcover:hover{border-color:var(--pri)}
+.galchips .chip{text-decoration:none;color:inherit}
+@media(max-width:480px){.gshot img{height:150px}.gvid .gplay img,.gcover img,.gcover .none{height:132px}}

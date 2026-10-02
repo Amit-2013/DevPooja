@@ -160,6 +160,13 @@ app.get('/api/people/:id', (req, res) => {
   if (!p) throw new HttpError(404, 'Person not found');
   res.json({ person: p });
 });
+/* Additional-requirements Phase D: the photo + video gallery is public.
+   kind=photos|videos|albums picks the tab, album narrows it, limit/offset
+   paginate it; only active rows in active albums leave the server. */
+app.get('/api/gallery', (req, res) => {
+  try { res.json(require('./services/gallery').publicGallery(req.query)); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
 app.post('/api/quote', (req, res) => {
   const user = req.auth && req.auth.role === 'customer' ? db.prepare('SELECT * FROM users WHERE id=?').get(req.auth.uid) : null;
   const r = B.priceRequest(user, req.body, { strictCoupon: false });

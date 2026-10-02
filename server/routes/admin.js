@@ -271,6 +271,29 @@ router.patch('/social-links/:id', (req, res) => res.json({ link: SOCIALS.update(
 router.delete('/social-links/:id', (req, res) => res.json(SOCIALS.remove(req.auth.uid, req.params.id, (req.body || {}).reason)));
 router.post('/social-links/order', (req, res) => res.json({ links: SOCIALS.reorder(req.auth.uid, (req.body || {}).ids) }));
 
+/* --- Additional-requirements Phase D: Photo + Video Gallery. Albums, photos
+   and videos are ordinary admin-managed rows; photo uploads pass magic-byte
+   verification before the service moves them into media and generates the
+   thumb/WebP pair. Videos are YouTube links — the embed id is derived on read.
+   Every write is audited; the public reads live in server/index.js. */
+const GALLERY = require('../services/gallery');
+router.get('/gallery', (req, res) => res.json(GALLERY.adminBundle()));
+/* albums (routes before /:id would otherwise never match, keep the order) */
+router.post('/gallery/albums', (req, res) => res.status(201).json({ album: GALLERY.createAlbum(req.auth.uid, req.body || {}) }));
+router.post('/gallery/albums/order', (req, res) => res.json({ albums: GALLERY.reorderAlbums(req.auth.uid, (req.body || {}).ids) }));
+router.patch('/gallery/albums/:id', (req, res) => res.json({ album: GALLERY.updateAlbum(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/gallery/albums/:id', (req, res) => res.json(GALLERY.deleteAlbum(req.auth.uid, req.params.id, (req.body || {}).reason)));
+/* photos: single upload, image-only enforced by the service */
+router.post('/gallery/photos', upload.media.single('photo'), upload.verifyMagic(), wrap(async (req, res) => res.status(201).json({ photo: await GALLERY.addPhoto(req.auth.uid, { file: req.file, albumId: (req.body || {}).albumId, caption: (req.body || {}).caption, altText: (req.body || {}).altText, order: (req.body || {}).order, active: (req.body || {}).active }) })));
+router.post('/gallery/photos/order', (req, res) => res.json(GALLERY.reorderPhotos(req.auth.uid, (req.body || {}).ids)));
+router.patch('/gallery/photos/:id', (req, res) => res.json({ photo: GALLERY.updatePhoto(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/gallery/photos/:id', (req, res) => res.json(GALLERY.deletePhoto(req.auth.uid, req.params.id, (req.body || {}).reason)));
+/* videos */
+router.post('/gallery/videos', (req, res) => res.status(201).json({ video: GALLERY.createVideo(req.auth.uid, req.body || {}) }));
+router.post('/gallery/videos/order', (req, res) => res.json(GALLERY.reorderVideos(req.auth.uid, (req.body || {}).ids)));
+router.patch('/gallery/videos/:id', (req, res) => res.json({ video: GALLERY.updateVideo(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/gallery/videos/:id', (req, res) => res.json(GALLERY.deleteVideo(req.auth.uid, req.params.id, (req.body || {}).reason)));
+
 router.post('/settings', (req, res) => {
   const prev = db.prepare("SELECT value FROM settings WHERE key='commission'").get();
   setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 }));

@@ -32,13 +32,19 @@ function buildState(auth) {
     peopleCats: [], peopleList: [], peopleAdmin: [], peopleCatsAdmin: [],
     /* Additional-requirements Phase C: active social rows for the footer (every
        role), plus the full list for the admin Social links tab. */
-    socials: [], socialsAdmin: []
+    socials: [], socialsAdmin: [],
+    /* Additional-requirements Phase D: the public gallery overview (active
+       albums + a first page of photos/videos) for every role, plus the full
+       rows for the admin gallery tabs. */
+    gallery: { albums: [], photos: [], videos: [], totalPhotos: 0, totalVideos: 0 }, galleryAdmin: { albums: [], photos: [], videos: [] }
   };
   const PEOPLE = require('../services/people');
   const SOCIALS = require('../services/socials');
+  const GALLERY = require('../services/gallery');
   st.peopleCats = PEOPLE.listActiveCategories();
   st.peopleList = PEOPLE.listActive();
   st.socials = SOCIALS.listActive();
+  st.gallery = GALLERY.overview();
 
   const pRows = db.prepare('SELECT * FROM pandits').all();
   /* Per-pandit flagging follow-up: admins see which pandits are currently
@@ -90,6 +96,7 @@ function buildState(auth) {
     st.peopleAdmin = PEOPLE.listAll();
     st.peopleCatsAdmin = PEOPLE.listCategories();
     st.socialsAdmin = SOCIALS.list();
+    st.galleryAdmin = GALLERY.adminBundle();
   }
   return st;
 }

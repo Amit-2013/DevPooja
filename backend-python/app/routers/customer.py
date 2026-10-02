@@ -221,6 +221,19 @@ async def people_profile(person_id: str, db: AsyncSession = Depends(get_db)):
     return {"person": p}
 
 
+# --- Additional-requirements Phase D: the photo + video gallery is public.
+# kind=photos|videos|albums picks the tab, album narrows it, limit/offset
+# paginate it; only active rows in active albums leave the server.
+from ..services import gallery as GALLERY  # noqa: E402
+
+
+@router.get("/gallery")
+async def gallery(kind: str = "photos", album: str = "", limit: int = 12,
+                  offset: int = 0, db: AsyncSession = Depends(get_db)):
+    return await GALLERY.public_gallery(db, kind=kind, album=album or None,
+                                        limit=limit, offset=offset)
+
+
 @router.get("/nri-orders")
 async def my_nri_orders(auth: dict = Depends(customer_dep), db: AsyncSession = Depends(get_db)):
     return {"orders": await NRI.orders_for(db, auth["uid"])}
