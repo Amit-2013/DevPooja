@@ -1254,3 +1254,105 @@ async def import_commit(kind: str, file: UploadFile = File(...), reason: str = F
     r = await _import_run(kind, file, True, auth, db, reason)
     await db.commit()
     return r
+
+
+# --- Additional-requirements Phase B: Our People CMS. People and categories
+# are ordinary rows (Founder and Main Acharya included); every write is audited
+# by the service. Public reads live in routers/customer.py and only ever return
+# active people in active categories. Photo uploads are magic-byte verified in
+# the service before anything is written, exactly like puja media.
+from fastapi import File, Form, UploadFile  # noqa: E402
+from ..services import people as PEOPLE  # noqa: E402
+
+_MAX_PHOTO_BYTES = 8 * 1024 * 1024
+
+
+async def _read_photo(file: UploadFile | None) -> tuple[bytes, str, str]:
+    if file is None:
+        raise bad("Choose a photo to upload")
+    data = await file.read(_MAX_PHOTO_BYTES + 1)
+    if not data:
+        raise bad("Choose a photo to upload")
+    if len(data) > _MAX_PHOTO_BYTES:
+        raise bad("File too large")
+    return data, file.content_type or "", file.filename or ""
+
+
+@router.get("/people")
+async def people_list(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"people": await PEOPLE.list_all(db), "categories": await PEOPLE.list_categories(db)}
+
+
+@router.post("/people", status_code=201)
+async def create_person(body: dict, auth: dict = Depends(admin_dep),
+                        db: AsyncSession = Depends(get_db)):
+    return {"person": await PEOPLE.create_person(db, auth["uid"], body or {})}
+
+
+@router.patch("/people/{person_id}")
+async def patch_person(person_id: str, body: dict, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    return {"person": await PEOPLE.update_person(db, auth["uid"], person_id, body or {})}
+
+
+@router.delete("/people/{person_id}")
+async def delete_person(person_id: str, body: dict | None = None,
+                        auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await PEOPLE.delete_person(db, auth["uid"], person_id, (body or {}).get("reason"))
+
+
+@router.post("/people/{person_id}/photo")
+async def set_person_photo(person_id: str, photo: UploadFile | None = File(None),
+                           auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    data, claimed, original = await _read_photo(photo)
+    return {"person": await PEOPLE.set_photo(db, auth["uid"], person_id, data, claimed, original)}
+
+
+@router.delete("/people/{person_id}/photo")
+async def clear_person_photo(person_id: str, body: dict | None = None,
+                             auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"person": await PEOPLE.clear_photo(db, auth["uid"], person_id, (body or {}).get("reason"))}
+
+
+@router.post("/people/{person_id}/photos", status_code=201)
+async def add_gallery_photo(person_id: str, photo: UploadFile | None = File(None),
+                            caption: str = Form(""), auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    data, claimed, original = await _read_photo(photo)
+    return {"photo": await PEOPLE.add_gallery_photo(db, auth["uid"], person_id, data, claimed,
+                                                   original, caption)}
+
+
+@router.delete("/people/photos/{photo_id}")
+async def delete_gallery_photo(photo_id: str, body: dict | None = None,
+                               auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await PEOPLE.delete_gallery_photo(db, auth["uid"], photo_id, (body or {}).get("reason"))
+
+
+@router.get("/people-categories")
+async def people_categories(auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return {"categories": await PEOPLE.list_categories(db)}
+
+
+@router.post("/people-categories", status_code=201)
+async def create_people_category(body: dict, auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    return {"category": await PEOPLE.create_category(db, auth["uid"], body or {})}
+
+
+@router.post("/people-categories/order")
+async def reorder_people_categories(body: dict, auth: dict = Depends(admin_dep),
+                                    db: AsyncSession = Depends(get_db)):
+    return {"categories": await PEOPLE.reorder_categories(db, auth["uid"], (body or {}).get("ids"))}
+
+
+@router.patch("/people-categories/{category_id}")
+async def patch_people_category(category_id: str, body: dict, auth: dict = Depends(admin_dep),
+                                db: AsyncSession = Depends(get_db)):
+    return {"category": await PEOPLE.update_category(db, auth["uid"], category_id, body or {})}
+
+
+@router.delete("/people-categories/{category_id}")
+async def delete_people_category(category_id: str, body: dict | None = None,
+                                 auth: dict = Depends(admin_dep), db: AsyncSession = Depends(get_db)):
+    return await PEOPLE.delete_category(db, auth["uid"], category_id, (body or {}).get("reason"))

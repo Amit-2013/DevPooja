@@ -239,6 +239,27 @@ router.delete('/temples/:id', (req, res) => {
   AUDIT.audit(req.auth.uid, 'temple.delete', 'temple', t.id, { name: t.name }, (req.body || {}).reason);
   res.json({ ok: true });
 });
+
+/* --- Additional-requirements Phase B: Our People CMS. People and categories
+   are ordinary rows (Founder and Main Acharya included); every write is
+   audited by the service. Public reads live in server/index.js and only ever
+   return active people in active categories. Photo uploads land in the kyc
+   quarantine first, pass magic-byte verification, then move into media. */
+const PEOPLE = require('../services/people');
+router.get('/people', (req, res) => res.json({ people: PEOPLE.listAll(), categories: PEOPLE.listCategories() }));
+router.post('/people', (req, res) => res.status(201).json({ person: PEOPLE.createPerson(req.auth.uid, req.body || {}) }));
+router.patch('/people/:id', (req, res) => res.json({ person: PEOPLE.updatePerson(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/people/:id', (req, res) => res.json(PEOPLE.deletePerson(req.auth.uid, req.params.id, (req.body || {}).reason)));
+router.post('/people/:id/photo', upload.kyc.single('photo'), upload.verifyMagic(), wrap(async (req, res) => res.json({ person: await PEOPLE.setPhoto(req.auth.uid, req.params.id, req.file) })));
+router.delete('/people/:id/photo', (req, res) => res.json({ person: PEOPLE.clearPhoto(req.auth.uid, req.params.id, (req.body || {}).reason) }));
+router.post('/people/:id/photos', upload.kyc.single('photo'), upload.verifyMagic(), wrap(async (req, res) => res.status(201).json({ photo: await PEOPLE.addGalleryPhoto(req.auth.uid, req.params.id, req.file, (req.body || {}).caption) })));
+router.delete('/people/photos/:photoId', (req, res) => res.json(PEOPLE.deleteGalleryPhoto(req.auth.uid, req.params.photoId, (req.body || {}).reason)));
+router.get('/people-categories', (req, res) => res.json({ categories: PEOPLE.listCategories() }));
+router.post('/people-categories', (req, res) => res.status(201).json({ category: PEOPLE.createCategory(req.auth.uid, req.body || {}) }));
+router.patch('/people-categories/:id', (req, res) => res.json({ category: PEOPLE.updateCategory(req.auth.uid, req.params.id, req.body || {}) }));
+router.delete('/people-categories/:id', (req, res) => res.json(PEOPLE.deleteCategory(req.auth.uid, req.params.id, (req.body || {}).reason)));
+router.post('/people-categories/order', (req, res) => res.json({ categories: PEOPLE.reorderCategories(req.auth.uid, (req.body || {}).ids) }));
+
 router.post('/settings', (req, res) => {
   const prev = db.prepare("SELECT value FROM settings WHERE key='commission'").get();
   setSetting('commission', v.int(req.body.commission, 'Commission', { min: 0, max: 60 }));

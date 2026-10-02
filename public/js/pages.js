@@ -99,6 +99,46 @@ function regPandit(){return'<div class="page"><div class="wrap" style="max-width
 
 function nf(){return'<div class="page"><div class="wrap"><h1>Page not found</h1><p class="mut mt">This page does not exist. <a href="#/" style="text-decoration:underline">Go to the home page</a>.</p></div></div>'}
 
+/* Additional-requirements Phase B: Our People — admin-managed CMS content.
+   The directory renders straight from the state payload (db.peopleCats /
+   db.peopleList); a profile fetches its full story + gallery on demand. The
+   Founder and Main Acharya use the same component with a richer layout chosen
+   by category id — never a hard-coded page. */
+const PEOPLE_FEAT=['founder','main-acharya'];
+function pInitials(n){return String(n||'').split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+function pAvatar(p,cls){return p.photo?'<img class="'+cls+'" src="'+esc(mediaUrl(p.photoThumb||p.photo))+'" alt="'+esc(p.n)+'" loading="lazy">':'<div class="'+cls+' pav">'+esc(pInitials(p.n))+'</div>'}
+function pMeta(p){return [p.designation,p.city&&(p.city+(p.country&&p.country!==p.city?', '+p.country:''))].filter(Boolean).join(' · ')}
+function pVideo(u){const m=String(u).match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/);return m?'<div class="tw"><iframe style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px" src="https://www.youtube.com/embed/'+m[1]+'" title="Profile video" allowfullscreen loading="lazy"></iframe></div>':'<p class="mt"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(u)+' ↗</a></p>'}
+function pCard(p,feat){return '<article class="card pcard'+(feat?' feat':'')+'"><div class="prow">'+pAvatar(p,'pimg'+(feat?'':' s'))+'<div><h3>'+esc(p.n)+'</h3><p class="sm mut">'+esc(pMeta(p))+(p.exp?' <span class="badge">'+p.exp+' yrs</span>':'')+'</p></div></div>'+(p.intro?'<p class="sm mt">'+esc(p.intro)+'</p>':'')+'<a class="btn s ghost mt" href="#/people/'+encodeURIComponent(p.id)+'">Read profile</a></article>'}
+function ourPeoplePage(){
+ const cats=db.peopleCats||[],list=db.peopleList||[];
+ const groups=cats.map(c=>({c,ps:list.filter(p=>p.categoryId===c.id)})).filter(g=>g.ps.length);
+ const body=groups.length?groups.map(g=>{const feat=PEOPLE_FEAT.includes(g.c.id);return'<section class="mt2"><h2 class="mb">'+esc(g.c.n)+'</h2><div class="grid '+(feat?'g2':'g3')+'">'+g.ps.map(p=>pCard(p,feat)).join('')+'</div></section>'}).join(''):'<div class="card">Our people will be listed here once the team publishes profiles.</div>';
+ return'<div class="page"><div class="wrap"><h1>Our People</h1><p class="mut mb">The acharyas, scholars, pandits and seva team behind DaivikPooja — the people who keep every ritual, guidance and promise of Sanatan seva.</p>'+body+'</div></div>'}
+
+function personProfilePage(r){
+ const id=r.arg;
+ if(PAGE.personId!==id){PAGE.personId=id;PAGE.person=undefined;api('/people/'+encodeURIComponent(id)).then(x=>{PAGE.person=x.person;render(true)}).catch(()=>{PAGE.person=null;render(true)})}
+ if(PAGE.person===undefined)return'<div class="page"><div class="wrap"><h1>Our People</h1><p class="mut mt">Loading…</p></div></div>';
+ const p=PAGE.person;if(!p)return nf();
+ return pProfileHtml(p)}
+function pProfileHtml(p){
+ const cat=(db.peopleCats||[]).find(c=>c.id===p.categoryId)||{n:''},feat=PEOPLE_FEAT.includes(p.categoryId);
+ const chips=(p.expertise||[]).map(x=>'<span class="chip">'+esc(x)+'</span>').join(' ');
+ const socials=(p.socials||[]).map(s=>'<a class="btn s ghost" href="'+esc(s.url)+'" target="_blank" rel="noopener noreferrer">'+esc(s.platform)+' ↗</a>').join(' ');
+ const story=String(p.bio||'').split('\n').filter(Boolean).map(t=>'<p class="mt">'+esc(t)+'</p>').join('');
+ return'<div class="page"><div class="wrap"><p class="sm mut"><a href="#/our-people">← Our People</a></p>'+
+  '<div class="phero'+(feat?' feat':'')+' mt">'+pAvatar(p,'pimg'+(feat?'':' s'))+'<div><p class="sm mut">'+esc(cat.n||'')+'</p><h1>'+esc(p.n)+'</h1><p class="mut">'+esc(pMeta(p))+(p.exp?' · '+p.exp+' years of experience':'')+'</p>'+(socials?'<div class="row mt" style="flex-wrap:wrap;gap:8px">'+socials+'</div>':'')+'</div></div>'+
+  (p.intro?'<p class="mt2" style="font-size:1.15rem">'+esc(p.intro)+'</p>':'')+
+  (story?'<h2 class="mt2 mb">Story</h2>'+story:'')+
+  (chips?'<h2 class="mt2 mb">Expertise</h2><div class="row" style="flex-wrap:wrap;gap:8px">'+chips+'</div>':'')+pProfileRest(p)+'</div></div>'}
+
+function pProfileRest(p){
+ const fields=[['Qualifications',p.quals],['Background',p.background],['Sanatan work',p.sanatanWork]].filter(f=>f[1]);
+ const gal=(p.photos||[]).length?'<h2 class="mt2 mb">Gallery</h2><div class="grid g3">'+p.photos.map((x,i)=>'<button class="pcard pshot" data-act="pgal" data-i="'+i+'" aria-label="'+esc('Open photo '+(i+1))+'" type="button"><img src="'+esc(mediaUrl(x.thumb||x.url))+'"></button>').join('')+'</div>':'';
+ return (fields.length?'<div class="grid g3 mt2">'+fields.map(f=>'<div class="card"><h3>'+f[0]+'</h3><p class="sm mt">'+esc(f[1])+'</p></div>').join('')+'</div>':'')+
+  (p.video?'<h2 class="mt2 mb">Video</h2>'+pVideo(p.video):'')+gal}
+
 /* Customized Puja request page (public, guest-friendly). The request lands in the
    admin "Puja requests" queue; admins can convert it into a bookable catalogue puja. */
 /* Phase 13: NRI packages — fixed-price service packages in the diaspora's own

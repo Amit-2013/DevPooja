@@ -10,6 +10,7 @@ from .models import (Banner, Booking, Campaign, Coupon, Festival, Kit, Kundali, 
                      Pandit, Prasad, Payout, Puja, Temple, Ticket, User)
 from .serialize import (booking, coupon, festival, kit, lead as s_lead, notif, order, pandit,
                         prasad, puja, temple, ticket, payout as s_payout, user)
+from .services import people as PEOPLE
 from .services.bookings import expire_unpaid, get_setting
 from .services.reopen_digest import flagged_pandit_ids
 from .util import j
@@ -53,8 +54,13 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         "pandits": [], "busy": [], "reviews": [],
         "me": None, "users": [], "bookings": [], "orders": [], "notifs": [], "tickets": [],
         "coupons": [], "payouts": [], "inv": {}, "campaigns": [], "leads": [], "set": {}, "hidden": [],
+        # Additional-requirements Phase B: compact public Our People data for the
+        # directory/footer; admins additionally get the full rows (inactive too).
+        "peopleCats": [], "peopleList": [], "peopleAdmin": [], "peopleCatsAdmin": [],
     }
     _ = get_setting  # imported for parity; settings surfaced per-role below
+    st["peopleCats"] = await PEOPLE.list_active_categories(db)
+    st["peopleList"] = await PEOPLE.list_active(db)
 
     p_rows = (await db.execute(select(Pandit))).scalars().all()
     # Per-pandit flagging follow-up: admins see which pandits are currently
@@ -137,4 +143,6 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
             select(Booking).where(Booking.review_hidden == 1))).scalars().all()]
         st["banners"] = [{"id": b.id, "t": b.text, "on": bool(b.enabled)} for b in
                          (await db.execute(select(Banner))).scalars().all()]
+        st["peopleAdmin"] = await PEOPLE.list_all(db)
+        st["peopleCatsAdmin"] = await PEOPLE.list_categories(db)
     return st

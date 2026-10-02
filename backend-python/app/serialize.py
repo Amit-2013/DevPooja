@@ -135,6 +135,48 @@ def notif(r) -> dict:
     return {"id": r.id, "uid": r.user_id, "ch": r.channel, "m": r.message, "ts": r.ts}
 
 
+# Additional-requirements Phase B: our-people CMS rows. `person` is the full
+# admin-managed profile (plus its category name for admin tables); `person_card`
+# is the compact public listing shape that rides along in /state.
+def people_category(r) -> dict:
+    return {"id": r.id, "n": r.name, "order": r.sort_order or 0,
+            "active": r.active if r.active is not None else 1, "created": r.created}
+
+
+def _photo_url(name) -> str:
+    return "/media/" + name if name else ""
+
+
+def person(r, *, admin: bool = False) -> dict:
+    out = {"id": r.id, "n": r.name, "designation": r.designation or "",
+           "categoryId": r.category_id or "", "city": r.city or "", "country": r.country or "",
+           "exp": r.experience or 0, "quals": r.qualifications or "",
+           "expertise": j(r.expertise, []), "intro": r.intro or "", "bio": r.bio or "",
+           "background": r.background or "", "sanatanWork": r.sanatan_work or "",
+           "photo": _photo_url(r.photo_file), "photoThumb": _photo_url(r.photo_thumb),
+           "photoWebp": _photo_url(r.photo_webp), "photoThumbWebp": _photo_url(r.photo_thumb_webp),
+           "video": r.video_url or "", "socials": j(r.socials, []),
+           "order": r.sort_order or 0, "active": r.active if r.active is not None else 1,
+           "created": r.created, "updated": r.updated}
+    if admin:
+        out["categoryName"] = getattr(r, "category_name", "") or ""
+    return out
+
+
+def person_card(r) -> dict:
+    return {"id": r.id, "n": r.name, "designation": r.designation or "",
+            "categoryId": r.category_id or "", "city": r.city or "", "country": r.country or "",
+            "exp": r.experience or 0, "intro": r.intro or "",
+            "photo": _photo_url(r.photo_file), "photoThumb": _photo_url(r.photo_thumb),
+            "order": r.sort_order or 0}
+
+
+def person_photo(r) -> dict:
+    return {"id": r.id, "url": _photo_url(r.filename), "thumb": _photo_url(r.thumb),
+            "webp": _photo_url(r.webp), "thumbWebp": _photo_url(r.thumb_webp),
+            "caption": r.caption or "", "order": r.sort_order or 0}
+
+
 # Phase 26: compact CRM lead row for the admin state payload.
 def lead(r) -> dict:
     return {"id": r.id, "type": r.type, "n": r.name, "details": r.details or "",

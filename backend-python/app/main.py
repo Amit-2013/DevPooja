@@ -34,10 +34,12 @@ async def lifespan(_app: FastAPI):
     from .seed_catalog import seed_catalog
     from .seed_demo import seed_demo
     from .seed_kundali import seed_kundali
+    from .seed_people import seed_people
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with SessionLocal() as db:
         await seed_catalog(db)
+        await seed_people(db)   # categories always; demo people only when DEMO_MODE
         await seed_demo(db)
         await seed_kundali(db)
         await db.commit()

@@ -893,6 +893,66 @@ class TrialPooja(Base):
     created_at: Mapped[int] = mapped_column(MS)
 
 
+class PeopleCategory(Base):
+    """Additional-requirements Phase B (migration 030 twin): the ordered public
+    grouping for Our People. Reference rows are seeded by app.seed_people; rows
+    are deactivated, never silently dropped while people still use them."""
+    __tablename__ = "people_categories"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    created: Mapped[int | None] = mapped_column(MS)
+
+
+class Person(Base):
+    """Additional-requirements Phase B (migration 030 twin): one admin-managed
+    profile — the Founder and the Main Acharya are ordinary rows in this same
+    table; the richer public layout is a frontend presentation choice."""
+    __tablename__ = "people"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    designation: Mapped[str] = mapped_column(Text, default="")
+    category_id: Mapped[str | None] = mapped_column(String(40))
+    city: Mapped[str] = mapped_column(Text, default="")
+    country: Mapped[str] = mapped_column(Text, default="")
+    experience: Mapped[int] = mapped_column(Integer, default=0)
+    qualifications: Mapped[str] = mapped_column(Text, default="")
+    expertise: Mapped[str] = mapped_column(Text, default="[]")          # JSON array
+    intro: Mapped[str] = mapped_column(Text, default="")
+    bio: Mapped[str] = mapped_column(Text, default="")
+    background: Mapped[str] = mapped_column(Text, default="")
+    sanatan_work: Mapped[str] = mapped_column(Text, default="")
+    photo_file: Mapped[str | None] = mapped_column(String(120))
+    photo_thumb: Mapped[str | None] = mapped_column(String(120))
+    photo_webp: Mapped[str | None] = mapped_column(String(120))
+    photo_thumb_webp: Mapped[str | None] = mapped_column(String(120))
+    video_url: Mapped[str] = mapped_column(Text, default="")
+    socials: Mapped[str] = mapped_column(Text, default="[]")            # JSON [{platform,url}]
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    created: Mapped[int | None] = mapped_column(MS)
+    updated: Mapped[int | None] = mapped_column(MS)
+
+
+class PersonPhoto(Base):
+    """Additional-requirements Phase B (migration 030 twin): optional gallery
+    photos for a profile, same original + thumb + WebP variant set as puja media."""
+    __tablename__ = "people_photos"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    person_id: Mapped[str] = mapped_column(String(40), index=True)
+    filename: Mapped[str] = mapped_column(String(120))
+    thumb: Mapped[str | None] = mapped_column(String(120))
+    webp: Mapped[str | None] = mapped_column(String(120))
+    thumb_webp: Mapped[str | None] = mapped_column(String(120))
+    caption: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created: Mapped[int | None] = mapped_column(MS)
+
+
 class QaRecord(Base):
     """Phase 17: one admin-scored QA observation per booking. Dimension
     vocabulary mirrors TrialPooja (014) so trial and live QA speak the same

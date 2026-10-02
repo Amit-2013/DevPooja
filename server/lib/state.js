@@ -26,8 +26,14 @@ function buildState(auth) {
     kundali: { enabled: true, purposes: ['General', 'Marriage', 'Career', 'Business', 'Health & Wellness', 'Finance', 'Education', 'Family', 'Child', 'Spiritual', 'Property', 'Other'] },
     toggles: (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key='service_toggles'").get(); return Object.assign({ home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true }, r ? JSON.parse(r.value) : {}); } catch (e) { return {}; } })(),
     pandits: [], busy: [], reviews: [],
-    me: null, users: [], bookings: [], orders: [], notifs: [], tickets: [], coupons: [], payouts: [], inv: {}, campaigns: [], leads: [], set: {}, hidden: []
+    me: null, users: [], bookings: [], orders: [], notifs: [], tickets: [], coupons: [], payouts: [], inv: {}, campaigns: [], leads: [], set: {}, hidden: [],
+    /* Additional-requirements Phase B: compact public Our People data for the
+       directory/footer; admins additionally get the full rows (inactive too). */
+    peopleCats: [], peopleList: [], peopleAdmin: [], peopleCatsAdmin: []
   };
+  const PEOPLE = require('../services/people');
+  st.peopleCats = PEOPLE.listActiveCategories();
+  st.peopleList = PEOPLE.listActive();
 
   const pRows = db.prepare('SELECT * FROM pandits').all();
   /* Per-pandit flagging follow-up: admins see which pandits are currently
@@ -76,6 +82,8 @@ function buildState(auth) {
       (function () { try { const r = db.prepare("SELECT value FROM settings WHERE key='cancellation_policy'").get(); return { cxp: r ? JSON.parse(r.value) : null }; } catch (e) { return { cxp: null }; } })());
     st.hidden = db.prepare('SELECT id FROM bookings WHERE review_hidden=1').all().map((r) => r.id);
     st.banners = db.prepare('SELECT * FROM banners').all().map((b) => ({ id: b.id, t: b.text, on: !!b.enabled }));
+    st.peopleAdmin = PEOPLE.listAll();
+    st.peopleCatsAdmin = PEOPLE.listCategories();
   }
   return st;
 }

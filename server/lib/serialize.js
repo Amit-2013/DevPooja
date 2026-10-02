@@ -52,10 +52,35 @@ const payout = (r) => ({ id: r.id, p: r.pandit_id, amt: r.amount, date: r.date,
   pd: r.processing_date || null, dd: r.disbursement_date || null, pr: r.payment_ref || null, utr: r.utr || null });
 const coupon = (r) => ({ code: r.code, type: r.type, val: r.val, max: r.max, min: r.min, active: !!r.active, used: r.used, scope: r.scope || 'ALL', pujaId: r.puja_id || null, starts: r.starts || null, expires: r.expires || null, per_user: r.per_user || 0 });
 /* Phase 26: compact CRM lead row for the admin state payload. */
+/* Additional-requirements Phase B: our-people CMS rows. `person` carries the full
+   admin-managed profile (plus its category name for admin tables); `personCard`
+   is the compact public listing shape that rides along in /state; socials and
+   expertise are capped JSON arrays written only through the people service. */
+const peopleCategory = (r) => ({ id: r.id, n: r.name, order: r.sort_order || 0, active: r.active === undefined || r.active === null ? 1 : r.active, created: r.created });
+const person = (r, { admin = false } = {}) => r && ({
+  id: r.id, n: r.name, designation: r.designation || '', categoryId: r.category_id || '',
+  city: r.city || '', country: r.country || '', exp: r.experience || 0,
+  quals: r.qualifications || '', expertise: j(r.expertise, []),
+  intro: r.intro || '', bio: r.bio || '', background: r.background || '', sanatanWork: r.sanatan_work || '',
+  photo: r.photo_file ? '/media/' + r.photo_file : '',
+  photoThumb: r.photo_thumb ? '/media/' + r.photo_thumb : '',
+  photoWebp: r.photo_webp ? '/media/' + r.photo_webp : '',
+  photoThumbWebp: r.photo_thumb_webp ? '/media/' + r.photo_thumb_webp : '',
+  video: r.video_url || '', socials: j(r.socials, []),
+  order: r.sort_order || 0, active: r.active === undefined || r.active === null ? 1 : r.active,
+  created: r.created, updated: r.updated,
+  ...(admin ? { categoryName: r.category_name || '' } : {})
+});
+const personCard = (r) => ({ id: r.id, n: r.name, designation: r.designation || '', categoryId: r.category_id || '',
+  city: r.city || '', country: r.country || '', exp: r.experience || 0, intro: r.intro || '',
+  photo: r.photo_file ? '/media/' + r.photo_file : '', photoThumb: r.photo_thumb ? '/media/' + r.photo_thumb : '', order: r.sort_order || 0 });
+const personPhoto = (r) => ({ id: r.id, url: '/media/' + r.filename, thumb: r.thumb ? '/media/' + r.thumb : '',
+  webp: r.webp ? '/media/' + r.webp : '', thumbWebp: r.thumb_webp ? '/media/' + r.thumb_webp : '', caption: r.caption || '', order: r.sort_order || 0 });
+
 const lead = (r) => ({ id: r.id, type: r.type, n: r.name, details: r.details || '', date: r.date,
   mobile: r.mobile || '', email: r.email || '', service: r.service || '', location: r.location || '',
   st: r.status || 'NEW', assignedTo: r.assigned_to || null, followUpAt: r.follow_up_at || null,
   convertedBookingId: r.converted_booking_id || null,
   dupCount: r.dup_count || 0, lastDupAt: r.last_dup_at || null });
 
-module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon, lead };
+module.exports = { user, pandit, booking, puja, kit, prasad, temple, festival, order, ticket, payout, coupon, lead, peopleCategory, person, personCard, personPhoto };

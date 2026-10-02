@@ -201,6 +201,26 @@ async def nri_packages(db: AsyncSession = Depends(get_db)):
     return {"packages": await NRI.list_active(db)}
 
 
+# --- Additional-requirements Phase B: the Our People directory is public. Only
+# active people in active categories leave the server; the profile carries the
+# admin-managed story and gallery.
+from ..services import people as PEOPLE  # noqa: E402
+
+
+@router.get("/people")
+async def people_directory(db: AsyncSession = Depends(get_db)):
+    return {"categories": await PEOPLE.list_active_categories(db),
+            "people": await PEOPLE.list_active(db)}
+
+
+@router.get("/people/{person_id}")
+async def people_profile(person_id: str, db: AsyncSession = Depends(get_db)):
+    p = await PEOPLE.profile(db, person_id)
+    if not p:
+        raise not_found("Person not found")
+    return {"person": p}
+
+
 @router.get("/nri-orders")
 async def my_nri_orders(auth: dict = Depends(customer_dep), db: AsyncSession = Depends(get_db)):
     return {"orders": await NRI.orders_for(db, auth["uid"])}

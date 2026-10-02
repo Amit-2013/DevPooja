@@ -153,6 +153,61 @@ function seedDemo() {
   } catch (e) { if (!process.env.QUIET) console.warn('[seed] demo kundalis skipped:', e.message); }
 }
 
+/* Additional-requirements Phase B: sample Our People content (DEMO_MODE only).
+   The categories come from migration 030; these rows are what the admin portal
+   then edits. Guarded on an empty table so an admin's own people are never
+   duplicated, and wiped by resetAll() so a demo RESET rebuilds them. */
+function seedDemoPeople() {
+  if (db.prepare('SELECT COUNT(*) c FROM people').get().c) return;
+  const P = [
+    {
+      id: 'perfounder', name: 'Shri Devendra Shastri', designation: 'Founder', categoryId: 'founder',
+      city: 'Delhi NCR', country: 'India', exp: 38, order: 1,
+      quals: 'Shastri and Acharya in Jyotish, Sampurnanand Sanskrit University, Varanasi',
+      expertise: ['Vedic ritual design', 'Temple restoration', 'Community seva', 'Pandit welfare'],
+      intro: 'Founder of DaivikPooja — three decades of puja seva, temple service and building a trusted home for Sanatan traditions.',
+      bio: 'Shri Devendra Shastri began his seva as a young pandit in the lanes of Kashi, performing griha pravesh and satyanarayan katha for families who had no one to guide them through the vidhi. Over three decades he conducted pujas in homes, temples and villages across twelve states, and saw the same difficulty everywhere: families who wanted to worship properly could not find a trustworthy pandit, and learned pandits could not reach the families who needed them. DaivikPooja was founded to close that gap — a platform where every ritual is performed by a verified pandit, every samagri reaches the devotee, and no family is turned away for want of guidance. He continues to review the platform\'s ritual standards and personally mentors young pandits joining the seva.',
+      background: 'Born into a family of Kashi pandits; studied at Sampurnanand Sanskrit University and spent his early years serving temples in Varanasi and Delhi.',
+      sanatanWork: 'Guides the platform\'s ritual standards, leads the annual Kashi pandit meet, and supports the education of children of pandits through the seva fund.',
+      socials: []
+    },
+    {
+      id: 'peracharya', name: 'Acharya Vishwanath Giri', designation: 'Main Acharya (Head Priest)', categoryId: 'main-acharya',
+      city: 'Varanasi', country: 'India', exp: 45, order: 1,
+      quals: 'Shrotriya (traditional six-year pathshala), Acharya in Veda and Agama',
+      expertise: ['Rudrabhishek', 'Shatruvidhvansan', 'Vedic teaching', 'Temple Agama'],
+      intro: 'The platform\'s head priest — a Shrotriya acharya from the Kashi lineage who anchors the ceremonial standards every pandit follows.',
+      bio: 'Acharya Vishwanath Giri belongs to a Shrotriya family of Kashi that has carried the Vedic recitation tradition without a break for seven generations. He completed the full six-year pathshala before his twentieth year, mastered the Rudram, the Samaveda chants and the Agama procedures of temple worship, and has since led rudrabhishek, shatruvidhvansan and mahamrityunjaya anushthans for families from every part of India and the diaspora. As the platform\'s Main Acharya he settles questions of vidhi, approves the ceremonial sequence of every puja offered, and is the acharya of record for large yagnas. His teaching is simple: the ritual is not a performance but a promise, and it must be completed exactly as the shastra prescribes, for the smallest griha puja and the largest havan alike.',
+      background: 'Seventh-generation Kashi pandit; trained in the traditional pathshala method and in the Agama tradition of south Indian temples.',
+      sanatanWork: 'Anchors the platform\'s ceremonial standards, conducts the annual Vishwanath anushthan, and trains acharyas and pandits who join the platform.',
+      socials: []
+    },
+    { id: 'perak1', name: 'Acharya Keshav Shukla', designation: 'Acharya — Rudra and Havan', categoryId: 'acharyas', city: 'Varanasi', country: 'India', exp: 26, order: 1, quals: 'Acharya (Sanskrit), Karmakand specialist', expertise: ['Rudrabhishek', 'Havan vidhi', 'Graha shanti'], intro: 'Rudra and havan acharya known for precise anushthans and clear step-by-step guidance.', bio: 'Acharya Keshav Shukla has performed more than four thousand rudrabhishek and havan anushthans across north India. He leads the platform\'s havan procedures and reviews the samagri list for every fire ritual.', background: '', sanatanWork: 'Supervises havan samagri standards and the training of havan assistants.', socials: [] },
+    { id: 'perak2', name: 'Acharya Lakshmi Narayan Chaturvedi', designation: 'Acharya — Katha and Pravachan', categoryId: 'acharyas', city: 'Prayagraj', country: 'India', exp: 31, order: 2, quals: 'Shastri, Acharya in Purana and Katha', expertise: ['Satyanarayan katha', 'Bhagavata katha', 'Pravachan'], intro: 'Katha acharya whose satyanarayan and bhagavata recitations are a household tradition.', bio: 'Acharya Lakshmi Narayan Chaturvedi has carried the katha tradition of Prayagraj to families across the country, and now to the diaspora over video.', background: '', sanatanWork: 'Guides katha vidhi and mentors younger katha performers.', socials: [] },
+    { id: 'pervs1', name: 'Dr. Sudha Ramanujacharya', designation: 'Vedic Scholar — Sanskrit and Agama', categoryId: 'vedic-scholars', city: 'Chennai', country: 'India', exp: 29, order: 1, quals: 'PhD in Sanskrit, Visistadvaita studies', expertise: ['Vedic text', 'Agama shastra', 'Manuscript study'], intro: 'Scholar of Vedic and Agama texts who reviews the platform\'s ritual references.', bio: 'Dr. Sudha Ramanujacharya teaches Sanskrit and Agama studies and has catalogued temple manuscripts across Tamil Nadu. She verifies the textual basis of the procedures published on the platform.', background: '', sanatanWork: 'Reviews ritual references and supports the digital preservation of temple manuscripts.', socials: [] },
+    { id: 'pervs2', name: 'Pt. Govind Bhattar', designation: 'Vedic Scholar — Temple Agama', categoryId: 'vedic-scholars', city: 'Tiruchirappalli', country: 'India', exp: 33, order: 2, quals: 'Bhattar lineage, Agama praxis', expertise: ['Vaishnava Agama', 'Temple seva', 'Kumbhabhishekam'], intro: 'Temple Agama scholar from the Bhattar lineage who guides the platform\'s temple seva procedures.', bio: 'Pt. Govind Bhattar has served in Vaishnava temples for three decades and advises on kumbhabhishekam and daily temple worship procedures.', background: '', sanatanWork: 'Advises temple partnerships on Agama-compliant seva.', socials: [] },
+    { id: 'perjy1', name: 'Jyotish Acharya Rameshwar Tiwari', designation: 'Jyotish Expert — Shastra Jyotish', categoryId: 'jyotish-experts', city: 'Jaipur', country: 'India', exp: 27, order: 1, quals: 'Acharya in Jyotish, Gold Medalist', expertise: ['Kundali analysis', 'Muhurat', 'Parashari system'], intro: 'Parashari jyotish acharya who reviews kundali analyses and muhurat guidance.', bio: 'Jyotish Acharya Rameshwar Tiwari has prepared kundalis and muhurat guidance for a generation of families in Rajasthan and now reviews the platform\'s jyotish interpretations.', background: '', sanatanWork: 'Mentors jyotish students and reviews platform kundali content.', socials: [] },
+    { id: 'perjy2', name: 'Dr. Meenakshi Narayanan', designation: 'Jyotish Expert — Nadi and Jaimini', categoryId: 'jyotish-experts', city: 'Chennai', country: 'India', exp: 22, order: 2, quals: 'PhD (Astronomy), Jyotish Visharad', expertise: ['Jaimini sutras', 'Nadi reading', 'Astronomy'], intro: 'Combines classical Jyotish with astronomy training for careful, evidence-led readings.', bio: 'Dr. Meenakshi Narayanan studies the Jaimini system alongside modern astronomy, and helps keep the platform\'s ephemeris and dasha calculations faithful to the shastra.', background: '', sanatanWork: 'Validates planetary calculations and teaches Jyotish fundamentals.', socials: [] },
+    { id: 'perpd1', name: 'Pt. Devdatt Pandey', designation: 'Senior Pandit — Kashi Vidvat', categoryId: 'pandits', city: 'Varanasi', country: 'India', exp: 24, order: 1, quals: 'Kashi Vidvat Pariksha', expertise: ['Griha pravesh', 'Vivah', 'Pitru seva'], intro: 'Kashi Vidvat pandit for life-event ceremonies across the traditional vidhi.', bio: 'Pt. Devdatt Pandey cleared the Kashi Vidvat examination and performs griha pravesh, vivah and pitru sevas in Kashi and beyond.', background: '', sanatanWork: 'Guides young pandits preparing for the Vidvat examination.', socials: [] },
+    { id: 'perpd2', name: 'Pt. Aniruddh Joshi', designation: 'Pandit — Griha and Vyapar pujas', categoryId: 'pandits', city: 'Pune', country: 'India', exp: 17, order: 2, quals: 'Shastri, Vastu specialist', expertise: ['Vastu shanti', 'Vyapar puja', 'Ganesh puja'], intro: 'Pune pandit for home, shop and office ceremonies, in Marathi and Hindi.', bio: 'Pt. Aniruddh Joshi performs vastu shanti and vyapar pujas for homes, shops and offices across Pune and Mumbai.', background: '', sanatanWork: 'Helps families prepare for griha pravesh with correct vastu guidance.', socials: [] },
+    { id: 'perpd3', name: 'Pt. Suryakant Pawar', designation: 'Pandit — Marathi and Kannada rituals', categoryId: 'pandits', city: 'Nashik', country: 'India', exp: 14, order: 3, quals: 'Karmakand diploma, multilingual', expertise: ['Satyanarayan katha', 'Navgraha shanti', 'Namkaran'], intro: 'Multilingual pandit serving families across Maharashtra and Karnataka.', bio: 'Pt. Suryakant Pawar conducts pujas in Marathi, Kannada and Hindi, with clear explanations for every step.', background: '', sanatanWork: 'Conducts village temple services and festival sevas.', socials: [] },
+    { id: 'pertr1', name: 'Shri Raghunath Iyer', designation: 'Temple Representative — Tamil Nadu', categoryId: 'temple-reps', city: 'Madurai', country: 'India', exp: 20, order: 1, quals: 'Temple administration, Agama coordination', expertise: ['Temple seva', 'Prasad dispatch', 'Local coordination'], intro: 'Coordinates temple seva and prasad dispatch with partner temples in Tamil Nadu.', bio: 'Shri Raghunath Iyer has worked with temple administrations for two decades and coordinates the platform\'s partner temple services south of the Vindhyas.', background: '', sanatanWork: 'Supports temple upkeep and annadanam programmes.', socials: [] },
+    { id: 'pertr2', name: 'Smt. Kamala Devi', designation: 'Temple Representative — Kashi', categoryId: 'temple-reps', city: 'Varanasi', country: 'India', exp: 16, order: 2, quals: 'Temple seva volunteer coordinator', expertise: ['Temple seva', 'Annadanam', 'Devotee support'], intro: 'Coordinates devotee support and annadanam at the platform\'s Kashi partner temples.', bio: 'Smt. Kamala Devi organises annadanam and devotee assistance at Kashi temples, and is the first point of contact for families booking temple sevas.', background: '', sanatanWork: 'Runs annadanam and festival seva coordination in Kashi.', socials: [] },
+    { id: 'perad1', name: 'Dr. Vikram Aditya Deshmukh', designation: 'Advisor — Vedic Education', categoryId: 'advisors', city: 'Nagpur', country: 'India', exp: 28, order: 1, quals: 'PhD (Education), Vedic studies', expertise: ['Vedic education', 'Gurukul policy', 'Youth programmes'], intro: 'Advisor on Vedic education and youth gurukul programmes.', bio: 'Dr. Vikram Aditya Deshmukh advises the platform on scholarship and gurukul partnerships that keep traditional learning accessible to young students.', background: '', sanatanWork: 'Advises on pathshala scholarships and youth Vedic programmes.', socials: [] },
+    { id: 'perad2', name: 'Ms. Shruti Raghavan', designation: 'Advisor — Dharma and Legal', categoryId: 'advisors', city: 'Bengaluru', country: 'India', exp: 19, order: 2, quals: 'LLM, dharma shastra studies', expertise: ['Trust governance', 'Temple law', 'Ethics review'], intro: 'Legal advisor for trust governance and ethics review.', bio: 'Ms. Shruti Raghavan guides the platform on trust governance, temple regulations and the ethical review of seva programmes.', background: '', sanatanWork: 'Advises on temple trusts and transparent seva governance.', socials: [] },
+    { id: 'perteam1', name: 'Shri Aditya Kulkarni', designation: 'Team — Operations', categoryId: 'team', city: 'Pune', country: 'India', exp: 12, order: 1, quals: 'MBA, operations management', expertise: ['Booking operations', 'Pandit network', 'Quality'], intro: 'Runs day-to-day booking operations and the pandit network.', bio: 'Shri Aditya Kulkarni manages booking operations and the verification pipeline that every pandit passes before their first seva.', background: '', sanatanWork: 'Keeps pandit verification and booking quality accountable.', socials: [] },
+    { id: 'perteam2', name: 'Smt. Bhavna Mishra', designation: 'Team — Customer Seva', categoryId: 'team', city: 'Lucknow', country: 'India', exp: 9, order: 2, quals: 'MA (Hindi), customer care', expertise: ['Devotee support', 'Multilingual help', 'Escalations'], intro: 'Leads devotee support in Hindi and English across every channel.', bio: 'Smt. Bhavna Mishra leads the support team that answers every devotee question in Hindi and English, from booking to prasad delivery.', background: '', sanatanWork: 'Ensures no devotee enquiry goes unanswered.', socials: [] },
+    { id: 'perteam3', name: 'Shri Naveen Chauhan', designation: 'Team — Technology', categoryId: 'team', city: 'Delhi NCR', country: 'India', exp: 11, order: 3, quals: 'B.Tech, software engineering', expertise: ['Platform engineering', 'Payments', 'Data'], intro: 'Builds and runs the platform that connects devotees, pandits and temples.', bio: 'Shri Naveen Chauhan looks after the platform\'s engineering — bookings, payments and the tools the seva team uses every day.', background: '', sanatanWork: 'Keeps the digital seva infrastructure reliable for every devotee.', socials: [] }
+  ];
+  const ins = db.prepare(`INSERT INTO people(id,name,designation,category_id,city,country,experience,qualifications,expertise,
+      intro,bio,background,sanatan_work,video_url,socials,sort_order,active,created,updated)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`);
+  const now = Date.now();
+  tx(() => P.forEach((p) => ins.run(p.id, p.name, p.designation || '', p.categoryId, p.city || '', p.country || '',
+    p.exp || 0, p.quals || '', JSON.stringify(p.expertise || []), p.intro || '', p.bio || '',
+    p.background || '', p.sanatanWork || '', p.video || '', JSON.stringify(p.socials || []), p.order || 0, now, now)))();
+}
+
 /* Kundali module seed: condition -> puja rules, havan kunds and samagri for the
    recommended pujas. Runs after seedCatalog (needs pujas). Idempotent, and safe on
    databases where pujas were added by migration 004 instead of the JSON seed. */
@@ -226,6 +281,10 @@ function resetAll() {
     'kits', 'prasad', 'temples', 'festivals', 'havan_kunds', 'samagri_items', 'kundali_conditions',
     'custom_requests',
     'family_members', 'export_logs', 'idempotency_keys',
+    /* Additional-requirements Phase B: demo people + their gallery go before
+       the catalogue; the categories are reference data and survive a reset
+       (the migration seed restores them if ever missing). */
+    'people_photos', 'people',
     'puja_media', 'login_activity', 'password_resets',
     'kyc_documents', 'trial_poojas', 'agreement_acceptances', 'agreements',
     'pandits', 'pujas', 'users'
@@ -308,7 +367,11 @@ function backfillHindi() {
    assigned by bootstrap(); tests await settledMedia() so they never race it. */
 let bootMediaChain = Promise.resolve();
 
-function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin(); if (demoOn()) seedDemo();
+function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); backfillHindi(); ensureAdmin();
+  /* Demo people are seeded independently of seedDemo()'s early return, so an
+     existing demo database that gains migration 030 also gets the sample CMS
+     rows (the function itself no-ops once any person exists). */
+  if (demoOn()) { seedDemo(); seedDemoPeople(); }
   /* Bundled puja photos (freely licensed, see shared/seed-photos/CREDITS.md): copied
      into puja_media once per puja. Pujas that already have media are never touched.
      The chain is SEQUENTIAL on purpose: photoSeed and repairAll both run sharp over

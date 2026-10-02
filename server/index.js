@@ -151,6 +151,15 @@ app.get('/api/health', (_q, r) => r.json({ ok: true }));
 app.get('/api/state', (req, res) => res.json(buildState(req.auth)));
 /* Phase 13: the NRI catalogue is public (anonymous browsing, authed checkout) */
 app.get('/api/nri-packages', (req, res) => res.json({ packages: require('./services/nri').listActive() }));
+/* Additional-requirements Phase B: the Our People directory is public. Only
+   active people in active categories leave the server; the profile carries the
+   admin-managed story and gallery. */
+app.get('/api/people', (req, res) => res.json({ categories: require('./services/people').listActiveCategories(), people: require('./services/people').listActive() }));
+app.get('/api/people/:id', (req, res) => {
+  const p = require('./services/people').profile(req.params.id);
+  if (!p) throw new HttpError(404, 'Person not found');
+  res.json({ person: p });
+});
 app.post('/api/quote', (req, res) => {
   const user = req.auth && req.auth.role === 'customer' ? db.prepare('SELECT * FROM users WHERE id=?').get(req.auth.uid) : null;
   const r = B.priceRequest(user, req.body, { strictCoupon: false });
