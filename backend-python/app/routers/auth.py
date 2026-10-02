@@ -17,7 +17,7 @@ from ..security import AuthError, current_auth, sign_token
 from ..services.auth_helpers import (check_lock, hash_password, login_ok,
                                      log_login, refuse_inactive,
                                      register_failure, verify_password)
-from ..util import bad, http_error, v_email, v_str
+from ..util import bad, http_error, v_email, v_one_of, v_str
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -31,10 +31,20 @@ def _new_uid() -> str:
     return "u" + format(int(time.time() * 1000), "x") + secrets.token_hex(2)
 
 
+def _account_type(x) -> str:
+    """Account type at registration (additional-requirements Phase A): stored
+    on the SAME account row, never a second account. Missing = "normal" so
+    existing clients keep working; invalid values are rejected clearly."""
+    if x in (None, ""):
+        return "normal"
+    return v_one_of(str(x).lower(), ["normal", "nri"], "Account type")
+
+
 class EmailBody(BaseModel):
     email: str
     password: str
     name: str | None = None
+    accountType: str | None = None
 
 
 class AdminBody(BaseModel):
@@ -52,6 +62,8 @@ async def email_login(body: EmailBody, request: Request, db: AsyncSession = Depe
     email = v_email(body.email)
     if len(body.password) < 8:
         raise bad("Password needs at least 8 characters")
+    at = _account_type(body.accountType)
+    created = False
     u = (await db.execute(
         select(User).where(User.email == email, User.role == "customer"))).scalar_one_or_none()
     if u:
@@ -68,13 +80,15 @@ async def email_login(body: EmailBody, request: Request, db: AsyncSession = Depe
         u = User(id=uid, role="customer",
                  name=v_str(body.name, "Name", optional=True, max_len=80) or "Devotee",
                  email=email, pass_hash=hash_password(body.password),
+                 account_type=at,
                  pts=50, pref='{"deity":"","lang":"English","wa":true,"sms":true,"em":true}',
                  joined=time.strftime("%Y-%m-%d"), created_at=int(time.time() * 1000))
         db.add(u)
         await db.flush()
+        created = True
     meta = await login_ok(db, u, "email", request.client.host if request.client else "")
     return {"token": sign_token(u.id, u.role), "role": "customer",
-            "mustChangePassword": meta["mustChangePassword"]}
+            "mustChangePassword": meta["mustChangePassword"], "created": created}
 
 
 @router.post("/admin")
@@ -150,6 +164,8 @@ async def otp_verify(body: dict, request: Request, db: AsyncSession = Depends(ge
         meta = await login_ok(db, u, "mobile-otp", ip)
         return {"token": sign_token(u.id, "pandit", p.id), "role": "pandit",
                 "mustChangePassword": meta["mustChangePassword"]}
+    at = _account_type(b.get("accountType"))
+    created = False
     u = (await db.execute(
         select(User).where(User.mobile == mobile, User.role == "customer"))).scalar_one_or_none()
     if not u:
@@ -158,15 +174,16 @@ async def otp_verify(body: dict, request: Request, db: AsyncSession = Depends(ge
         uid = _new_uid()
         u = User(id=uid, role="customer",
                  name=v_str(b.get("name"), "Name", optional=True, max_len=80) or "Devotee",
-                 mobile=mobile, pts=50,
+                 mobile=mobile, pts=50, account_type=at,
                  pref='{"deity":"","lang":"English","wa":true,"sms":true,"em":true}',
                  joined=time.strftime("%Y-%m-%d"), created_at=int(time.time() * 1000))
         db.add(u)
         await db.flush()
+        created = True
     refuse_inactive(u)
     meta = await login_ok(db, u, "mobile-otp", ip)
     return {"token": sign_token(u.id, u.role), "role": "customer",
-            "mustChangePassword": meta["mustChangePassword"]}
+            "mustChangePassword": meta["mustChangePassword"], "created": created}
 
 
 @router.post("/demo")

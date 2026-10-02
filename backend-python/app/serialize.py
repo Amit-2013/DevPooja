@@ -8,9 +8,13 @@ from .util import j
 def user(r) -> dict | None:
     if r is None:
         return None
+    # accountType/location (additional-requirements Phase A, migration 029):
+    # NRI is a property of the SAME account; location carries only what the
+    # app needs (city, country, optional coordinates, how they were captured).
     return {"id": r.id, "n": r.name, "m": r.mobile or "", "e": r.email or "", "pts": r.pts,
             "plus": bool(r.plus), "addr": j(r.addr, []), "fam": j(r.fam, []),
-            "pref": j(r.pref, {}), "joined": r.joined}
+            "pref": j(r.pref, {}), "joined": r.joined,
+            "accountType": r.account_type or "normal", "location": j(r.location, {})}
 
 
 def pandit(r, *, admin: bool = False, self: bool = False, flagged: bool = False) -> dict | None:

@@ -12,13 +12,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import (Booking, Coupon, Kit, Notif, Order, Prasad, Setting,
-                      Ticket, User)
+from ..models import (AuditLog, Booking, Coupon, Kit, Notif, Order, Prasad,
+                      Setting, Ticket, User)
 from ..security import require_role
 from ..serialize import booking as s_booking, order as s_order, user as s_user
 from ..services import bookings as B
 from ..services import payments as pay
-from ..util import bad, conflict, http_error, j, not_found, rid, v_arr, v_email, v_int, v_str
+from ..util import (bad, conflict, http_error, j, not_found, rid, v_arr,
+                     v_email, v_int, v_one_of, v_str)
 
 router = APIRouter(prefix="/api", tags=["customer"])
 customer_dep = require_role("customer")
@@ -26,6 +27,39 @@ customer_dep = require_role("customer")
 
 def _me(db: AsyncSession, auth: dict) -> User:
     return db.get(User, auth["uid"])
+
+
+def _location_shape(x) -> dict:
+    """Profile location (additional-requirements Phase A): only the fields the
+    app needs — city, country, optional coordinates captured with the user's
+    permission, and how it was entered. Extra keys are ignored; junk
+    coordinates/sources are rejected. An empty object clears the location."""
+    l = x or {}
+
+    def coord(n, lo, hi, label):
+        if n in (None, ""):
+            return None
+        try:
+            c = float(n)
+        except (TypeError, ValueError):
+            raise bad(label + " is invalid")
+        if c < lo or c > hi:
+            raise bad(label + " is invalid")
+        return c
+
+    out = {"city": v_str(l.get("city"), "City", optional=True, max_len=80),
+           "country": v_str(l.get("country"), "Country", optional=True, max_len=80),
+           "lat": coord(l.get("lat"), -90, 90, "Latitude"),
+           "lon": coord(l.get("lon"), -180, 180, "Longitude"),
+           "source": v_one_of(str(l.get("source")).lower(), ["auto", "manual"],
+                              "Location source") if l.get("source") else ""}
+    if not out["city"] and not out["country"] and out["lat"] is None and out["lon"] is None:
+        return {}
+    now = int(time.time() * 1000)
+    ca = l.get("consentAt")
+    out["consentAt"] = int(ca) if isinstance(ca, (int, float)) else now
+    out["updatedAt"] = now
+    return out
 
 
 # --- available pandits (Phase 3: same centralized rules as the booking engine) ---
@@ -64,9 +98,31 @@ async def update_me(body: dict, auth: dict = Depends(customer_dep),
     pref = {"deity": v_str(p.get("deity"), "Deity", optional=True, max_len=40),
             "lang": v_str(p.get("lang") or "English", "Language", max_len=20),
             "wa": bool(p.get("wa")), "sms": bool(p.get("sms")), "em": bool(p.get("em"))}
+    # Phase A additions: account-type switching (same account, never a second
+    # account) and the optional profile location — both audited.
+    prev_type = u.account_type or "normal"
+    account_type = prev_type
+    if b.get("accountType") not in (None, ""):
+        account_type = v_one_of(str(b.get("accountType")).lower(), ["normal", "nri"],
+                                "Account type")
+    location = _location_shape(b.get("location")) if "location" in b else j(u.location, {})
     u.name, u.email, u.pref = name, email, json.dumps(pref)
+    u.account_type, u.location = account_type, json.dumps(location)
+    if account_type != prev_type:
+        db.add(AuditLog(actor_user_id=u.id, actor_role=u.role,
+                        action="user.account_type_switch", entity="user", entity_id=u.id,
+                        detail=json.dumps({"from": prev_type, "to": account_type}),
+                        old_value=json.dumps(prev_type), new_value=json.dumps(account_type),
+                        reason=(str(b.get("reason"))[:200] if b.get("reason") else None),
+                        created_at=int(time.time() * 1000)))
+    if "location" in b:
+        db.add(AuditLog(actor_user_id=u.id, actor_role=u.role,
+                        action="user.location_update", entity="user", entity_id=u.id,
+                        detail=json.dumps({"source": location.get("source", ""),
+                                           "city": location.get("city", "")}),
+                        created_at=int(time.time() * 1000)))
     await db.flush()
-    return {"ok": True}
+    return {"ok": True, "accountType": account_type, "location": location}
 
 
 @router.post("/me/addresses")

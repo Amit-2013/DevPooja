@@ -31,6 +31,11 @@ class User(Base):
     last_login_method: Mapped[str] = mapped_column(String(20), default="")
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[int | None] = mapped_column(MS)
+    # Additional-requirements Phase A (migration 029): NRI is a property of the
+    # SAME account (never a second users row); location is the optional profile
+    # capture stored as JSON text, exactly like the Node column.
+    account_type: Mapped[str] = mapped_column(String(10), default="normal")
+    location: Mapped[str] = mapped_column(Text, default="{}")
 
 
 class Pandit(Base):

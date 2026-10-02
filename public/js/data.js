@@ -10,8 +10,8 @@ const uid=p=>p+Math.random().toString(36).slice(2,7).toUpperCase();
 const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const stars=r=>'<span class="star" aria-label="'+r+' out of 5">'+'★'.repeat(Math.round(r))+'☆'.repeat(5-Math.round(r))+'</span>';
 
-const T={en:{pujas:'Pujas',pandits:'Pandits',temples:'Temples',samagri:'Samagri',prasad:'Prasad',festivals:'Festivals',kundali:'Kundali',astrology:'Astrology',corporate:'Corporate',login:'Login',h1a:'The whole puja,',h1b:'arranged in one place.',lead:'Choose the right puja, book a verified pandit, get samagri at your door, watch the ritual, and receive prasad.',search:'Search pujas, e.g. Griha Pravesh',find:'Find puja',sk:'Tell us your sankalp',book:'Book now'},
-hi:{pujas:'पूजा',pandits:'पंडित',temples:'मंदिर',samagri:'सामग्री',prasad:'प्रसाद',festivals:'त्योहार',kundali:'कुंडली',astrology:'ज्योतिष',corporate:'कॉर्पोरेट',login:'लॉगिन',h1a:'संपूर्ण पूजा,',h1b:'एक ही जगह पर।',lead:'सही पूजा चुनें, सत्यापित पंडित बुक करें, सामग्री घर पर पाएँ, पूजा देखें और प्रसाद प्राप्त करें।',search:'पूजा खोजें, जैसे गृह प्रवेश',find:'पूजा खोजें',sk:'अपना संकल्प बताएँ',book:'अभी बुक करें',
+const T={en:{pujas:'Pujas',nri:'NRI Puja',pandits:'Pandits',temples:'Temples',samagri:'Samagri',prasad:'Prasad',festivals:'Festivals',kundali:'Kundali',astrology:'Astrology',corporate:'Corporate',login:'Login',h1a:'The whole puja,',h1b:'arranged in one place.',lead:'Choose the right puja, book a verified pandit, get samagri at your door, watch the ritual, and receive prasad.',search:'Search pujas, e.g. Griha Pravesh',find:'Find puja',sk:'Tell us your sankalp',book:'Book now'},
+hi:{pujas:'पूजा',nri:'एनआरआई पूजा',pandits:'पंडित',temples:'मंदिर',samagri:'सामग्री',prasad:'प्रसाद',festivals:'त्योहार',kundali:'कुंडली',astrology:'ज्योतिष',corporate:'कॉर्पोरेट',login:'लॉगिन',h1a:'संपूर्ण पूजा,',h1b:'एक ही जगह पर।',lead:'सही पूजा चुनें, सत्यापित पंडित बुक करें, सामग्री घर पर पाएँ, पूजा देखें और प्रसाद प्राप्त करें।',search:'पूजा खोजें, जैसे गृह प्रवेश',find:'पूजा खोजें',sk:'अपना संकल्प बताएँ',book:'अभी बुक करें',
  details:'विवरण',min:'मिनट',from:'से',newPuja:'नई पूजा चाहिए? अनुरोध भेजें',send:'भेजें',
  stNew:'नया',stConfirmed:'पुष्ट',stAssigned:'पंडित नियुक्त',stStarted:'प्रारंभ',stCompleted:'पूर्ण',stCancelled:'रद्द',stPendingPayment:'भुगतान लंबित'}};
 /* Booking status labels (badge()); Hindi when lang==='hi'. */
@@ -22,6 +22,10 @@ let lang=store.get('dp_lang','en');const t=k=>(T[lang]||T.en)[k]||T.en[k]||k;
 const MODES=Pricing.MODES;
 const SLOTS=Pricing.SLOTS;
 const CITIES=['Delhi NCR','Mumbai','Bengaluru','Pune','Jaipur','Lucknow','Varanasi','Ahmedabad','Chennai','Hyderabad'];
+/* Optional profile-location capture (Phase A): offline nearest-city resolution —
+   no external geocoding. Covers the service cities plus major NRI markets. */
+const HUB_CITIES=[['Delhi NCR',28.61,77.21,'India'],['Mumbai',19.08,72.88,'India'],['Bengaluru',12.97,77.59,'India'],['Pune',18.52,73.86,'India'],['Jaipur',26.91,75.79,'India'],['Lucknow',26.85,80.95,'India'],['Varanasi',25.32,82.97,'India'],['Ahmedabad',23.02,72.57,'India'],['Chennai',13.08,80.27,'India'],['Hyderabad',17.38,78.49,'India'],['Kolkata',22.57,88.36,'India'],['Kochi',9.93,76.27,'India'],['New York',40.71,-74.01,'United States'],['Toronto',43.65,-79.38,'Canada'],['London',51.51,-0.13,'United Kingdom'],['Sydney',-33.87,151.21,'Australia'],['Dubai',25.20,55.27,'UAE'],['Singapore',1.35,103.82,'Singapore'],['Kuala Lumpur',3.14,101.69,'Malaysia']];
+function nearestHub(lat,lon){let best=null,bd=1e9;HUB_CITIES.forEach(h=>{const R=6371,dLat=(h[1]-lat)*Math.PI/180,dLon=(h[2]-lon)*Math.PI/180,la1=lat*Math.PI/180,la2=h[1]*Math.PI/180;const a=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;const d=2*R*Math.asin(Math.min(1,Math.sqrt(a)));if(d<bd){bd=d;best=h}});return best&&bd<=250?{city:best[0],country:best[3]}:null}
 const CATS=['Festival','Life Event','Health & Dosha','Prosperity','Deity Worship'];
 const STATUSES=['New','Confirmed','Assigned','Started','Completed','Cancelled'];
 

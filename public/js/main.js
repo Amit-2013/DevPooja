@@ -30,8 +30,8 @@ const ACT={
  print(){try{window.print()}catch(e){toast('Printing is not available here')}},
  ltab(d,el){$$('.tabs button',el.closest('.mbox')).forEach(b=>b.classList.toggle('on',b===el));$('#lb').innerHTML=loginForm(d.v)},
  async sendotp(d,el){try{const r=await api('/auth/otp/send',{body:{mobile:val('lm')}});$('#lotp').innerHTML='<label class="f mt">Enter the 6-digit OTP'+(r.devOtp?' (demo OTP: '+r.devOtp+')':' sent by SMS')+'<input id="lo" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>';el.textContent='Verify and continue';el.dataset.act='verifyotp';$('#lo').focus()}catch(e){toast(e.message)}},
- async verifyotp(){try{doLogin(await api('/auth/otp/verify',{body:{mobile:val('lm'),otp:val('lo'),name:val('ln'),as:PAGE.la==='pandit'?'pandit':undefined}}))}catch(e){toast(e.message)}},
- async emlogin(){try{doLogin(await api('/auth/email',{body:{email:val('le'),password:val('lp'),name:val('ln')}}))}catch(e){toast(e.message)}},
+ async verifyotp(){try{doLogin(await api('/auth/otp/verify',{body:{mobile:val('lm'),otp:val('lo'),name:val('ln'),accountType:PAGE.la==='pandit'?undefined:atChoice(),as:PAGE.la==='pandit'?'pandit':undefined}}))}catch(e){toast(e.message)}},
+ async emlogin(){try{doLogin(await api('/auth/email',{body:{email:val('le'),password:val('lp'),name:val('ln'),accountType:atChoice()}}))}catch(e){toast(e.message)}},
  async 'demo-user'(){try{doLogin(await api('/auth/demo',{body:{role:'customer'}}))}catch(e){toast(e.message)}},
  /* customised puja request (public form) */
  async cpureq(){if(!chk(val('cun'))||!/\d{10}/.test(val('cum').replace(/\D/g,'')))return toast('Enter your name and a 10-digit mobile');
@@ -114,6 +114,11 @@ const ACT={
  rstar(d){PAGE.rv.r=+d.v;$$('#rst .chip').forEach((c,i)=>c.classList.toggle('on',i<+d.v))},
  async brevok(){await closeAnd(run(()=>api('/bookings/'+PAGE.rv.id+'/review',{body:{r:PAGE.rv.r,t:val('rvt')}}),'Thank you. You earned 10 points.'))},
  psave(){run(()=>api('/me',{method:'PATCH',body:{name:val('pn'),email:val('pe'),pref:{deity:val('pdv'),lang:val('pl2'),wa:$('#pwa').checked,sms:$('#psm').checked,em:$('#pem').checked}}}),'Profile saved')},
+ /* Phase A: account-type switch + optional location (profile and signup modal) */
+ atsave(){const el=document.querySelector('input[name=pat]:checked');if(!el)return;run(()=>api('/me',{method:'PATCH',body:{accountType:el.value}}),'Account type updated')},
+ locuse(){doLocUse('lm')},locsave(){doLocSave('lm')},
+ plocuse(){doLocUse('pf')},plocsave(){doLocSave('pf')},
+ plocclear(){run(()=>api('/me',{method:'PATCH',body:{location:{}}}),'Location cleared')},
  aadd(){run(()=>api('/me/addresses',{body:{l:val('al'),line:val('ai'),city:val('ac'),pin:val('ap')}}),'Address saved')},
  adel(d){run(()=>api('/me/addresses/'+d.id,{method:'DELETE'}))},
  async fadd(){try{await api('/me/family',{body:{relationship:val('frel')||undefined,name:val('fn'),gender:val('fgen')||undefined,dob:val('fdob')||undefined,tob:val('ftob')||undefined,gotra:val('fg')||undefined,city:val('fcity')||undefined}});await sync();toast('Family member saved');render(true)}catch(e){toast(e.message)}},

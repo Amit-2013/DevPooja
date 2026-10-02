@@ -62,7 +62,7 @@ function kitCard(k){return'<article class="card"><div class="row sp"><span style
 
 function header(){
  const r=route(),u=me(),tg=(db&&db.toggles)||{};
- const navs=[['pujas','pujas',tg.home!==false&&tg.online!==false&&tg.temple!==false&&tg.customized!==false],['pandits','pandits',tg.pandit!==false],['temples','temples',tg.templeDir!==false],['samagri','samagri',tg.samagri!==false],['prasad','prasad',tg.prasad!==false],['festivals','festivals',true],['kundali','kundali',tg.kundali!==false],['astrology','astrology',tg.astrology!==false],['corporate','corporate',true]].filter(n=>n[2]);
+ const navs=[['pujas','pujas',tg.home!==false&&tg.online!==false&&tg.temple!==false&&tg.customized!==false],['nri-packages','nri',tg.nri!==false],['pandits','pandits',tg.pandit!==false],['temples','temples',tg.templeDir!==false],['samagri','samagri',tg.samagri!==false],['prasad','prasad',tg.prasad!==false],['festivals','festivals',true],['kundali','kundali',tg.kundali!==false],['astrology','astrology',tg.astrology!==false],['corporate','corporate',true]].filter(n=>n[2]);
  let usr='<button class="btn s" data-act="login">'+t('login')+'</button>';
  if(u)usr='<a class="btn s sec" href="#/account">'+esc(u.n.split(' ')[0])+(u.plus?' Plus':'')+'</a>';
  if(session&&session.role==='pandit')usr='<a class="btn s sec" href="#/portal">Pandit portal</a>';

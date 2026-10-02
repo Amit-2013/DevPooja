@@ -11,6 +11,16 @@ const { v, bad, HttpError, today, wrap } = require('../lib/util');
 const limiter = (max) => rateLimit({ windowMs: 15 * 60 * 1000, limit: max, standardHeaders: true, legacyHeaders: false, skip: () => process.env.NODE_ENV === 'test', message: { error: 'Too many attempts. Try again in a few minutes.' } });
 const hash = (m, code) => crypto.createHash('sha256').update(m + ':' + code + ':' + (process.env.JWT_SECRET || 'dev')).digest('hex');
 const demoOn = () => String(process.env.DEMO_MODE || (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true';
+/* Account type (additional-requirements Phase A): asked at registration and
+   stored on the SAME account row — never a second account. Missing values
+   default to 'normal' so existing clients keep working; invalid values are
+   rejected with a clear message instead of being silently coerced. */
+const accountType = (x) => {
+  if (x === undefined || x === null || x === '') return 'normal';
+  const t = String(x).toLowerCase();
+  if (t !== 'normal' && t !== 'nri') throw bad('Account type must be "normal" or "nri"');
+  return t;
+};
 
 function verifyOtp(mobile, code) {
   const r = db.prepare('SELECT * FROM otps WHERE mobile=?').get(mobile);
@@ -98,23 +108,28 @@ router.post('/otp/verify', limiter(30), (req, res) => {
     const meta = loginOk(u, 'mobile-otp', req);
     return res.json({ token: sign({ id: p.user_id, role: 'pandit' }, p.id), role: 'pandit', mustChangePassword: meta.mustChangePassword });
   }
+  const at = accountType(req.body.accountType);
   let u = db.prepare("SELECT * FROM users WHERE mobile=? AND role='customer'").get(mobile);
+  let created = false;
   if (!u) {
     if (db.prepare('SELECT 1 FROM users WHERE mobile=?').get(mobile)) throw bad('This number belongs to a partner account');
     const id = 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-    db.prepare("INSERT INTO users(id,role,name,mobile,pts,pref,joined,created_at) VALUES(?,'customer',?,?,50,?,?,?)").run(id, v.str(req.body.name, 'Name', { optional: true, max: 80 }) || 'Devotee', mobile, JSON.stringify({ deity: '', lang: 'English', wa: true, sms: true, em: true }), today(), Date.now());
+    db.prepare("INSERT INTO users(id,role,name,mobile,pts,pref,joined,created_at,account_type) VALUES(?,'customer',?,?,50,?,?,?,?)").run(id, v.str(req.body.name, 'Name', { optional: true, max: 80 }) || 'Devotee', mobile, JSON.stringify({ deity: '', lang: 'English', wa: true, sms: true, em: true }), today(), Date.now(), at);
     u = db.prepare('SELECT * FROM users WHERE id=?').get(id);
+    created = true;
   }
   if (u.status && u.status !== 'active') throw new HttpError(403, u.status === 'suspended' ? 'Your account is suspended. Please contact support.' : 'This account has been disabled. Please contact support.');
   const meta = loginOk(u, 'mobile-otp', req);
-  res.json({ token: sign(u), role: 'customer', mustChangePassword: meta.mustChangePassword });
+  res.json({ token: sign(u), role: 'customer', mustChangePassword: meta.mustChangePassword, created });
 });
 
 /* Email + password: signs in an existing account, or creates one (name required) */
 router.post('/email', limiter(20), (req, res) => {
   const email = v.email(req.body.email), pw = String(req.body.password || '');
   if (pw.length < 8) throw bad('Password needs at least 8 characters');
+  const at = accountType(req.body.accountType);
   let u = db.prepare("SELECT * FROM users WHERE email=? AND role='customer'").get(email);
+  let created = false;
   if (u) {
     if (u.status && u.status !== 'active') throw new HttpError(403, u.status === 'suspended' ? 'Your account is suspended. Please contact support.' : 'This account has been disabled. Please contact support.');
     if (!u.pass_hash) throw bad('This account uses mobile OTP. Please log in with your mobile number.');
@@ -122,11 +137,12 @@ router.post('/email', limiter(20), (req, res) => {
     if (!bcrypt.compareSync(pw, u.pass_hash)) { auditMod.logLogin(u.id, 'email', 0, 'wrong password', req.ip || ''); registerFailure(u.id); throw new HttpError(401, 'Incorrect email or password'); }
   } else {
     const id = 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-    db.prepare("INSERT INTO users(id,role,name,email,pass_hash,pts,pref,joined,created_at) VALUES(?,'customer',?,?,?,50,?,?,?)").run(id, v.str(req.body.name, 'Name', { optional: true, max: 80 }) || 'Devotee', email, bcrypt.hashSync(pw, 10), JSON.stringify({ deity: '', lang: 'English', wa: true, sms: true, em: true }), today(), Date.now());
+    db.prepare("INSERT INTO users(id,role,name,email,pass_hash,pts,pref,joined,created_at,account_type) VALUES(?,'customer',?,?,?,50,?,?,?,?)").run(id, v.str(req.body.name, 'Name', { optional: true, max: 80 }) || 'Devotee', email, bcrypt.hashSync(pw, 10), JSON.stringify({ deity: '', lang: 'English', wa: true, sms: true, em: true }), today(), Date.now(), at);
     u = db.prepare('SELECT * FROM users WHERE id=?').get(id);
+    created = true;
   }
   const meta = loginOk(u, 'email', req);
-  res.json({ token: sign(u), role: 'customer', mustChangePassword: meta.mustChangePassword });
+  res.json({ token: sign(u), role: 'customer', mustChangePassword: meta.mustChangePassword, created });
 });
 
 router.post('/admin', limiter(10), (req, res) => {

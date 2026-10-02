@@ -5,6 +5,7 @@ const B = require('../services/bookings');
 const pay = require('../services/payments');
 const S = require('../lib/serialize');
 const { v, bad, conflict, notFound, HttpError, today, j, rid, wrap } = require('../lib/util');
+const auditMod = require('../lib/audit');
 const { notify } = require('../services/notify');
 const P = require('../../shared/pricing');
 const C = require('../services/coupons');
@@ -25,6 +26,30 @@ router.get('/pandits/available', (req, res) => {
   res.json({ pandits: list });
 });
 
+/* Profile location (additional-requirements Phase A): only the fields the app
+   needs — city, country, optional coordinates captured with the user's
+   permission, and how it was entered. Extra keys are ignored; junk
+   coordinates/sources are rejected. An empty object clears the location. */
+function locationShape(x) {
+  const l = x || {};
+  const coord = (n, min, max, label) => { if (n === undefined || n === null || n === '') return null; const c = Number(n); if (!Number.isFinite(c) || c < min || c > max) throw bad(label + ' is invalid'); return c; };
+  const out = {
+    city: v.str(l.city, 'City', { optional: true, max: 80 }),
+    country: v.str(l.country, 'Country', { optional: true, max: 80 }),
+    lat: coord(l.lat, -90, 90, 'Latitude'),
+    lon: coord(l.lon, -180, 180, 'Longitude'),
+    source: l.source ? v.oneOf(String(l.source).toLowerCase(), ['auto', 'manual'], 'Location source') : ''
+  };
+  if (!out.city && !out.country && out.lat === null && out.lon === null) return {};
+  out.consentAt = Number.isFinite(+l.consentAt) ? +l.consentAt : Date.now();
+  out.updatedAt = Date.now();
+  return out;
+}
+
+/* Profile patch (existing) extended for Phase A: account-type switching and
+   the optional location. Switching NEVER creates a second account or touches
+   bookings/kundalis/orders/payments — it is a property of this same users
+   row, and both changes are audited. */
 router.patch('/me', (req, res) => {
   const u = me(req), b = req.body;
   const name = b.name ? v.str(b.name, 'Name', { max: 80 }) : u.name;
@@ -32,8 +57,13 @@ router.patch('/me', (req, res) => {
   if (b.email !== undefined && b.email !== '') { email = v.email(b.email); if (db.prepare('SELECT 1 FROM users WHERE email=? AND id!=?').get(email, u.id)) throw conflict('That email is already in use'); }
   const p = b.pref || {};
   const pref = { deity: v.str(p.deity, 'Deity', { optional: true, max: 40 }), lang: v.str(p.lang || 'English', 'Language', { max: 20 }), wa: !!p.wa, sms: !!p.sms, em: !!p.em };
-  db.prepare('UPDATE users SET name=?, email=?, pref=? WHERE id=?').run(name, email, JSON.stringify(pref), u.id);
-  res.json({ ok: true });
+  const prevType = u.account_type || 'normal';
+  const accountType = (b.accountType === undefined || b.accountType === '') ? prevType : v.oneOf(String(b.accountType).toLowerCase(), ['normal', 'nri'], 'Account type');
+  const location = b.location !== undefined ? locationShape(b.location) : j(u.location, {});
+  db.prepare('UPDATE users SET name=?, email=?, pref=?, account_type=?, location=? WHERE id=?').run(name, email, JSON.stringify(pref), accountType, JSON.stringify(location), u.id);
+  if (accountType !== prevType) auditMod.audit(u.id, 'user.account_type_switch', 'user', u.id, { from: prevType, to: accountType }, { reason: String(b.reason || '').slice(0, 200), oldValue: prevType, newValue: accountType });
+  if (b.location !== undefined) auditMod.audit(u.id, 'user.location_update', 'user', u.id, { source: location.source || '', city: location.city || '' });
+  res.json({ ok: true, accountType, location });
 });
 router.post('/me/addresses', (req, res) => {
   const u = me(req), a = j(u.addr, []);

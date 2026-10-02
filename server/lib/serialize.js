@@ -3,7 +3,11 @@ const { j } = require('./util');
 const PE = require('../services/payoutEngine');
 const AV = require('../services/availability');
 
-const user = (r) => r && ({ id: r.id, n: r.name, m: r.mobile || '', e: r.email || '', pts: r.pts, plus: !!r.plus, addr: j(r.addr, []), fam: j(r.fam, []), pref: j(r.pref, {}), joined: r.joined });
+/* `accountType`/`location` (additional-requirements Phase A, migration 029):
+   NRI is a property of the SAME customer account, and the profile location
+   carries only what the app needs (city, country, optional coordinates, how
+   they were captured). */
+const user = (r) => r && ({ id: r.id, n: r.name, m: r.mobile || '', e: r.email || '', pts: r.pts, plus: !!r.plus, addr: j(r.addr, []), fam: j(r.fam, []), pref: j(r.pref, {}), joined: r.joined, accountType: r.account_type || 'normal', location: j(r.location, {}) });
 const pandit = (r, { admin = false, self = false, flagged = false } = {}) => r && ({
   id: r.id, n: r.name, city: r.city, exp: r.exp, langs: j(r.langs, []), spec: j(r.spec, []), rating: r.rating, rev: r.rev, done: r.done,
   pf: r.pf, bio: r.bio || '', color: r.color || '#0c4b49', st: r.status, feat: !!r.featured, off: j(r.off, []), avail: !!r.avail,
