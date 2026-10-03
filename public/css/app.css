@@ -91,8 +91,10 @@ input[type=checkbox],input[type=radio]{width:auto;accent-color:var(--pri)}textar
 .trk div.d{color:var(--ink)}.trk div.d::before,.trk div.d::after{background:var(--pri)}
 /* dashboards */
 .dash{display:grid;grid-template-columns:230px 1fr;gap:24px;align-items:start}@media(max-width:900px){.dash{grid-template-columns:1fr}}
-.side{position:sticky;top:84px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:2px}.side a{padding:9px 12px;border-radius:6px;font-weight:500}.side a:hover{background:var(--bg2)}.side a.on{background:var(--pri);color:var(--priink)}
-@media(max-width:900px){.side{position:static;flex-direction:row;overflow-x:auto;min-width:0;max-width:100%}.side a{white-space:nowrap}}
+.side{position:sticky;top:84px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:2px;max-height:calc(100vh - 100px);overflow-y:auto}.side a{padding:9px 12px;border-radius:6px;font-weight:500}.side a:hover{background:var(--bg2)}.side a.on{background:var(--pri);color:var(--priink)}
+/* Phase E: labelled sidebar groups (admin nav) */
+.side .sgl{display:block;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);font-weight:700;padding:12px 12px 2px}.side .sgl:first-child{padding-top:2px}
+@media(max-width:900px){.side{position:static;flex-direction:row;overflow-x:auto;overflow-y:hidden;max-height:none;min-width:0;max-width:100%}.side a{white-space:nowrap}.side .sgl{display:none}}
 /* Grid items must be allowed to shrink below their content width, or nowrap
    children (side-nav scroller, KPI grids) force the page wider than the
    viewport on phones (responsive audit, Phase 16). */

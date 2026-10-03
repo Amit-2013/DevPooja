@@ -40,6 +40,16 @@ async def test_public_gallery_shape_and_pagination(client):
     assert "rejectReason" not in p or p["rejectReason"] == ""
     # pagination cursor behaviour matches the Node route
     assert body["nextOffset"] is None or body["nextOffset"] == body["limit"]
+    # Phase E parity: the FE's Load more sends offset only — offset must be
+    # honoured (and fall back to page-based paging when absent), same rule as
+    # the Node route, so an offset past the end returns an empty page.
+    past = await client.get(f"/api/pujas/satyanarayan/photos?limit=5&offset={body['total']}")
+    assert past.status_code == 200 and past.json()["photos"] == []
+    assert past.json()["total"] == body["total"]
+    last = await client.get(f"/api/pujas/satyanarayan/photos?limit=1&offset={body['total'] - 1}")
+    assert len(last.json()["photos"]) == 1
+    paged = await client.get("/api/pujas/satyanarayan/photos?limit=1&page=2")
+    assert paged.json()["offset"] == 1
 
 
 async def test_gallery_category_filter(client):

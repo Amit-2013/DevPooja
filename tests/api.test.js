@@ -756,6 +756,13 @@ test('photo metadata + credits + pagination + bulk + caching (migration 010)', a
   const pg = (await call('GET', '/pujas/' + pid + '/photos?limit=1&page=1')).json;
   assert.equal(pg.limit, 1);
   assert.ok(pg.total >= 1);
+  /* Phase E parity: the FE's Load more sends offset only — offset must be honoured
+     (same rule as the Python twin) instead of repeating page 1 forever. */
+  const past = (await call('GET', '/pujas/' + pid + '/photos?limit=5&offset=' + pg.total)).json;
+  assert.equal(past.photos.length, 0, 'offset past the end returns an empty page');
+  assert.equal(past.total, pg.total, 'total is unchanged by paging');
+  const last = (await call('GET', '/pujas/' + pid + '/photos?limit=1&offset=' + Math.max(0, pg.total - 1))).json;
+  assert.equal(last.photos.length, 1, 'offset lands on the last photo');
   const p0 = pg.photos[0];
   assert.ok(p0.thumb, 'thumbnail url present');
   assert.ok(p0.altText, 'alt text present');

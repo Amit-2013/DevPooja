@@ -50,6 +50,58 @@ window.PagesDemo = (function () {
     return 'This is a read-only demo, so nothing was saved. ' + clone;
   }
 
+  /* Phase E: read endpoints that need more than /state. Each is served from a
+     demo/*.json snapshot captured by tools/build-pages.js by calling the real
+     server, so a static page still shows genuine data. Writes keep falling
+     through to blocked() below. */
+  const snap = (name) => (snapshots[name] = snapshots[name] || get(name));
+  const queryOf = (path) => { const i = path.indexOf('?'); return new URLSearchParams(i < 0 ? '' : path.slice(i + 1)); };
+  const clampInt = (v, lo, hi, dflt) => { const n = parseInt(v, 10); return isNaN(n) ? dflt : Math.max(lo, Math.min(hi, n)); };
+
+  /* GET /gallery?kind=&album=&limit=&offset= — the paged feed behind the public
+     gallery's Load more. state.gallery already holds the whole seeded set (the
+     overview ships the first 24 photos / 50 videos), so slicing it serves every
+     row the build captured and mirrors publicGallery()'s response shape. */
+  async function galleryFeed(path) {
+    const q = queryOf(path);
+    const kind = ['photos', 'videos', 'albums'].indexOf(q.get('kind')) > -1 ? q.get('kind') : 'photos';
+    const g = (await stateOf('anon')).gallery || {};
+    const out = { kind, albums: g.albums || [] };
+    if (kind === 'albums') return out;
+    const album = q.get('album') || '';
+    const all = (kind === 'videos' ? g.videos || [] : g.photos || []).filter((p) => !album || p.albumId === album);
+    const limit = clampInt(q.get('limit'), 1, 50, 12), offset = clampInt(q.get('offset'), 0, 1e6, 0);
+    const rows = all.slice(offset, offset + limit);
+    out[kind === 'videos' ? 'videos' : 'photos'] = rows;
+    out.total = all.length;
+    out.nextOffset = offset + rows.length < all.length ? offset + rows.length : null;
+    return out;
+  }
+
+  /* GET /people/:id — the full profile (story, expertise, gallery, socials)
+     behind each card on the Our People page. */
+  async function personProfile(path) {
+    const id = decodeURIComponent(path.slice('/people/'.length).split('?')[0]);
+    const map = await snap('people.json');
+    const person = map[id];
+    if (!person) throw Object.assign(new Error('Person not found'), { status: 404 });
+    return { person };
+  }
+
+  /* GET /pujas/:id/photos — the per-puja photo gallery on a puja detail page,
+     with the same category filter and limit/offset (or page) paging as the API. */
+  async function pujaPhotos(path) {
+    const q = queryOf(path), parts = path.split('?');
+    const id = decodeURIComponent(parts[0].split('/')[2]);
+    const all = (((await snap('puja-photos.json'))[id]) || { photos: [] }).photos
+      .filter((p) => !q.get('category') || p.category === q.get('category'));
+    const limit = clampInt(q.get('limit'), 1, 48, 12);
+    const offset = q.get('offset') !== null ? clampInt(q.get('offset'), 0, 1e6, 0)
+      : (clampInt(q.get('page'), 1, 1e5, 1) - 1) * limit;
+    const rows = all.slice(offset, offset + limit);
+    return { photos: rows, total: all.length, limit, offset, nextOffset: offset + rows.length < all.length ? offset + rows.length : null };
+  }
+
   /* Same rules the server applies: shared/pricing.js is the one source of truth for money. */
   function quote(body, conf) {
     const mode = Pricing.MODES[body.mode] ? body.mode : 'home';
@@ -93,6 +145,12 @@ window.PagesDemo = (function () {
     if (path === '/auth/email') return login('customer');
     if (path === '/auth/admin') return adminLogin(body);
     if (path === '/leads') return { ok: true };   /* an enquiry form: nothing to lose by accepting it */
+    /* Phase E read fallbacks (snapshot data captured at build time). */
+    if (path === '/nri-packages') return snap('nri-packages.json');
+    if (path === '/kundali/pricing') return snap('kundali.json');
+    if (path.indexOf('/people/') === 0) return personProfile(path);
+    if (/^\/pujas\/[^/]+\/photos/.test(path)) return pujaPhotos(path);
+    if (/^\/gallery(\?|$)/.test(path)) return galleryFeed(path);
     throw new Error(blocked(path));
   }
 

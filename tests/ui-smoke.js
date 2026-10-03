@@ -101,8 +101,21 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
 
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
-  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo', 'gallery', 'gallery-videos']) await go('#/admin/' + t);
-  console.log('admin gallery tabs render:', /Upload photos/.test(text()) || /Videos \(/.test(text()));
+  for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo', 'socials', 'gallery', 'people']) await go('#/admin/' + t);
+  // Phase E: sidebar groups + merged tabs (people = profiles + categories, gallery = photos + videos)
+  console.log('admin sidebar groups:', /Overview/.test(text()) && /Catalog/.test(text()) && /Engagement/.test(text()));
+  await go('#/admin/gallery');
+  console.log('admin gallery tab merged (photos default):', /Upload photos/.test(text()) && /Videos \(/.test(text()));
+  await click('[data-act=galsub][data-v=videos]', 300);
+  console.log('admin gallery videos sub-tab:', /Add a video/.test(text()) && !/Upload photos/.test(text()));
+  await go('#/admin/gallery-videos');
+  console.log('gallery-videos old hash aliases to videos:', /Add a video/.test(text()));
+  await go('#/admin/people');
+  console.log('admin people tab merged (profiles default):', /Add a person/.test(text()) && /Categories \(/.test(text()));
+  await click('[data-act=peoplesub][data-v=cats]', 300);
+  console.log('admin people categories sub-tab:', /Add a category/.test(text()));
+  await go('#/admin/people-cats');
+  console.log('people-cats old hash aliases to categories:', /Add a category/.test(text()) && !/Add a person/.test(text()));
   // analytics tab: the old 'Sample' visitors KPI is gone — conversion is derived from real rows
   await go('#/admin/analytics');
   console.log('analytics conversion KPI:', /Lead → booking conversion/.test(text()) && !/Visitors need analytics integration/.test(text()));

@@ -36,9 +36,13 @@ def settings_max_mb() -> int:
 
 # --- public gallery -------------------------------------------------------------
 @router.get("/pujas/{puja_id}/photos")
-async def public_photos(puja_id: str, limit: int = 12, offset: int = 0,
+async def public_photos(puja_id: str, limit: int = 12, offset: int = 0, page: int = 1,
                         category: str | None = None, db: AsyncSession = Depends(get_db)):
-    return await media.public_for_puja(db, puja_id, limit=limit, offset=offset, category=category)
+    # offset wins when the client pages with it (the FE's Load more sends offset
+    # only); otherwise fall back to page-based paging. Same rule as the Node route.
+    return await media.public_for_puja(db, puja_id, limit=limit,
+                                       offset=max(0, offset) or (max(page, 1) - 1) * limit,
+                                       category=category)
 
 
 # --- pandit -----------------------------------------------------------------------

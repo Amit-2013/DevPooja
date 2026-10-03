@@ -131,7 +131,10 @@ app.get('/api/pujas/:id/photos', (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || 1, 10) || 1);
     const limit = Math.max(1, Math.min(48, parseInt(req.query.limit || 12, 10) || 12));
-    const r = MEDIA_PUB.publicForPuja(req.params.id, { limit, offset: (page - 1) * limit, category: req.query.category });
+    /* offset wins when the client pages with it (the FE's Load more sends offset only);
+       otherwise fall back to page-based paging. Same rule as the Python twin. */
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0) || (page - 1) * limit;
+    const r = MEDIA_PUB.publicForPuja(req.params.id, { limit, offset, category: req.query.category });
     res.set('Cache-Control', 'public, max-age=60'); // short TTL: approvals surface within a minute
     res.json(r);
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
