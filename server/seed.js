@@ -285,6 +285,28 @@ function seedDemoGallery() {
   runSeeds();
 }
 
+/* Demo NRI packages (DEMO_MODE only — production starts with an empty
+   catalogue, exactly like the footer's social links and the gallery). Three
+   diaspora packages in different currencies so the public NRI page and the
+   Pages build show a real catalogue out of the box; the INR equivalent is what
+   hits the ledger if one is ever purchased in the demo. Guarded on an empty
+   table so an admin's own rows are never duplicated; wiped by resetAll() so a
+   demo RESET rebuilds them. */
+function seedDemoNriPackages() {
+  if (db.prepare('SELECT COUNT(*) c FROM nri_packages').get().c) return;
+  const rows = [
+    ['nrp-demo1', 'Satyanarayan Katha from abroad', 'A complete Satyanarayan katha performed for your family back home, with the sankalp taken in your family name and gotra.', 199, 'USD', 16600,
+      ['Full katha by a verified pandit', 'Sankalp in your family name and gotra', 'Photos and video dispatch to you abroad', 'Prasad delivered to your family in India']],
+    ['nrp-demo2', 'Griha Pravesh (house warming) seva', 'The full griha pravesh vidhi at your family new address in India, wherever in the world you are living.', 249, 'USD', 20800,
+      ['Griha pravesh puja at the address in India', 'Vastu shanti steps included', 'Photos and video dispatch', 'Prasad shipped to your family']],
+    ['nrp-demo3', 'Diwali Lakshmi Puja - festival seva', 'Lakshmi-Ganesh puja on Diwali evening in your family name, for prosperity in the year ahead.', 149, 'GBP', 17200,
+      ['Diwali evening Lakshmi-Ganesh puja', 'Sankalp with your family names', 'Photos and video dispatch', 'Prasad delivered in India']]
+  ];
+  const now = Date.now();
+  const ins = db.prepare('INSERT INTO nri_packages(id,name,descr,price,currency,inr_equiv,includes,active,created) VALUES(?,?,?,?,?,?,?,?,?)');
+  tx(() => rows.forEach((r) => ins.run(r[0], r[1], r[2], r[3], r[4], r[5], JSON.stringify(r[6]), 1, now)))();
+}
+
 /* Kundali module seed: condition -> puja rules, havan kunds and samagri for the
    recommended pujas. Runs after seedCatalog (needs pujas). Idempotent, and safe on
    databases where pujas were added by migration 004 instead of the JSON seed. */
@@ -357,6 +379,9 @@ function resetAll() {
     'coupons', 'banners', 'otps', 'settings',
     'kits', 'prasad', 'temples', 'festivals', 'havan_kunds', 'samagri_items', 'kundali_conditions',
     'custom_requests',
+    /* Demo NRI catalogue (DEMO_MODE) is demo content too: orders go first —
+       nri_packages.id is referenced by nri_orders.package_id. */
+    'nri_orders', 'nri_packages',
     'family_members', 'export_logs', 'idempotency_keys',
     /* Additional-requirements Phase B: demo people + their gallery go before
        the catalogue; the categories are reference data and survive a reset
@@ -452,7 +477,7 @@ function bootstrap() { runMigrations(); seedCatalog(); seedKundaliCatalog(); bac
   /* Demo people are seeded independently of seedDemo()'s early return, so an
      existing demo database that gains migration 030 also gets the sample CMS
      rows (the function itself no-ops once any person exists). */
-  if (demoOn()) { seedDemo(); seedDemoPeople(); seedSocialLinks(); seedDemoGallery(); }
+  if (demoOn()) { seedDemo(); seedDemoPeople(); seedSocialLinks(); seedDemoGallery(); seedDemoNriPackages(); }
   /* Bundled puja photos (freely licensed, see shared/seed-photos/CREDITS.md): copied
      into puja_media once per puja. Pujas that already have media are never touched.
      The chain is SEQUENTIAL on purpose: photoSeed and repairAll both run sharp over

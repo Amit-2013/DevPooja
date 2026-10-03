@@ -25,6 +25,7 @@ from app.seed_kundali import seed_kundali  # noqa: E402
 from app.seed_gallery import seed_gallery  # noqa: E402
 from app.seed_people import seed_people  # noqa: E402
 from app.seed_socials import seed_social_links  # noqa: E402
+from app.seed_nri import seed_nri_packages  # noqa: E402
 
 
 def day_plus(n: int) -> str:
@@ -42,6 +43,7 @@ async def _setup_db():
         await seed_people(db)   # categories always; demo people only when DEMO_MODE
         await seed_social_links(db)  # footer links: DEMO_MODE only
         await seed_gallery(db)  # gallery albums/photos/videos: DEMO_MODE only
+        await seed_nri_packages(db)  # NRI catalogue: DEMO_MODE only, empty table
         await seed_demo(db)
         await seed_kundali(db)
         await db.commit()

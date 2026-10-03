@@ -25,6 +25,13 @@ async def _mk(client, aa, **over):
 
 async def test_nri_admin_crud_audits_delete_protection(client):
     aa = {"Authorization": "Bearer " + await admin_login(client)}
+    # Phase E follow-up: the demo catalogue is seeded in DEMO_MODE (production
+    # starts with an empty catalogue, exactly like the footer's social links).
+    seeded = (await client.get("/api/nri-packages")).json()["packages"]
+    assert any(x["id"].startswith("nrp-demo") for x in seeded), "demo NRI packages are seeded"
+    assert all(x["currency"] in ("USD", "GBP", "AED", "INR") and x["price"] > 0
+               and x["inrEquiv"] > 0 and isinstance(x["includes"], list) and x["active"]
+               for x in seeded), "seeded rows are well-formed and on sale"
     p = await _mk(client, aa)
     assert p["currency"] == "USD"
     assert p["includes"] == ["Full puja by a verified pandit", "Photos and video dispatch",

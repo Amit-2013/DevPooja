@@ -86,11 +86,16 @@ Full step-by-step with all options and environment variables: **[DEPLOY.md](DEPL
 
 GitHub Pages only serves static files, so it cannot run Express or SQLite. The demo is built from a
 snapshot instead: `npm run build:pages` starts this very app against a throwaway database, lets the
-demo seed run, then captures the JSON that `GET /api/state` returns for each role. Every page you
+demo seed run, then captures the JSON that `GET /api/state` returns for each role. A few reads that
+go beyond `/state` are captured the same way (`demo/people.json`, `demo/nri-packages.json`,
+`demo/kundali.json`, `demo/puja-photos.json`), and the seeded images are published under
+`dist/media/` with the site's subpath baked into `window.DP_API_BASE`, so the gallery, people
+profiles and puja photos load instead of 404-ing. Every page you
 see is rendering genuine seeded data, and `shared/pricing.js` is still the code that prices a booking.
 
 What works: the whole catalogue, puja and pandit pages, temples, festivals, astrology, the
-booking wizard with live pricing and coupons, the guide assistant, the customer, pandit and
+photo/video gallery and Our People profiles, the NRI packages page,
+the booking wizard with live pricing and coupons, the guide assistant, the customer, pandit and
 admin panels (log in with the usual demo accounts), and the read-only version of the
 **Kundali → Dosh → Puja recommendation** flow.
 

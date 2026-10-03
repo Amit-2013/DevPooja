@@ -35,6 +35,11 @@ const { db } = require('../server/db');
 
 test('NRI admin CRUD: create, edit, audits, delete protection', async () => {
   const at = await admin();
+  /* Phase E follow-up: the demo catalogue is seeded in DEMO_MODE (production
+     starts with an empty catalogue, exactly like the footer's social links). */
+  const seeded = (await call('GET', '/nri-packages')).json.packages;
+  assert.ok(seeded.some((x) => String(x.id).indexOf('nrp-demo') === 0), 'demo NRI packages are seeded');
+  assert.ok(seeded.every((x) => ['USD', 'GBP', 'AED', 'INR'].includes(x.currency) && x.price > 0 && x.inrEquiv > 0 && Array.isArray(x.includes) && x.active), 'seeded rows are well-formed and on sale');
   const created = await call('POST', '/admin/nri-packages', { token: at, body: { name: 'Satyanarayan from abroad', descr: 'Full katha for your family back home.', price: 199, currency: 'USD', inrEquiv: 17000, includes: ['Full puja by a verified pandit', 'Photos and video dispatch', 'Prasad delivered to your family'] } });
   assert.equal(created.status, 201, JSON.stringify(created.json));
   const p = created.json.package;
