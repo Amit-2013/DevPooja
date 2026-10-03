@@ -90,7 +90,9 @@ demo seed run, then captures the JSON that `GET /api/state` returns for each rol
 go beyond `/state` are captured the same way (`demo/people.json`, `demo/nri-packages.json`,
 `demo/kundali.json`, `demo/puja-photos.json`), and the seeded images are published under
 `dist/media/` with the site's subpath baked into `window.DP_API_BASE`, so the gallery, people
-profiles and puja photos load instead of 404-ing. Every page you
+profiles and puja photos load instead of 404-ing. The build also trims that media: files no
+snapshot references are dropped and the rest is re-encoded under the same filenames (about
+13.5 MB down to 3.8 MB), so a static demo never ships camera-scan originals. Every page you
 see is rendering genuine seeded data, and `shared/pricing.js` is still the code that prices a booking.
 
 What works: the whole catalogue, puja and pandit pages, temples, festivals, astrology, the

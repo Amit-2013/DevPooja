@@ -62,6 +62,83 @@ function du(dir) {
   return total;
 }
 
+/* Phase E follow-up: the published media was a flat copy of the throwaway
+   build's upload dir — 13.5 MB for a demo. Two kinds of dead weight:
+     (1) by-product files no snapshot references (several full-size WebP variants
+         the lightbox never asks for),
+     (2) images at camera-scan quality — including "320px thumbnails" that are
+         byte-for-byte copies of the 960x1280 original.
+   Both are trimmed HERE, at build time only (the running app and the API are
+   untouched): every file the published HTML/JS/JSON never names is dropped, and
+   the rest is re-encoded with sharp under the same filename and format, so every
+   /media/... URL in the snapshot keeps resolving. Caps: *.t320.* -> 320px wide,
+   everything else -> 1600px wide; a re-encode is only kept when it is actually
+   smaller. sharp is an optional dependency of the app: without it we publish the
+   originals as-is (bigger, never broken). */
+async function trimMedia() {
+  const dir = path.join(OUT, 'media');
+  if (!fs.existsSync(dir)) return null;
+  const before = du(dir);
+
+  /* Collect every /media/<file> the artifact actually names: the role
+     snapshots, the captured extras, and any literal in the shipped HTML/JS. */
+  const refs = new Set();
+  const scan = (text) => {
+    /* Require a delimiter before /media/ so "…/admin/media/bulk" (an API route)
+       never reads as a file reference. */
+    const re = /(?:^|[\s'"`(=])\/media\/([^"'`)\s?#]+)/gm;
+    let m;
+    while ((m = re.exec(text))) {
+      /* Only real asset names count — UI copy like placeholder="/media/… or
+         https://…" and API routes like /admin/media/bulk must not. */
+      const name = decodeURIComponent(m[1]);
+      if (/\.(jpe?g|png|webp|gif|avif|svg|mp4|webm)$/i.test(name)) refs.add(name);
+    }
+  };
+  const walk = (p) => {
+    for (const e of fs.readdirSync(p, { withFileTypes: true })) {
+      const f = path.join(p, e.name);
+      if (e.isDirectory()) { if (f !== dir) walk(f); continue; }
+      if (!/\.(json|html|js|css)$/i.test(e.name)) continue;
+      scan(fs.readFileSync(f, 'utf8'));
+    }
+  };
+  walk(OUT);
+
+  let dropped = 0, kept = 0, shrunk = 0;
+  let sharp = null;
+  try { sharp = require('sharp'); } catch (e) { /* optional dependency: publish as-is */ }
+
+  for (const name of fs.readdirSync(dir)) {
+    const file = path.join(dir, name);
+    if (!refs.has(name)) { fs.unlinkSync(file); dropped++; continue; }
+    kept++;
+    if (!sharp) continue;
+    try {
+      const stat = fs.statSync(file);
+      const cap = /\.t320\./.test(name) ? 320 : 1600;
+      const meta = await sharp(file).metadata();
+      if (!meta.width && !meta.height) continue;
+      if (meta.width <= cap && stat.size <= 128 * 1024) continue;   /* already small */
+      const tmp = file.replace(/(\.[a-z0-9]+)$/i, '.out$1');
+      let p = sharp(file).resize({ width: cap, height: cap, fit: 'inside', withoutEnlargement: true });
+      if (/\.webp$/i.test(name)) p = p.webp({ quality: 75 });
+      else if (/\.png$/i.test(name)) p = p.png({ compressionLevel: 9 });
+      else p = p.jpeg({ quality: 72, mozjpeg: true, progressive: true });
+      await p.toFile(tmp);
+      const out = fs.statSync(tmp);
+      if (out.size < stat.size) { fs.renameSync(tmp, file); shrunk++; }
+      else fs.unlinkSync(tmp);
+    } catch (e) { /* unreadable image: publish the original rather than drop it */ }
+  }
+
+  /* Every referenced name must still exist — a miss here would 404 in the demo. */
+  const missing = [...refs].filter((n) => !fs.existsSync(path.join(dir, n)));
+  if (missing.length) console.warn('  media  WARNING still missing: ' + missing.join(', '));
+  const after = du(dir);
+  return { before, after, dropped, kept, shrunk, missing: missing.length };
+}
+
 function repoUrl() {
   const pkg = require(path.join(ROOT, 'package.json'));
   const url = (pkg.repository && pkg.repository.url) || 'https://github.com/Amit-2013/DevPooja';
@@ -161,10 +238,13 @@ async function main() {
   for (const f of ['people.json', 'nri-packages.json', 'kundali.json', 'puja-photos.json']) {
     console.log('  extra  ' + f.padEnd(18) + ' ' + (fs.statSync(path.join(demo, f)).size / 1024).toFixed(1) + ' kB');
   }
+  const trim = await trimMedia();
   const mediaDir = path.join(OUT, 'media');
   if (fs.existsSync(mediaDir)) {
     const files = fs.readdirSync(mediaDir).length;
-    console.log('  media  ' + files + ' files, ' + (du(mediaDir) / 1024 / 1024).toFixed(1) + ' MB');
+    console.log('  media  ' + files + ' files, ' + (du(mediaDir) / 1024 / 1024).toFixed(1) + ' MB'
+      + (trim ? ' (trimmed from ' + (trim.before / 1024 / 1024).toFixed(1) + ' MB: '
+        + trim.dropped + ' unreferenced dropped, ' + trim.shrunk + ' re-encoded, ' + trim.missing + ' missing)' : ''));
   }
   console.log('Built ' + path.relative(ROOT, OUT) + '/ for GitHub Pages. Preview it with: npm run preview:pages');
 }
