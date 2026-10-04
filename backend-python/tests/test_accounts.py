@@ -158,3 +158,78 @@ async def test_location_capture_validation_audit_and_clear(client, db_session):
 
     anon = await client.patch("/api/me", json={"accountType": "nri"})
     assert anon.status_code == 401, "customer-self only"
+
+
+async def test_notification_prefs_and_notifs_centre(client):
+    """Notification preferences (mute one channel or all, merged never
+    clobbered) + the notifications centre (unread count in state, mark-as-read
+    on view, ids form, 401 anonymous) — twin of the two new tests in
+    tests/accounts.test.js."""
+    import time
+
+    from app.db import SessionLocal
+    from app.models import Notif
+    from tests.conftest import otp_login
+
+    tok = await otp_login(client, "9811100772", "Mute Probe")
+    h = {"Authorization": f"Bearer {tok}"}
+
+    # channel mute round-trips
+    r = await client.patch("/api/me", headers=h, json={
+        "pref": {"deity": "", "lang": "English", "wa": True, "sms": True,
+                 "em": False, "mute": ["WhatsApp", "Push"]}})
+    assert r.status_code == 200, r.text
+    st = (await client.get("/api/state", headers=h)).json()
+    assert st["me"]["pref"]["mute"] == ["WhatsApp", "Push"], "channel mute round-trips"
+
+    # mute-all round-trips
+    await client.patch("/api/me", headers=h, json={
+        "pref": {"deity": "", "lang": "English", "wa": True, "sms": True,
+                 "em": True, "mute": "all"}})
+    st = (await client.get("/api/state", headers=h)).json()
+    assert st["me"]["pref"]["mute"] == "all", "mute-all round-trips"
+
+    # a location-only PATCH must NOT wipe the mute list or the consent flags
+    r = await client.patch("/api/me", headers=h, json={"location": {}})
+    assert r.status_code == 200, r.text
+    st = (await client.get("/api/state", headers=h)).json()
+    assert st["me"]["pref"]["mute"] == "all", "mute survives a location-only save"
+    assert st["me"]["pref"]["wa"] is True, "consent survives a location-only save"
+
+    # unknown mute channels are normalised away
+    await client.patch("/api/me", headers=h, json={
+        "pref": {"deity": "", "lang": "English", "wa": False, "sms": False,
+                 "em": False, "mute": ["Telepathy"]}})
+    st = (await client.get("/api/state", headers=h)).json()
+    assert st["me"]["pref"]["mute"] == [], "unknown mute channels dropped"
+
+    # --- notifications centre ---
+    uid = st["me"]["id"]
+    now = int(time.time() * 1000)
+    async with SessionLocal() as db:
+        db.add(Notif(user_id=uid, channel="In-App", message="Bell probe one", ts=now))
+        db.add(Notif(user_id=uid, channel="In-App", message="Bell probe two", ts=now))
+        await db.commit()
+    st = (await client.get("/api/state", headers=h)).json()
+    assert st["notifsUnread"] == 2, "state carries the unread count for the bell badge"
+    assert any(n["r"] is False for n in st["notifs"]), "unread rows expose the read flag"
+
+    # mark-as-read on view: opening the panel clears the badge
+    rr = await client.post("/api/me/notifs/read", headers=h, json={})
+    assert rr.status_code == 200 and rr.json()["unread"] == 0, rr.text
+    st = (await client.get("/api/state", headers=h)).json()
+    assert st["notifsUnread"] == 0, "badge clears after the panel view"
+    assert all(n["r"] is True for n in st["notifs"]), "rows marked read"
+
+    # anonymous cannot mark anything read
+    assert (await client.post("/api/me/notifs/read", json={})).status_code == 401
+
+    # ids form: mark only the listed rows
+    async with SessionLocal() as db:
+        db.add(Notif(user_id=uid, channel="In-App", message="Third",
+                     ts=int(time.time() * 1000)))
+        await db.commit()
+    st = (await client.get("/api/state", headers=h)).json()
+    nid = next(n["id"] for n in st["notifs"] if not n["r"])
+    rr = await client.post("/api/me/notifs/read", headers=h, json={"ids": [nid]})
+    assert rr.json()["unread"] == 0, "ids form marks just the listed row"

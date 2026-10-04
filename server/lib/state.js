@@ -24,7 +24,7 @@ function buildState(auth) {
     },
     banners: db.prepare('SELECT * FROM banners WHERE enabled=1').all().map((b) => ({ id: b.id, t: b.text, on: true })),
     kundali: { enabled: true, purposes: ['General', 'Marriage', 'Career', 'Business', 'Health & Wellness', 'Finance', 'Education', 'Family', 'Child', 'Spiritual', 'Property', 'Other'] },
-    toggles: (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key='service_toggles'").get(); return Object.assign({ home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true }, r ? JSON.parse(r.value) : {}); } catch (e) { return {}; } })(),
+    toggles: (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key='service_toggles'").get(); return Object.assign({ services: true, home: true, online: true, temple: true, customized: true, kundali: true, pandit: true, templeDir: true, prasad: true, samagri: true, astrology: true }, r ? JSON.parse(r.value) : {}); } catch (e) { return {}; } })(),
     pandits: [], busy: [], reviews: [],
     me: null, users: [], bookings: [], orders: [], notifs: [], tickets: [], coupons: [], payouts: [], inv: {}, campaigns: [], leads: [], set: {}, hidden: [],
     /* Additional-requirements Phase B: compact public Our People data for the
@@ -68,7 +68,6 @@ function buildState(auth) {
       .map((k) => ({ kundaliId: k.id, name: k.name, relationship: k.relationship || 'Self', billing: k.billing, price: k.price, gst: k.gst, final: k.final_amount, paymentStatus: k.payment_status, orderId: k.order_id, createdAt: k.created_at }));
     st.bookings = db.prepare("SELECT * FROM bookings WHERE user_id=? AND status != 'PendingPayment' ORDER BY created DESC").all(u.id).map(S.booking);
     st.orders = db.prepare('SELECT * FROM orders WHERE user_id=? ORDER BY date DESC').all(u.id).map(S.order);
-    st.notifs = db.prepare('SELECT * FROM notifs WHERE user_id=? ORDER BY ts DESC LIMIT 100').all(u.id).map((n) => ({ id: n.id, uid: n.user_id, ch: n.channel, m: n.message, ts: n.ts }));
     st.tickets = db.prepare('SELECT * FROM tickets WHERE user_id=? ORDER BY rowid DESC').all(u.id).map(S.ticket);
   } else if (role === 'pandit') {
     st.bookings = db.prepare("SELECT * FROM bookings WHERE pandit_id=? AND status != 'PendingPayment' ORDER BY date").all(auth.pid).map(S.booking);
@@ -97,6 +96,15 @@ function buildState(auth) {
     st.peopleCatsAdmin = PEOPLE.listCategories();
     st.socialsAdmin = SOCIALS.list();
     st.galleryAdmin = GALLERY.adminBundle();
+  }
+  /* Admin notifications centre (item): own notifs + unread count for EVERY
+     signed-in role — the bell badge lives in the main header, so admins and
+     pandits get their ops alerts here too (the customer tab already rendered
+     its own copy from the same rows). */
+  if (auth) {
+    st.notifs = db.prepare('SELECT * FROM notifs WHERE user_id=? ORDER BY ts DESC LIMIT 100').all(auth.uid)
+      .map((n) => ({ id: n.id, uid: n.user_id, ch: n.channel, m: n.message, ts: n.ts, r: !!n.read_at }));
+    st.notifsUnread = db.prepare('SELECT COUNT(*) c FROM notifs WHERE user_id=? AND read_at IS NULL').get(auth.uid).c;
   }
   return st;
 }

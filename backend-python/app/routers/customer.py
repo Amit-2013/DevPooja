@@ -94,10 +94,27 @@ async def update_me(body: dict, auth: dict = Depends(customer_dep),
                                 .limit(1))).scalar_one_or_none()
         if dup:
             raise conflict("That email is already in use")
-    p = b.get("pref") or {}
-    pref = {"deity": v_str(p.get("deity"), "Deity", optional=True, max_len=40),
+    # Notification preferences (item): pref is MERGED, never clobbered — a
+    # location-only PATCH must not wipe consent or the mute list. mute = 'all'
+    # or a subset of the five channels; absent behaves as before.
+    prev_pref = j(u.pref, {}) or {}
+    if not isinstance(prev_pref, dict):
+        prev_pref = {}
+    p = b.get("pref") if b.get("pref") is not None else prev_pref
+    if not isinstance(p, dict):
+        p = {}
+    _mute_channels = ("WhatsApp", "Email", "SMS", "Push", "In-App")
+    if p.get("mute") == "all":
+        mute = "all"
+    elif isinstance(p.get("mute"), list):
+        mute = [c for c in p.get("mute") if c in _mute_channels]
+    else:
+        mute = []
+    pref = {**prev_pref,
+            "deity": v_str(p.get("deity"), "Deity", optional=True, max_len=40),
             "lang": v_str(p.get("lang") or "English", "Language", max_len=20),
-            "wa": bool(p.get("wa")), "sms": bool(p.get("sms")), "em": bool(p.get("em"))}
+            "wa": bool(p.get("wa")), "sms": bool(p.get("sms")), "em": bool(p.get("em")),
+            "mute": mute}
     # Phase A additions: account-type switching (same account, never a second
     # account) and the optional profile location — both audited.
     prev_type = u.account_type or "normal"

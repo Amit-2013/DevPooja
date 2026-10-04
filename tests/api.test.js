@@ -546,6 +546,14 @@ test('kundali pricing is admin-controlled and RESET-safe; toggles gate services'
   assert.equal(st.toggles.customized, false);
   assert.equal(st.toggles.astrology, false);
   await call('PUT', '/admin/service-toggles', { token: admin, body: { customized: true, astrology: true } });
+
+  /* master Services switch (admin Services ON/OFF): reaches state for the header
+     to react to, and is admin-only */
+  assert.equal((await call('PUT', '/admin/service-toggles', { token: admin, body: { services: false } })).status, 200);
+  assert.equal((await call('GET', '/state')).json.toggles.services, false, 'services master switch reaches state');
+  assert.equal((await call('PUT', '/admin/service-toggles', { token: tc, body: { services: true } })).status, 403, 'customers cannot flip services');
+  await call('PUT', '/admin/service-toggles', { token: admin, body: { services: true } });
+  assert.equal((await call('GET', '/state')).json.toggles.services, true, 'services restored');
 });
 
 test('excel exports: all rows, filters, sensitive fields excluded, audit logged', async () => {

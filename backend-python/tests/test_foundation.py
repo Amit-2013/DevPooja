@@ -144,3 +144,35 @@ async def test_audit_enrichment_and_payout_rules(client):
                             headers=auth)
     assert upd.status_code == 200
     assert upd.json()["holds"][0]["check"] == "pandit_kyc"
+
+
+async def test_service_toggles_master_switch(client):
+    """Services ON/OFF + per-service visibility — Node parity with the
+    'toggles gate services' block in tests/api.test.js (admin flips reach the
+    state payload the header renders from; customers get 403)."""
+    from .conftest import login
+
+    aa = {"Authorization": f"Bearer {await _login_admin(client)}"}
+    hh = {"Authorization": f"Bearer {await login(client, 'customer')}"}
+
+    r = await client.put("/api/admin/service-toggles", headers=aa,
+                         json={"customized": False, "astrology": False})
+    assert r.status_code == 200, r.text
+    st = (await client.get("/api/state")).json()
+    assert st["toggles"]["customized"] is False
+    assert st["toggles"]["astrology"] is False
+
+    # master switch: off reaches state for the header to react to
+    r = await client.put("/api/admin/service-toggles", headers=aa, json={"services": False})
+    assert r.status_code == 200 and r.json()["toggles"]["services"] is False
+    assert (await client.get("/api/state")).json()["toggles"]["services"] is False
+
+    # admin-only: a customer cannot flip services
+    assert (await client.put("/api/admin/service-toggles", headers=hh,
+                             json={"services": True})).status_code == 403
+
+    # restore everything
+    await client.put("/api/admin/service-toggles", headers=aa,
+                     json={"services": True, "customized": True, "astrology": True})
+    st = (await client.get("/api/state")).json()
+    assert st["toggles"]["services"] is True and st["toggles"]["customized"] is True

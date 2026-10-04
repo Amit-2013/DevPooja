@@ -8,6 +8,7 @@ re-preview dedupe) with bad-file rejection and access control.
 """
 import io
 import json
+import os
 import time
 
 import pytest
@@ -97,6 +98,48 @@ async def test_consent_skips_record_reasons(client, db_session):
     assert len(rows) == 2, "opt-out and no-target customers still get delivery rows"
     assert any(x["status"] == "SKIPPED" and "opted out" in (x["detail"] or "") for x in rows)
     assert any(x["status"] == "SKIPPED" and "target" in (x["detail"] or "") for x in rows)
+
+    # Mute preferences (item): mute ONE channel or ALL — each skipped with its reason.
+    await _mk_customer(db_session, "xm1", "Muted All", "9700000002", "xm1@t.in", {"mute": "all"})
+    await _mk_customer(db_session, "xm2", "Muted Wa", "9700000003", "xm2@t.in", {"mute": ["WhatsApp"]})
+    await db_session.commit()
+    r2 = await client.post("/api/admin/campaigns", headers=H(at),
+                           json={"name": "Mute probe", "channel": "WhatsApp",
+                                 "audience": "All customers", "message": "Check"})
+    assert r2.status_code == 201, r2.text
+    cid2 = r2.json()["campaign"]["id"]
+    assert (await client.post(f"/api/admin/campaigns/{cid2}/send", headers=H(at), json={})).status_code == 200
+    rows2 = (await db_session.execute(
+        NotificationDelivery.__table__.select().where(
+            NotificationDelivery.campaign_id == cid2))).mappings().all()
+    assert any(x["user_id"] == "xm1" and x["status"] == "SKIPPED"
+               and "muted all" in (x["detail"] or "") for x in rows2), \
+        "mute-all skipped with the reason"
+    assert any(x["user_id"] == "xm2" and x["status"] == "SKIPPED"
+               and "muted whatsapp" in (x["detail"] or "") for x in rows2), \
+        "channel mute skipped with the reason"
+
+    # WhatsApp provider adapter (item): the answer lands in the delivery detail.
+    # Default (unset env) is the stub — accepts, never sends.
+    sent = [x for x in rows2 if x["status"] == "SENT"]
+    assert sent, "unmuted customers were sent to"
+    assert all("stub" in (x["detail"] or "") for x in sent), \
+        "stub adapter result recorded on every SENT row"
+    os.environ["WHATSAPP_PROVIDER"] = "none"
+    try:
+        r3 = await client.post("/api/admin/campaigns", headers=H(at),
+                               json={"name": "Provider off", "channel": "WhatsApp",
+                                     "audience": "All customers", "message": "Check"})
+        cid3 = r3.json()["campaign"]["id"]
+        assert (await client.post(f"/api/admin/campaigns/{cid3}/send", headers=H(at), json={})).status_code == 200
+        off = [x for x in (await db_session.execute(
+            NotificationDelivery.__table__.select().where(
+                NotificationDelivery.campaign_id == cid3))).mappings().all()
+               if x["status"] == "SENT"]
+        assert off and all("adapter disabled" in (x["detail"] or "") for x in off), \
+            "disabled adapter recorded on the rows"
+    finally:
+        os.environ.pop("WHATSAPP_PROVIDER", None)
 
 
 async def test_plus_audience_resolution(client, db_session):

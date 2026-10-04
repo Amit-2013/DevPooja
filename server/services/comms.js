@@ -6,9 +6,13 @@
 
    Consent: users.pref carries { wa, sms, em } flags the customer controls in
    their account. The engine honours them: WhatsApp needs wa, SMS needs sms,
-   Email needs em; Push/In-App are first-party and always allowed. A recipient
+   Email needs em; Push/In-App are first-party. ON TOP of consent, pref.mute
+   (item — per-customer notification preferences) can mute ONE channel or 'all'
+   channels: every muted delivery is SKIPPED with that reason. A recipient
    without consent or without a contact target is SKIPPED with the reason, not
-   silently dropped. */
+   silently dropped. WhatsApp rows additionally fire the provider adapter
+   (services/whatsapp.js — stub behind env config) and record its answer in the
+   delivery detail, so the campaign table shows what the adapter did. */
 'use strict';
 const { db, nextSeq } = require('../db');
 const { v, bad, notFound, conflict } = require('../lib/util');
@@ -22,8 +26,9 @@ const nowMs = () => Date.now();
 
 /* --- Delivery record ------------------------------------------------------ */
 function recordDelivery({ campaignId = null, userId, channel, message, status, detail = null }) {
-  db.prepare(`INSERT INTO notification_deliveries(campaign_id,user_id,channel,message,status,detail,ts)
+  const info = db.prepare(`INSERT INTO notification_deliveries(campaign_id,user_id,channel,message,status,detail,ts)
     VALUES(?,?,?,?,?,?,?)`).run(campaignId, userId, channel, message, status, detail, nowMs());
+  return info.lastInsertRowid;
 }
 
 /* --- Audience resolution --------------------------------------------------- */
@@ -48,6 +53,15 @@ function deliver({ campaignId = null, userId, channel, message }) {
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(userId);
   if (!u) { recordDelivery({ campaignId, userId, channel, message, status: 'FAILED', detail: 'unknown user' }); return 'FAILED'; }
   const pref = (() => { try { return JSON.parse(u.pref || '{}'); } catch (e) { return {}; } })();
+  /* Mute preference: the customer can mute ONE channel or ALL notifications.
+     Absent pref.mute behaves exactly as before. */
+  const mute = pref.mute;
+  const mutedAll = mute === 'all';
+  if (mutedAll || (Array.isArray(mute) && mute.some((c) => String(c).toLowerCase() === channel.toLowerCase()))) {
+    recordDelivery({ campaignId, userId, channel, message, status: 'SKIPPED',
+      detail: mutedAll ? 'customer muted all notifications' : 'customer muted ' + channel.toLowerCase() });
+    return 'SKIPPED';
+  }
   const hasTarget = (channel === 'WhatsApp' || channel === 'SMS') ? !!u.mobile
     : channel === 'Email' ? !!u.email : true;
   const consent = (channel === 'WhatsApp') ? pref.wa !== false
@@ -62,7 +76,13 @@ function deliver({ campaignId = null, userId, channel, message }) {
     return 'SKIPPED';
   }
   db.prepare('INSERT INTO notifs(user_id,channel,message,ts) VALUES(?,?,?,?)').run(userId, channel, message, nowMs());
-  recordDelivery({ campaignId, userId, channel, message, status: 'SENT', detail: null });
+  const deliveryId = recordDelivery({ campaignId, userId, channel, message, status: 'SENT', detail: null });
+  if (channel === 'WhatsApp') {
+    /* Provider adapter (stub behind env config): its answer becomes the
+       delivery record's detail — ops sees exactly what the adapter did. */
+    const r = require('./whatsapp').send({ to: u.mobile, message, deliveryId });
+    if (r) db.prepare('UPDATE notification_deliveries SET detail=? WHERE id=?').run(r, deliveryId);
+  }
   return 'SENT';
 }
 

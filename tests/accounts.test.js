@@ -148,3 +148,54 @@ test('location capture: auto and manual saves, validation, audit and clear', asy
   /* access: location and type changes are customer-self only */
   assert.equal((await call('PATCH', '/me', { body: { accountType: 'nri' } })).status, 401);
 });
+
+test('notifications centre: unread badge count in state, mark-as-read on view, own rows only', async () => {
+  await call('POST', '/auth/otp/send', { body: { mobile: '9811100771' } });
+  const ct = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100771', otp: '123456', name: 'Bell Probe' } })).json.token;
+  const uid = (await call('GET', '/state', { token: ct })).json.me.id;
+  /* two unread notifs land for this customer (written straight to the shared store) */
+  db.prepare('INSERT INTO notifs(user_id,channel,message,ts) VALUES(?,?,?,?)').run(uid, 'In-App', 'Bell probe one', Date.now());
+  db.prepare('INSERT INTO notifs(user_id,channel,message,ts) VALUES(?,?,?,?)').run(uid, 'In-App', 'Bell probe two', Date.now());
+  let st = (await call('GET', '/state', { token: ct })).json;
+  assert.equal(st.notifsUnread, 2, 'state carries the unread count for the bell badge');
+  assert.ok(st.notifs.some((n) => n.r === false), 'unread rows expose the read flag');
+
+  /* mark-as-read on view: opening the panel clears the badge */
+  const rr = await call('POST', '/me/notifs/read', { token: ct, body: {} });
+  assert.equal(rr.status, 200);
+  assert.equal(rr.json.unread, 0, 'endpoint answers the fresh unread count');
+  st = (await call('GET', '/state', { token: ct })).json;
+  assert.equal(st.notifsUnread, 0, 'badge clears after the panel view');
+  assert.ok(st.notifs.every((n) => n.r === true), 'rows marked read');
+
+  /* anonymous cannot mark anything read */
+  assert.equal((await call('POST', '/me/notifs/read', { body: {} })).status, 401);
+
+  /* ids form: mark only the listed rows */
+  db.prepare('INSERT INTO notifs(user_id,channel,message,ts) VALUES(?,?,?,?)').run(uid, 'In-App', 'Third', Date.now());
+  const st2 = (await call('GET', '/state', { token: ct })).json;
+  const id = st2.notifs.find((n) => !n.r).id;
+  assert.equal((await call('POST', '/me/notifs/read', { token: ct, body: { ids: [id] } })).json.unread, 0, 'ids form marks just the listed row');
+});
+
+test('notification preferences: mute one channel or all, merged never clobbered', async () => {
+  await call('POST', '/auth/otp/send', { body: { mobile: '9811100772' } });
+  const ct = (await call('POST', '/auth/otp/verify', { body: { mobile: '9811100772', otp: '123456', name: 'Mute Probe' } })).json.token;
+  const me = async () => (await call('GET', '/state', { token: ct })).json.me;
+
+  await call('PATCH', '/me', { token: ct, body: { pref: { deity: '', lang: 'English', wa: true, sms: true, em: false, mute: ['WhatsApp', 'Push'] } } });
+  assert.deepEqual((await me()).pref.mute, ['WhatsApp', 'Push'], 'channel mute round-trips');
+
+  await call('PATCH', '/me', { token: ct, body: { pref: { deity: '', lang: 'English', wa: true, sms: true, em: true, mute: 'all' } } });
+  assert.equal((await me()).pref.mute, 'all', 'mute-all round-trips');
+
+  /* a location-only PATCH must NOT wipe the mute list or the consent flags */
+  await call('PATCH', '/me', { token: ct, body: { location: {} } });
+  const after = (await me()).pref;
+  assert.equal(after.mute, 'all', 'mute survives a location-only save');
+  assert.equal(after.wa, true, 'consent survives a location-only save');
+
+  /* unknown mute channels are normalised away */
+  await call('PATCH', '/me', { token: ct, body: { pref: { deity: '', lang: 'English', wa: false, sms: false, em: false, mute: ['Telepathy'] } } });
+  assert.deepEqual((await me()).pref.mute, [], 'unknown mute channels dropped');
+});

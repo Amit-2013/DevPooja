@@ -152,6 +152,23 @@ app.get('/api/media/:id/download', (req, res) => {
 /* public API */
 app.get('/api/health', (_q, r) => r.json({ ok: true }));
 app.get('/api/state', (req, res) => res.json(buildState(req.auth)));
+/* Admin notifications centre (item): mark my notifs read — every unread row of
+   the caller, or just the ids the bell panel displayed. Any signed-in role;
+   always scoped to the caller's own rows. */
+app.post('/api/me/notifs/read', (req, res) => {
+  if (!req.auth) return res.status(401).json({ error: 'Please log in' });
+  const now = Date.now();
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map((x) => +x).filter(Number.isFinite) : null;
+  if (ids && ids.length) {
+    const upd = db.prepare('UPDATE notifs SET read_at=? WHERE user_id=? AND id=? AND read_at IS NULL');
+    const run = db.transaction((list) => { for (const id of list) upd.run(now, req.auth.uid, id); });
+    run(ids);
+  } else {
+    db.prepare('UPDATE notifs SET read_at=? WHERE user_id=? AND read_at IS NULL').run(now, req.auth.uid);
+  }
+  const unread = db.prepare('SELECT COUNT(*) c FROM notifs WHERE user_id=? AND read_at IS NULL').get(req.auth.uid).c;
+  res.json({ ok: true, unread });
+});
 /* Phase 13: the NRI catalogue is public (anonymous browsing, authed checkout) */
 app.get('/api/nri-packages', (req, res) => res.json({ packages: require('./services/nri').listActive() }));
 /* Additional-requirements Phase B: the Our People directory is public. Only

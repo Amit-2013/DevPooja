@@ -150,6 +150,16 @@ test('customer hold: flagged customer bookings carry a soft flag, fulfilment pro
   assert.ok(String(b4.chr).includes('watchlist'), 'the reason explains the conduct watchlist');
   assert.equal(b4.reviewHold, false, 'the pandit-side hold is NOT set by the customer flag');
 
+  /* Ops hears immediately: every admin got an in-app notification at stamp time
+     (the badge on the bookings row was the only signal before). */
+  const admins = db.prepare("SELECT id FROM users WHERE role='admin'").all();
+  assert.ok(admins.length > 0, 'an admin exists');
+  for (const a of admins) {
+    const n = db.prepare('SELECT id FROM notifs WHERE user_id=? AND message LIKE ? ORDER BY id DESC')
+      .get(a.id, 'Customer hold applied: booking ' + b4.id + '%');
+    assert.ok(n, 'admin ' + a.id + ' notified in-app when the hold stamped');
+  }
+
   /* …and fulfilment is deliberately NOT blocked: the pandit accepts normally. */
   const accepted = await call('POST', '/pandit/bookings/' + b4.id + '/accept', { token: pt1, body: {} });
   assert.equal(accepted.status, 200, 'pandit can accept a customer-held booking (soft flag only)');
@@ -170,6 +180,24 @@ test('customer hold: flagged customer bookings carry a soft flag, fulfilment pro
      sweep in the digest view frees any booking still carrying it. */
   const b5 = await mkBooking(44, SLOTS[4], 'p1');
   assert.equal(b5.ch, 1, 'still-flagged customer bookings keep being stamped');
+
+  /* Per-customer drill-in lists every held booking; batch release clears them
+     all at once with one audited release each. */
+  const cid = b1.userId;
+  const drill = await call('GET', '/admin/customer-holds/' + cid, { token: at });
+  assert.equal(drill.status, 200, 'drill-in is reachable for admins');
+  assert.equal(drill.json.customer.id, cid, 'drill-in names the customer');
+  assert.ok(drill.json.bookings.some((x) => x.id === b5.id), 'drill-in lists the held booking');
+  const batch = await call('POST', '/admin/customer-holds/' + cid + '/release', { token: at, body: {} });
+  assert.equal(batch.json.released, 1, 'batch release cleared the held booking');
+  assert.ok(batch.json.ids.includes(b5.id), 'batch release returns the released ids');
+  assert.ok(db.prepare("SELECT id FROM audit_logs WHERE action='booking.customer_hold_released' AND entity_id=?").get(b5.id), 'batch release audited per booking');
+  assert.equal((await call('GET', '/admin/customer-holds/' + cid, { token: at })).json.bookings.length, 0, 'drill-in is empty after the batch release');
+  assert.equal((await call('GET', '/admin/customer-holds/' + cid, { token: ct })).status, 403, 'drill-in is admin-only');
+  assert.equal((await call('POST', '/admin/customer-holds/' + cid + '/release', { token: ct, body: {} })).status, 403, 'batch release is admin-only');
+
+  const b6 = await mkBooking(45, SLOTS[0], 'p1');
+  assert.equal(b6.ch, 1, 'flagged-customer bookings keep being stamped after a batch release');
   const live = (await call('GET', '/admin/incidents', { token: at })).json.incidents
     .filter((x) => x.customerId === b1.userId && (x.reopenCount || 0) > 0 && ['OPEN', 'UNDER_REVIEW'].includes(x.status));
   for (const row of live) await call('PATCH', '/admin/incidents/' + row.id, { token: at, body: { status: 'RESOLVED', resolution: 'Conduct probe closed.' } });

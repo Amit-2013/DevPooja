@@ -121,6 +121,43 @@ async def state(auth: dict | None = Depends(current_auth), db: AsyncSession = De
     return await build_state(db, auth)
 
 
+@app.post("/api/me/notifs/read")
+async def notifs_read(body: dict | None = None, auth: dict | None = Depends(current_auth),
+                      db: AsyncSession = Depends(get_db)):
+    """Admin notifications centre (item): mark my notifs read — every unread row
+    of the caller, or just the ids the bell panel displayed. Any signed-in role;
+    always scoped to the caller's own rows (Node parity: index.js)."""
+    from sqlalchemy import select
+
+    from .models import Notif
+    if not auth:
+        raise AuthError(401, "Please log in")
+    now = int(time.time() * 1000)
+    ids = None
+    if isinstance(body, dict) and isinstance(body.get("ids"), list):
+        try:
+            ids = [int(x) for x in body["ids"]]
+        except (TypeError, ValueError):
+            ids = None
+    if ids:
+        for nid in ids:
+            row = (await db.execute(select(Notif).where(
+                Notif.id == nid, Notif.user_id == auth["uid"],
+                Notif.read_at.is_(None)))).scalar_one_or_none()
+            if row:
+                row.read_at = now
+    else:
+        rows = (await db.execute(select(Notif).where(
+            Notif.user_id == auth["uid"], Notif.read_at.is_(None)))).scalars().all()
+        for r0 in rows:
+            r0.read_at = now
+    await db.flush()
+    from sqlalchemy import func
+    unread = (await db.execute(select(func.count()).select_from(Notif).where(
+        Notif.user_id == auth["uid"], Notif.read_at.is_(None)))).scalar() or 0
+    return {"ok": True, "unread": unread}
+
+
 @app.post("/api/quote")
 async def quote(body: dict, auth: dict | None = Depends(current_auth),
                 db: AsyncSession = Depends(get_db)):

@@ -127,6 +127,21 @@ router.post('/bookings/:id/release-customer-hold', (req, res) => {
   const r = require('../services/customerHold').release(req.params.id, req.auth.uid);
   res.json({ booking: S.booking(r.booking), released: r.released });
 });
+/* Per-customer drill-in for the flagged-customers table: show every held
+   booking of one customer, then release them all at once (each booking keeps
+   its own audited release row). */
+router.get('/customer-holds/:cid', (req, res) => {
+  const CH = require('../services/customerHold');
+  const cu = db.prepare('SELECT id,name,mobile FROM users WHERE id=?').get(req.params.cid);
+  res.json({
+    customer: cu ? { id: cu.id, n: cu.name, m: cu.mobile || '' } : { id: req.params.cid, n: req.params.cid, m: '' },
+    bookings: CH.heldFor(req.params.cid)
+  });
+});
+router.post('/customer-holds/:cid/release', (req, res) => {
+  const r = require('../services/customerHold').releaseBatch(req.params.cid, req.auth.uid);
+  res.json({ released: r.released, ids: r.ids });
+});
 /* Queue-entry alerts across ALL incidents (Operations notifications panel) */
 router.get('/incidents/queue-alerts', (req, res) => res.json({ alerts: INC.allQueueAlerts() }));
 router.patch('/incidents/:id', (req, res) => res.json({ incident: INC.triage(req.auth.uid, req.params.id, req.body || {}) }));
@@ -636,7 +651,9 @@ router.post('/custom-requests/:id/convert', (req, res) => {
 
 /* --- Kundali management: pricing, toggles, list --------------------------- */
 const KB = require('../services/kundaliBilling');
-const TOGGLE_KEYS = ['home', 'online', 'temple', 'customized', 'kundali', 'pandit', 'templeDir', 'prasad', 'samagri', 'astrology'];
+/* `services` is the master switch (item: Services ON/OFF) — the FE header hides
+   every bookable service and shows a pause notice when it is false. */
+const TOGGLE_KEYS = ['services', 'home', 'online', 'temple', 'customized', 'kundali', 'pandit', 'templeDir', 'prasad', 'samagri', 'astrology'];
 
 router.get('/kundali/pricing', (req, res) => res.json({ pricing: KB.pricing() }));
 router.put('/kundali/pricing', (req, res) => {

@@ -94,6 +94,29 @@ test('consent and contact targets: SKIPPED rows carry the reason, not silence', 
   assert.equal(rows.length, 2, 'opt-out and no-target customers still get delivery rows');
   assert.ok(rows.some((x) => x.status === 'SKIPPED' && /opted out/.test(x.detail)), 'consent skip recorded');
   assert.ok(rows.some((x) => x.status === 'SKIPPED' && /no .*target/.test(x.detail)), 'no-target skip recorded');
+
+  /* Mute preferences (item): mute ONE channel or ALL — each skipped with its reason. */
+  mkCustomer('xm1', 'Muted All', '9700000002', 'xm1@t.in', { mute: 'all' });
+  mkCustomer('xm2', 'Muted Wa', '9700000003', 'xm2@t.in', { mute: ['WhatsApp'] });
+  const r2 = await call('POST', '/admin/campaigns', { token: at, body: { name: 'Mute probe', channel: 'WhatsApp', audience: 'All customers', message: 'Check' } });
+  await call('POST', '/admin/campaigns/' + r2.json.campaign.id + '/send', { token: at, body: {} });
+  const mr = deliveries(r2.json.campaign.id);
+  assert.ok(mr.some((x) => x.user_id === 'xm1' && x.status === 'SKIPPED' && /muted all/.test(x.detail)), 'mute-all skipped with the reason');
+  assert.ok(mr.some((x) => x.user_id === 'xm2' && x.status === 'SKIPPED' && /muted whatsapp/.test(x.detail)), 'channel mute skipped with the reason');
+
+  /* WhatsApp provider adapter (item): the answer lands in the delivery detail.
+     Default (unset env) is the stub — accepts, never sends. (The campaign is
+     WhatsApp-only, so every SENT row of it fired the adapter.) */
+  const sent = mr.filter((x) => x.status === 'SENT');
+  assert.ok(sent.length >= 1, 'unmuted customers were sent to');
+  assert.ok(sent.every((x) => /stub/.test(x.detail || '')), 'stub adapter result recorded on every SENT row');
+  process.env.WHATSAPP_PROVIDER = 'none';
+  try {
+    const r3 = await call('POST', '/admin/campaigns', { token: at, body: { name: 'Provider off', channel: 'WhatsApp', audience: 'All customers', message: 'Check' } });
+    await call('POST', '/admin/campaigns/' + r3.json.campaign.id + '/send', { token: at, body: {} });
+    const off = deliveries(r3.json.campaign.id).filter((x) => x.status === 'SENT');
+    assert.ok(off.length >= 1 && off.every((x) => /adapter disabled/.test(x.detail || '')), 'disabled adapter recorded on the rows');
+  } finally { delete process.env.WHATSAPP_PROVIDER; }
 });
 
 test('audiences: Plus members resolves to plus=1 customers only', async () => {

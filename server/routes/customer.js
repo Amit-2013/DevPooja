@@ -55,8 +55,18 @@ router.patch('/me', (req, res) => {
   const name = b.name ? v.str(b.name, 'Name', { max: 80 }) : u.name;
   let email = u.email;
   if (b.email !== undefined && b.email !== '') { email = v.email(b.email); if (db.prepare('SELECT 1 FROM users WHERE email=? AND id!=?').get(email, u.id)) throw conflict('That email is already in use'); }
-  const p = b.pref || {};
-  const pref = { deity: v.str(p.deity, 'Deity', { optional: true, max: 40 }), lang: v.str(p.lang || 'English', 'Language', { max: 20 }), wa: !!p.wa, sms: !!p.sms, em: !!p.em };
+  /* Notification preferences (item): pref is MERGED, never clobbered — a
+     location-only PATCH must not wipe consent or the mute list. mute = 'all'
+     or a subset of the five channels; absent behaves as before. */
+  const prevPref = j(u.pref, {}) || {};
+  const p = b.pref !== undefined && b.pref !== null ? b.pref : prevPref;
+  const mute = p.mute === 'all' ? 'all'
+    : Array.isArray(p.mute) ? p.mute.filter((c) => ['WhatsApp', 'Email', 'SMS', 'Push', 'In-App'].includes(String(c)))
+      : [];
+  const pref = Object.assign({}, prevPref, {
+    deity: v.str(p.deity, 'Deity', { optional: true, max: 40 }), lang: v.str(p.lang || 'English', 'Language', { max: 20 }),
+    wa: !!p.wa, sms: !!p.sms, em: !!p.em, mute
+  });
   const prevType = u.account_type || 'normal';
   const accountType = (b.accountType === undefined || b.accountType === '') ? prevType : v.oneOf(String(b.accountType).toLowerCase(), ['normal', 'nri'], 'Account type');
   const location = b.location !== undefined ? locationShape(b.location) : j(u.location, {});

@@ -7,9 +7,13 @@ stateless Excel import with dedupe preview for customers and leads.
 
 Consent: users.pref carries { wa, sms, em } flags the customer controls in
 their account. The engine honours them: WhatsApp needs wa, SMS needs sms,
-Email needs em; Push/In-App are first-party and always allowed. A recipient
+Email needs em; Push/In-App are first-party. ON TOP of consent, pref.mute
+(item — per-customer notification preferences) can mute ONE channel or 'all'
+every muted delivery is SKIPPED with that reason. A recipient
 without consent or without a contact target is SKIPPED with the reason, not
-silently dropped.
+silently dropped. WhatsApp rows additionally fire the provider adapter
+(services/whatsapp.py — stub behind env config) and record its answer in the
+delivery detail, so the campaign table shows what the adapter did.
 
 Commit contract (repo-wide lesson): every caller must await db.commit() after
 service writes — route handlers do, scheduler passes do, tests must too.
@@ -48,9 +52,12 @@ def out(c: Campaign) -> dict | None:
 
 
 async def record_delivery(db: AsyncSession, *, campaign_id: str | None, user_id: str,
-                          channel: str, message: str, status: str, detail: str | None = None) -> None:
-    db.add(NotificationDelivery(campaign_id=campaign_id, user_id=user_id, channel=channel,
-                                message=message, status=status, detail=detail, ts=_now_ms()))
+                          channel: str, message: str, status: str, detail: str | None = None) -> NotificationDelivery:
+    row = NotificationDelivery(campaign_id=campaign_id, user_id=user_id, channel=channel,
+                               message=message, status=status, detail=detail, ts=_now_ms())
+    db.add(row)
+    await db.flush()
+    return row
 
 
 async def audience_ids(db: AsyncSession, audience: str) -> list[str]:
@@ -89,6 +96,17 @@ async def deliver(db: AsyncSession, *, campaign_id: str | None, user_id: str,
     pref = j(u.pref, {}) or {}
     if not isinstance(pref, dict):
         pref = {}
+    # Mute preference: the customer can mute ONE channel or ALL notifications.
+    # Absent pref.mute behaves exactly as before.
+    mute = pref.get("mute")
+    muted_all = mute == "all"
+    if muted_all or (isinstance(mute, list) and
+                     any(str(c).lower() == channel.lower() for c in mute)):
+        await record_delivery(db, campaign_id=campaign_id, user_id=user_id, channel=channel,
+                              message=message, status="SKIPPED",
+                              detail=("customer muted all notifications" if muted_all
+                                      else f"customer muted {channel.lower()}"))
+        return "SKIPPED"
     if channel == "WhatsApp":
         has_target, consent = bool(u.mobile), pref.get("wa") is not False
     elif channel == "SMS":
@@ -108,8 +126,13 @@ async def deliver(db: AsyncSession, *, campaign_id: str | None, user_id: str,
                               detail=f"customer opted out of {channel.lower()}")
         return "SKIPPED"
     db.add(Notif(user_id=user_id, channel=channel, message=message, ts=_now_ms()))
-    await record_delivery(db, campaign_id=campaign_id, user_id=user_id, channel=channel,
-                          message=message, status="SENT", detail=None)
+    delivery = await record_delivery(db, campaign_id=campaign_id, user_id=user_id, channel=channel,
+                                     message=message, status="SENT", detail=None)
+    if channel == "WhatsApp":
+        # Provider adapter (stub behind env config): its answer becomes the
+        # delivery record's detail — ops sees exactly what the adapter did.
+        from .whatsapp import send_whatsapp
+        delivery.detail = await send_whatsapp(to=u.mobile, message=message)
     return "SENT"
 
 

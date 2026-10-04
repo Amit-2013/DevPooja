@@ -133,7 +133,8 @@ def coupon(r) -> dict:
 
 
 def notif(r) -> dict:
-    return {"id": r.id, "uid": r.user_id, "ch": r.channel, "m": r.message, "ts": r.ts}
+    return {"id": r.id, "uid": r.user_id, "ch": r.channel, "m": r.message, "ts": r.ts,
+            "r": bool(r.read_at)}
 
 
 # Additional-requirements Phase B: our-people CMS rows. `person` is the full

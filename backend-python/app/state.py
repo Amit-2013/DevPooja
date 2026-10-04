@@ -2,7 +2,7 @@
 receive their own data; pandits see masked mobiles; admins see everything."""
 import os
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .services import payments as pay
@@ -20,6 +20,22 @@ from .util import j
 
 def _mask(m: str | None) -> str:
     return (m[:2] + "XXXXXX" + m[-2:]) if m else ""
+
+
+TOGGLE_DEFAULTS = {"services": True, "home": True, "online": True, "temple": True,
+                   "customized": True, "kundali": True, "pandit": True,
+                   "templeDir": True, "prasad": True, "samagri": True,
+                   "astrology": True}
+
+
+async def _service_toggles(db: AsyncSession) -> dict:
+    """Service-visibility settings (Node parity: server/lib/state.js) — stored
+    JSON merged over the defaults; `services` is the master ON/OFF switch."""
+    cur = dict(TOGGLE_DEFAULTS)
+    stored = await get_setting(db, "service_toggles", None)
+    if isinstance(stored, dict):
+        cur.update(stored)
+    return cur
 
 
 async def build_state(db: AsyncSession, auth: dict | None) -> dict:
@@ -50,9 +66,7 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         "kundali": {"enabled": True, "purposes": ["General", "Marriage", "Career", "Business",
                                                   "Health & Wellness", "Finance", "Education",
                                                   "Family", "Child", "Spiritual", "Property", "Other"]},
-        "toggles": {"home": True, "online": True, "temple": True, "customized": True,
-                    "kundali": True, "pandit": True, "templeDir": True, "prasad": True,
-                    "samagri": True, "astrology": True},
+        "toggles": await _service_toggles(db),
         "pandits": [], "busy": [], "reviews": [],
         "me": None, "users": [], "bookings": [], "orders": [], "notifs": [], "tickets": [],
         "coupons": [], "payouts": [], "inv": {}, "campaigns": [], "leads": [], "set": {}, "hidden": [],
@@ -102,9 +116,6 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
             .order_by(Booking.created.desc()))).scalars().all()]
         st["orders"] = [order(o) for o in (await db.execute(
             select(Order).where(Order.user_id == u.id).order_by(Order.date.desc()))).scalars().all()]
-        st["notifs"] = [notif(n) for n in (await db.execute(
-            select(Notif).where(Notif.user_id == u.id).order_by(Notif.ts.desc())
-            .limit(100))).scalars().all()]
         st["tickets"] = [ticket(t) for t in (await db.execute(
             select(Ticket).where(Ticket.user_id == u.id).order_by(Ticket.id.desc()))).scalars().all()]
         st["myKundalis"] = [{
@@ -159,4 +170,14 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["peopleCatsAdmin"] = await PEOPLE.list_categories(db)
         st["socialsAdmin"] = await SOCIALS.list_all(db)
         st["galleryAdmin"] = await GALLERY.admin_bundle(db)
+    # Admin notifications centre (item): own notifs + unread count for EVERY
+    # signed-in role — the bell badge lives in the main header, so admins and
+    # pandits get their ops alerts here too (Node parity: lib/state.js).
+    if auth:
+        rows = (await db.execute(select(Notif).where(Notif.user_id == auth["uid"])
+                                 .order_by(Notif.ts.desc()).limit(100))).scalars().all()
+        st["notifs"] = [notif(n) for n in rows]
+        st["notifsUnread"] = (await db.execute(
+            select(func.count()).select_from(Notif)
+            .where(Notif.user_id == auth["uid"], Notif.read_at.is_(None)))).scalar() or 0
     return st

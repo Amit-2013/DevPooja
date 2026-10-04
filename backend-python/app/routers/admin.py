@@ -475,6 +475,67 @@ async def booking_release_customer_hold(booking_id: str, auth: dict = Depends(ad
     return {"booking": s_booking(r["booking"]), "released": r["released"]}
 
 
+# --- Services ON/OFF + per-service visibility (Node parity: routes/admin.js) ---
+TOGGLE_KEYS = ["services", "home", "online", "temple", "customized", "kundali",
+               "pandit", "templeDir", "prasad", "samagri", "astrology"]
+
+
+async def _toggle_state(db: AsyncSession) -> dict:
+    from ..services.bookings import get_setting
+    cur = dict.fromkeys(TOGGLE_KEYS, True)
+    stored = await get_setting(db, "service_toggles", None)
+    if isinstance(stored, dict):
+        cur.update(stored)
+    return cur
+
+
+@router.get("/service-toggles")
+async def service_toggles(auth: dict = Depends(admin_dep),
+                          db: AsyncSession = Depends(get_db)):
+    return {"toggles": await _toggle_state(db)}
+
+
+@router.put("/service-toggles")
+async def service_toggles_put(body: dict, auth: dict = Depends(admin_dep),
+                              db: AsyncSession = Depends(get_db)):
+    body = body or {}
+    cur = await _toggle_state(db)
+    for k in TOGGLE_KEYS:
+        if k in body:
+            cur[k] = bool(body[k])
+    payload = json.dumps(cur)
+    row = (await db.execute(select(Setting).where(
+        Setting.key == "service_toggles"))).scalar_one_or_none()
+    if row:
+        row.value = payload
+    else:
+        db.add(Setting(key="service_toggles", value=payload))
+    await db.flush()
+    return {"ok": True, "toggles": cur}
+
+
+# Per-customer drill-in for the flagged-customers table: show every held
+# booking of one customer, then release them all at once (each booking keeps
+# its own audited release row).
+@router.get("/customer-holds/{cid}")
+async def customer_holds(cid: str, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    from ..services.customer_hold import held_for
+    cu = await db.get(User, cid)
+    return {"customer": ({"id": cu.id, "n": cu.name, "m": cu.mobile or ""} if cu
+                         else {"id": cid, "n": cid, "m": ""}),
+            "bookings": await held_for(db, cid)}
+
+
+@router.post("/customer-holds/{cid}/release")
+async def customer_holds_release(cid: str, auth: dict = Depends(admin_dep),
+                                 db: AsyncSession = Depends(get_db)):
+    from ..services.customer_hold import release_batch
+    r = await release_batch(db, cid, auth["uid"])
+    await db.commit()
+    return r
+
+
 # Queue-entry alerts across ALL incidents (Operations notifications panel).
 @router.get("/incidents/queue-alerts")
 async def incidents_queue_alerts(auth: dict = Depends(admin_dep),

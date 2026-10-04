@@ -175,6 +175,18 @@ async def test_customer_hold_lifecycle(client, db_session):
     assert "watchlist" in str(b4["chr"]), "the reason explains the conduct watchlist"
     assert b4["reviewHold"] is False, "the pandit-side hold is NOT set by the customer flag"
 
+    # Ops hears immediately: every admin got an in-app notification at stamp time
+    # (the badge on the bookings row was the only signal before).
+    from app.models import Notif, User as UserModel
+    async with SessionLocal() as db:
+        admin_ids = (await db.execute(select(UserModel.id).where(UserModel.role == "admin"))).scalars().all()
+        assert admin_ids, "an admin exists"
+        for a in admin_ids:
+            n = (await db.execute(select(Notif.id).where(
+                Notif.user_id == a,
+                Notif.message.like(f"Customer hold applied: booking {b4['id']}%")))).scalar_one_or_none()
+            assert n, f"admin {a} notified in-app when the hold stamped"
+
     # …and fulfilment is deliberately NOT blocked: the pandit accepts normally.
     ok = await client.post(f"/api/pandit/bookings/{b4['id']}/accept", headers=H(pt1), json={})
     assert ok.status_code == 200, "pandit can accept a customer-held booking (soft flag only)"
@@ -200,6 +212,32 @@ async def test_customer_hold_lifecycle(client, db_session):
     # sweep in the digest view frees any booking still carrying it.
     b5 = await booking(day(44), SLOTS[4], "p1")
     assert b5["ch"] == 1, "still-flagged customer bookings keep being stamped"
+
+    # Per-customer drill-in lists every held booking; batch release clears them
+    # all at once with one audited release each.
+    cid = b1["userId"]
+    drill = await client.get(f"/api/admin/customer-holds/{cid}", headers=aa)
+    assert drill.status_code == 200, drill.text
+    assert drill.json()["customer"]["id"] == cid, "drill-in names the customer"
+    assert any(x["id"] == b5["id"] for x in drill.json()["bookings"]), "drill-in lists the held booking"
+    batch = await client.post(f"/api/admin/customer-holds/{cid}/release", headers=aa, json={})
+    assert batch.status_code == 200, batch.text
+    assert batch.json()["released"] == 1, "batch release cleared the held booking"
+    assert b5["id"] in batch.json()["ids"], "batch release returns the released ids"
+    async with SessionLocal() as db:
+        audited_b = (await db.execute(select(AuditLog.id).where(
+            AuditLog.action == "booking.customer_hold_released",
+            AuditLog.entity_id == b5["id"]))).scalar_one_or_none()
+    assert audited_b, "batch release audited per booking"
+    drill2 = await client.get(f"/api/admin/customer-holds/{cid}", headers=aa)
+    assert drill2.json()["bookings"] == [], "drill-in is empty after the batch release"
+    assert (await client.get(f"/api/admin/customer-holds/{cid}", headers=H(ct))).status_code == 403, \
+        "drill-in is admin-only"
+    assert (await client.post(f"/api/admin/customer-holds/{cid}/release", headers=H(ct), json={})).status_code == 403, \
+        "batch release is admin-only"
+
+    b6 = await booking(day(45), SLOTS[0], "p1")
+    assert b6["ch"] == 1, "flagged-customer bookings keep being stamped after a batch release"
     rows = (await client.get("/api/admin/incidents", headers=aa)).json()["incidents"]
     live = [x for x in rows if x["customerId"] == b1["userId"] and (x.get("reopenCount") or 0) > 0
             and x["status"] in ("OPEN", "UNDER_REVIEW")]

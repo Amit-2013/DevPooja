@@ -316,6 +316,9 @@ class Notif(Base):
     channel: Mapped[str | None] = mapped_column(String(20))
     message: Mapped[str | None] = mapped_column(Text)
     ts: Mapped[int | None] = mapped_column(MS)
+    # Admin notifications centre (migration 033, Node parity): NULL = unread;
+    # pre-existing rows are backfilled to their own send time there.
+    read_at: Mapped[int | None] = mapped_column(MS, nullable=True)
 
 
 class Order(Base):
