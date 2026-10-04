@@ -40,7 +40,10 @@ const prasad = (r) => ({ id: r.id, n: r.name, p: r.price, ic: r.icon, d: r.descr
 const temple = (r) => ({ id: r.id, n: r.name, city: r.city, deity: r.deity, ic: r.icon, pujas: j(r.pujas, []), off: r.offering, d: r.descr, active: r.active === undefined || r.active === null ? 1 : r.active, timings: r.timings || '', photo: r.photo || '' });
 const festival = (r) => ({ id: r.id, n: r.name, d: r.date, p: j(r.pujas, []), t: r.note });
 const order = (r) => ({ id: r.id, userId: r.user_id, items: j(r.items, []), total: r.total, date: r.date, st: r.status, city: r.city, coupon: r.coupon || '', discount: r.discount || 0 });
-const ticket = (r) => ({ id: r.id, userId: r.user_id, b: r.booking_id || '', t: r.text, st: r.status, prio: r.prio });
+/* Phase 19: the ticket row shape (normalised status + resolution + updated_at)
+   lives in the workflow service so the state payload, the detail endpoint and
+   the pandit list all speak the same words. */
+const ticket = (r) => r && require('../services/tickets').out(r);
 /* Payout shape: canonical statuses (Phases 7-8), hold info, money trail, refs.
    `hr` is what a pandit sees for WHY a payout is on hold; refs are admin-only via
    the detail endpoint, but harmless here since only admins/pandit-own rows flow. */

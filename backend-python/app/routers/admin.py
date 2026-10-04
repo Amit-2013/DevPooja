@@ -1107,6 +1107,38 @@ async def leads_assign(lead_id: int, body: dict, auth: dict = Depends(admin_dep)
     return {"lead": await LEADS.assign(db, lead_id, (body or {}).get("userId") or None, auth["uid"])}
 
 
+# Phase 19: the complaints workflow — detail (thread), explicit transitions,
+# admin notes. /resolve stays as a compatibility alias for the old button.
+@router.get("/tickets/{ticket_id}")
+async def admin_ticket(ticket_id: str, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    return await TK.detail(db, ticket_id)
+
+
+@router.post("/tickets/{ticket_id}/transition")
+async def ticket_transition(ticket_id: str, body: dict, auth: dict = Depends(admin_dep),
+                            db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    return {"ticket": await TK.transition(db, ticket_id, auth["uid"], body or {})}
+
+
+@router.post("/tickets/{ticket_id}/replies")
+async def ticket_reply(ticket_id: str, body: dict, auth: dict = Depends(admin_dep),
+                       db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    return await TK.reply(db, ticket_id, auth["uid"], "admin", body or {})
+
+
+@router.post("/tickets/{ticket_id}/resolve")
+async def ticket_resolve(ticket_id: str, auth: dict = Depends(admin_dep),
+                         db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    ticket = await TK.transition(db, ticket_id, auth["uid"],
+                                 {"status": "RESOLVED", "note": "Resolved by admin"})
+    return {"ok": True, "ticket": ticket}
+
+
 @router.post("/leads/{lead_id}/followup")
 async def leads_followup(lead_id: int, body: dict, auth: dict = Depends(admin_dep),
                          db: AsyncSession = Depends(get_db)):

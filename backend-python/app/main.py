@@ -5,7 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -156,6 +156,31 @@ async def notifs_read(body: dict | None = None, auth: dict | None = Depends(curr
     unread = (await db.execute(select(func.count()).select_from(Notif).where(
         Notif.user_id == auth["uid"], Notif.read_at.is_(None)))).scalar() or 0
     return {"ok": True, "unread": unread}
+
+
+@app.post("/api/tickets/evidence")
+async def tickets_evidence(evidence: list[UploadFile] | None = File(None),
+                           auth: dict | None = Depends(current_auth)):
+    """Phase 19: evidence upload for the complaints thread — the SAME magic-checked
+    media pipeline the incident reports use, open to any signed-in role that can
+    reply (urls are validated again when the message is saved). Node parity:
+    index.js POST /api/tickets/evidence."""
+    from .config import get_settings
+    from .util import rid, verify_media
+    if not auth:
+        raise AuthError(401, "Please log in")
+    urls = []
+    for f in (evidence or [])[:4]:
+        data = await f.read()
+        real = verify_media(data, f.content_type or "")
+        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+               "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov"}[real]
+        d = Path(get_settings().upload_dir) / "media"
+        d.mkdir(parents=True, exist_ok=True)
+        name = rid(8) + ext
+        (d / name).write_bytes(data)
+        urls.append("/media/" + name)
+    return {"urls": urls}
 
 
 @app.post("/api/quote")

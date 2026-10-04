@@ -344,6 +344,23 @@ class Ticket(Base):
     text: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))
     prio: Mapped[str | None] = mapped_column(String(10))
+    # Phase 19 complaints workflow (migration 034 twin): last transition/reply
+    # + the admin decision text carried to both portals.
+    updated_at: Mapped[int | None] = mapped_column(MS)
+    resolution: Mapped[str | None] = mapped_column(Text)
+
+
+class TicketMessage(Base):
+    """One reply in a complaint thread (migration 034): customer, pandit or
+    admin, attachments = JSON array of magic-checked /media/ urls."""
+    __tablename__ = "ticket_messages"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    ticket_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    author_id: Mapped[str | None] = mapped_column(String(40))
+    author_role: Mapped[str | None] = mapped_column(String(40))
+    message: Mapped[str | None] = mapped_column(Text)
+    attachments: Mapped[str | None] = mapped_column(Text)
+    created: Mapped[int | None] = mapped_column(MS)
 
 
 class Campaign(Base):

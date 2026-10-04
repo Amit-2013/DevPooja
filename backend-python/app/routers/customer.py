@@ -411,7 +411,33 @@ async def create_ticket(body: dict, auth: dict = Depends(customer_dep),
             raise not_found("Booking not found")
     seq = await B.next_seq(db, "ticket_seq", 4)
     id = "TK" + str(seq)
+    now = int(time.time() * 1000)
     db.add(Ticket(id=id, user_id=u.id, booking_id=bid or None,
-                  text=v_str(b.get("t"), "Issue", max_len=600), status="Open", prio="Medium"))
+                  text=v_str(b.get("t"), "Issue", max_len=600), status="OPEN",
+                  prio="Medium", updated_at=now))
     await db.flush()
     return {"ok": True, "id": id}
+
+
+# Phase 19: the customer half of the complaints workflow — own-ticket thread
+# + reply (another customer's ticket is a 404, never a probe).
+@router.get("/tickets/{ticket_id}")
+async def get_ticket(ticket_id: str, auth: dict = Depends(customer_dep),
+                     db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    u = await _me(db, auth)
+    d = await TK.detail(db, ticket_id)
+    if d["ticket"]["userId"] != u.id:
+        raise not_found("Ticket not found")
+    return d
+
+
+@router.post("/tickets/{ticket_id}/replies")
+async def reply_ticket(ticket_id: str, body: dict, auth: dict = Depends(customer_dep),
+                       db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    u = await _me(db, auth)
+    d = await TK.detail(db, ticket_id)
+    if d["ticket"]["userId"] != u.id:
+        raise not_found("Ticket not found")
+    return await TK.reply(db, ticket_id, u.id, "customer", body or {})

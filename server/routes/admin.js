@@ -1097,7 +1097,17 @@ router.post('/orders/:id/advance', (req, res) => {
   notify(o.user_id, 'SMS', `Order ${o.id} is ${nx.toLowerCase()}.`);
   res.json({ ok: true });
 });
-router.post('/tickets/:id/resolve', (req, res) => { const r = db.prepare("UPDATE tickets SET status='Resolved' WHERE id=?").run(req.params.id); if (!r.changes) throw notFound(); res.json({ ok: true }); });
+/* Phase 19: the complaints workflow — detail (thread), explicit transitions,
+   admin notes. /resolve stays as a compatibility alias for the old button. */
+router.get('/tickets/:id', (req, res) => res.json(require('../services/tickets').detail(req.params.id)));
+router.post('/tickets/:id/transition', (req, res) =>
+  res.json({ ticket: require('../services/tickets').transition(req.params.id, req.auth.uid, req.body || {}) }));
+router.post('/tickets/:id/replies', (req, res) =>
+  res.json(require('../services/tickets').reply(req.params.id, req.auth.uid, 'admin', req.body || {})));
+router.post('/tickets/:id/resolve', (req, res) => {
+  const ticket = require('../services/tickets').transition(req.params.id, req.auth.uid, { status: 'RESOLVED', note: 'Resolved by admin' });
+  res.json({ ok: true, ticket });
+});
 
 /* --- Leads CRM (Phase 26): the enquiry pipeline from capture to booking --- */
 const LEADS = require('../services/leads');

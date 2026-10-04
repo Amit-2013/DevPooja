@@ -20,7 +20,7 @@
     "db:status": "node server/migrate.js --status",
     "db:inspect": "node server/tools/inspect-db.js",
     "db:health": "node server/tools/db-health.js",
-    "test": "node --test tests/api.test.js tests/security.test.js tests/kyc.test.js tests/agreements.test.js tests/qa.test.js tests/ledger.test.js tests/cancellation.test.js tests/trial.test.js tests/incident.test.js tests/incident-digest.test.js tests/mediagate.test.js tests/temple.test.js tests/pricing.test.js tests/nri.test.js tests/coupons.test.js tests/leads.test.js tests/review-hold.test.js tests/digest-sweep.test.js tests/comms.test.js tests/accounts.test.js tests/people.test.js tests/socials.test.js tests/gallery.test.js && node tools/regress-022.js",
+    "test": "node --test tests/api.test.js tests/security.test.js tests/kyc.test.js tests/agreements.test.js tests/qa.test.js tests/ledger.test.js tests/cancellation.test.js tests/trial.test.js tests/incident.test.js tests/incident-digest.test.js tests/mediagate.test.js tests/temple.test.js tests/pricing.test.js tests/nri.test.js tests/coupons.test.js tests/leads.test.js tests/review-hold.test.js tests/digest-sweep.test.js tests/comms.test.js tests/tickets.test.js tests/accounts.test.js tests/people.test.js tests/socials.test.js tests/gallery.test.js && node tools/regress-022.js",
     "test:ui": "node tests/ui-smoke.js",
     "test:pages": "node tests/pages-smoke.js",
     "build:pages": "node tools/build-pages.js",

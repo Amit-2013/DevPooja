@@ -49,7 +49,10 @@ def test_inventory_migration_upper_bound_matches_disk():
 def test_named_migrations_exist_on_disk():
     named = sorted(set(re.findall(r"\b(0\d\d_[a-z0-9_]+)\.sql", _doc())))
     disk = {p.name for p in _migrations()}
-    missing = [n for n in named if n not in disk]
+    # the regex captures the stem (the `.sql` sits outside the group), so the
+    # disk set must be compared with the extension re-attached — otherwise
+    # every correct citation would be reported as missing.
+    missing = [n for n in named if n + ".sql" not in disk]
     assert not missing, f"the document cites migrations that do not exist: {missing}"
 
 

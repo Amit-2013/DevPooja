@@ -106,8 +106,11 @@ def order(r) -> dict:
 
 
 def ticket(r) -> dict:
-    return {"id": r.id, "userId": r.user_id, "b": r.booking_id or "", "t": r.text,
-            "st": r.status, "prio": r.prio}
+    """Phase 19: the workflow service owns the ticket shape (normalised status +
+    resolution + updated_at) so the state payload, the detail endpoint and the
+    pandit list all speak the same words."""
+    from .services.tickets import out
+    return out(r)
 
 
 def payout(r) -> dict:

@@ -15,7 +15,7 @@ from ..services import bookings as B
 from ..services import kyc as KYC
 from ..services.availability import check as av_check, config_of, resolve_place
 from ..services.otp import issue as otp_issue
-from ..util import bad, j, rid, v_date, v_int, v_one_of, v_str
+from ..util import bad, j, not_found, rid, v_date, v_int, v_one_of, v_str
 from ..pricing import SLOTS
 
 router = APIRouter(prefix="/api/pandit", tags=["pandit"])
@@ -368,6 +368,41 @@ async def incident_evidence(evidence: list[UploadFile] | None = File(None),
         (d / name).write_bytes(data)
         urls.append("/media/" + name)
     return {"urls": urls}
+
+
+# Phase 19: the pandit half of the complaints workflow — only tickets attached
+# to this pandit's own bookings are visible or answerable (404 otherwise).
+@router.get("/tickets")
+async def my_tickets(auth: dict = Depends(pandit_dep), db: AsyncSession = Depends(get_db)):
+    from ..services import tickets as TK
+    return {"tickets": await TK.list_for_pandit(db, auth["pid"])}
+
+
+async def _my_ticket(db, auth, ticket_id: str) -> dict:
+    from ..services import tickets as TK
+    d = await TK.detail(db, ticket_id)
+    if not await TK.for_pandit(db, d["ticket"], auth["pid"]):
+        raise not_found("Ticket not found")
+    return d
+
+
+@router.get("/tickets/{ticket_id}")
+async def pandit_ticket(ticket_id: str, auth: dict = Depends(pandit_dep),
+                        db: AsyncSession = Depends(get_db)):
+    return await _my_ticket(db, auth, ticket_id)
+
+
+@router.post("/tickets/{ticket_id}/replies")
+async def pandit_ticket_reply(ticket_id: str, body: dict, auth: dict = Depends(pandit_dep),
+                              db: AsyncSession = Depends(get_db)):
+    from ..models import Pandit
+    from ..services import tickets as TK
+    d = await _my_ticket(db, auth, ticket_id)
+    # the audit actor is the pandit's USER id — roles derive from the users row
+    p = await db.get(Pandit, auth["pid"])
+    if not p:
+        raise not_found("Pandit not found")
+    return await TK.reply(db, d["ticket"]["id"], p.user_id, "pandit", body or {})
 
 
 @router.post("/feature")

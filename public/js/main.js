@@ -14,6 +14,17 @@ const B=id=>db.bookings.find(b=>b.id===id);
 const isImg=u=>/\.(jpe?g|png|webp)$/i.test(u);
 
 function bdetModal(b){const p=PU(b.pujaId),pd=PD(b.panditId),u=US(b.userId)||{n:'Customer'};modal('<h2>'+p.ic+' '+esc(p.n)+'</h2><p class="sm mut">'+b.id+' '+badge(b.status)+'</p><div class="grid g2 mt"><div><p class="sm"><b>Customer:</b> '+esc(u.n)+'<br><b>Type:</b> '+MODES[b.mode].n+'<br><b>When:</b> '+fmtD(b.date)+', '+b.slot+'<br><b>Where:</b> '+(b.mode==='temple'?esc((TP(b.templeId)||{}).n||''):esc(b.addr?b.addr.line+', '+b.addr.city:''))+'<br><b>Pandit:</b> '+(pd?esc(pd.n):'Being assigned')+'<br><b>For:</b> '+esc(b.member||'Self')+(b.notes?'<br><b>Instructions:</b> '+esc(b.notes):'')+'<br><b>Payment:</b> '+esc(b.pay.method)+', ref '+esc(b.pay.ref||'')+'</p><h3 class="mt">Audit trail</h3><ul class="sm mt" style="padding-left:18px">'+b.log.map(l=>'<li>'+esc(l[0])+', '+fmtD(l[1])+'</li>').join('')+'</ul></div><div class="card flat"><h3>Price breakdown</h3><div class="mt">'+sumLines(b.q)+'</div></div></div>',1)}
+/* Phase 19 complaints: the shared ticket thread. `ticket.next` is the legal
+   transition set from the state machine (the server stays the authority), so
+   only the admin view renders workflow buttons and only for legal moves. */
+function drawTicketThread(r, opt){const t=r.ticket,m=r.messages||[],next=t.next||[],who=(opt&&opt.who)||'customer';
+ const label=(s)=>s==='UNDER_REVIEW'?(t.st==='RESOLVED'?'Reopen for review':'Start review'):s==='DECISION'?'Record decision':s==='RESOLVED'?'Resolve':s==='PANDIT_RESPONSE'?'Mark pandit responded':'Mark customer responded';
+ const noteNeeded=(s)=>s==='DECISION'||s==='RESOLVED';
+ const acts=(opt&&opt.admin)?next.filter(s=>['UNDER_REVIEW','DECISION','RESOLVED'].includes(s)):[];
+ modal('<h2>'+esc(String(t.t||'').slice(0,90))+'</h2><p class="sm mut mt">'+esc(t.id)+' '+badge(t.st)+(t.b?' · Booking '+esc(t.b):'')+(t.res?'<br><b>Decision:</b> '+esc(t.res):'')+'</p>'
+  +(m.length?'<div class="col mt">'+m.map(x=>'<div class="card flat" style="padding:10px"><div class="row sp"><b>'+esc(x.author)+'</b><span class="sm mut">'+esc(x.role)+' · '+new Date(x.created).toLocaleString('en-IN')+'</span></div><div class="sm mt">'+esc(x.message)+'</div>'+((x.attachments||[]).length?'<div class="row mt" style="gap:6px;flex-wrap:wrap">'+x.attachments.map(u=>'<a target="_blank" rel="noopener" href="'+mediaUrl(u)+'"><img src="'+mediaUrl(u)+'" alt="Evidence attachment" loading="lazy" style="height:60px;border-radius:6px"></a>').join('')+'</div>':'')+'</div>').join('')+'</div>':'<p class="sm mut mt">No replies yet.</p>')
+  +(acts.length?'<div class="row mt" style="flex-wrap:wrap">'+acts.map(s=>'<button class="btn s'+(s==='RESOLVED'?'':' ghost')+'" data-act="atkgo" data-id="'+esc(t.id)+'" data-v="'+s+'"'+(noteNeeded(s)?' data-note="1"':'')+'>'+label(s)+'</button>').join('')+'</div>':'')
+  +(t.st==='RESOLVED'?'<p class="sm mut mt2">This ticket is resolved. An admin can reopen it for further review.</p>':'<div class="frm mt"><label class="f">Your reply<textarea id="trm" style="min-height:70px"></textarea></label><label class="f">Evidence (optional — images or video)<input type="file" id="trf" multiple accept="image/*,video/*"></label></div><div class="row mt"><button class="btn" data-act="treply" data-id="'+esc(t.id)+'" data-who="'+who+'">Send reply</button><button class="btn ghost" data-act="close">Close</button></div>'),1)}
 function say(who,html){const m=document.createElement('div');m.className='msg '+who;m.innerHTML=html;$('#msgs').appendChild(m);$('#msgs').scrollTop=1e9}
 function askGuide(q){if(!q)return;$('#asst').classList.add('on');say('u',esc(q));setTimeout(()=>say('a',guide(q)),250)}
 function openAsst(){const a=$('#asst');a.classList.toggle('on');if(a.classList.contains('on')&&!$('#msgs').children.length){say('a','Namaste. Tell me what you are seeking, ask about a festival, or ask how booking works.<div class="row mt">'+['I want peace and prosperity in my family','What is needed for Diwali?','How do refunds work?'].map(x=>'<button class="chip" data-act="askq" data-q="'+x+'">'+x+'</button>').join('')+'</div><div class="sm mut mt">Suggestions come from the catalogue and simple rules.</div>');$('#aq').focus()}}
@@ -467,7 +478,16 @@ const ACT={
  adel2(d){run(()=>api('/admin/bookings/'+d.id+'/ops',{body:{sam:'Delivered'}}),'Marked delivered')},
  adsp(d){run(()=>api('/admin/bookings/'+d.id+'/ops',{body:{pra:d.v}}),'Prasad '+d.v.toLowerCase())},
  aord(d){run(()=>api('/admin/orders/'+d.id+'/advance',{body:{}}))},
- atk(d){run(()=>api('/admin/tickets/'+d.id+'/resolve',{body:{}}),'Ticket resolved')},
+ atkview(d){api('/admin/tickets/'+d.id).then(r=>drawTicketThread(r,{who:'admin',admin:true})).catch(e=>toast(e.message))},
+ atkgo(d){if(d.note==='1'){modal('<h2>'+(d.v==='RESOLVED'?'Resolve ':'Record decision on ')+esc(d.id)+'</h2><label class="f mt">'+(d.v==='RESOLVED'?'Resolution (required)':'Decision note (required)')+'<textarea id="tkn" style="min-height:80px"></textarea></label><div class="row mt"><button class="btn" data-act="atkgo2" data-id="'+esc(d.id)+'" data-v="'+d.v+'">Confirm</button><button class="btn ghost" data-act="close">Cancel</button></div>');return}
+  run(()=>api('/admin/tickets/'+d.id+'/transition',{body:{status:d.v}}),'Ticket moved to '+String(d.v).replace(/_/g,' ').toLowerCase())},
+ async atkgo2(d){const note=(val('tkn')||'').trim();if(!note)return toast('A note is required');await closeAnd(run(()=>api('/admin/tickets/'+d.id+'/transition',{body:{status:d.v,note}}),'Ticket moved to '+d.v.replace(/_/g,' ').toLowerCase()))},
+ async treply(d){const msg=(val('trm')||'').trim();if(!msg)return toast('Write a reply first');
+  const who=d.who||'customer',p=who==='admin'?'/admin/tickets/':who==='pandit'?'/pandit/tickets/':'/tickets/';
+  try{let urls=[];const f=$('#trf');if(f&&f.files&&f.files.length){const fd=new FormData();for(const x of f.files)fd.append('evidence',x);urls=((await api('/tickets/evidence',{form:fd})).urls)||[]}
+   await closeAnd(run(()=>api(p+d.id+'/replies',{body:{message:msg,attachments:urls}}),'Reply sent'))}catch(e){toast(e.message)}},
+ async topen(d){try{const r=await api('/tickets/'+d.id);drawTicketThread(r,{who:'customer'})}catch(e){toast(e.message)}},
+ async ptopen(d){try{const r=await api('/pandit/tickets/'+d.id);drawTicketThread(r,{who:'pandit'})}catch(e){toast(e.message)}},
  /* Leads CRM (Phase 26): filters, pipeline moves, notes, follow-ups, assignment,
     conversion into a real manual booking, delete (LOST/CONVERTED only). */
  aldf(d,el){PAGE.ldF={q:val('ldfq'),st:val('ldfs'),src:val('ldfsrc'),fu:$('#ldfu').checked,dup:$('#ldfdup')?$('#ldfdup').checked:false};render(true)},

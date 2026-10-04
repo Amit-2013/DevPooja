@@ -152,6 +152,13 @@ app.get('/api/media/:id/download', (req, res) => {
 /* public API */
 app.get('/api/health', (_q, r) => r.json({ ok: true }));
 app.get('/api/state', (req, res) => res.json(buildState(req.auth)));
+/* Phase 19: evidence upload for the complaints thread — the SAME magic-checked
+   media pipeline the incident reports use, open to any signed-in role that can
+   reply (urls are validated again when the message is saved). */
+app.post('/api/tickets/evidence', upload.media.array('evidence', 4), upload.verifyMagic(), (req, res) => {
+  if (!req.auth) return res.status(401).json({ error: 'Please log in' });
+  res.json({ urls: (req.files || []).map((f) => '/media/' + f.filename) });
+});
 /* Admin notifications centre (item): mark my notifs read — every unread row of
    the caller, or just the ids the bell panel displayed. Any signed-in role;
    always scoped to the caller's own rows. */

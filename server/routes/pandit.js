@@ -7,7 +7,7 @@ const B = require('../services/bookings');
 const S = require('../lib/serialize');
 const upload = require('../lib/upload');
 const { verifyOtp } = require('./auth');
-const { v, bad, conflict, j, today, rid } = require('../lib/util');
+const { v, bad, conflict, notFound, j, today, rid } = require('../lib/util');
 const P = require('../../shared/pricing');
 
 const pujaIds = () => db.prepare('SELECT id FROM pujas').all().map((r) => r.id);
@@ -210,6 +210,22 @@ router.post('/incidents', upload.media.array('evidence', 8), upload.verifyMagic(
 /* Evidence-only upload (report first, attach while typing) — same pipeline. */
 router.post('/incident-evidence', upload.media.array('evidence', 8), upload.verifyMagic(), (req, res) => {
   res.json({ urls: (req.files || []).map((f) => '/media/' + f.filename) });
+});
+/* Phase 19: the pandit half of the complaints workflow — only tickets attached
+   to this pandit's own bookings are visible or answerable (404 otherwise). */
+const TK = require('../services/tickets');
+const myTicket = (req) => {
+  const d = TK.detail(req.params.id);
+  if (!TK.forPandit(d.ticket, pid(req))) throw notFound('Ticket not found');
+  return d;
+};
+router.get('/tickets', (req, res) => res.json({ tickets: TK.listForPandit(pid(req)) }));
+router.get('/tickets/:id', (req, res) => res.json(myTicket(req)));
+router.post('/tickets/:id/replies', (req, res) => {
+  const d = myTicket(req);
+  /* the audit actor is the pandit's USER id — roles derive from the users row */
+  const u = db.prepare('SELECT user_id FROM pandits WHERE id=?').get(pid(req));
+  res.json(TK.reply(d.ticket.id, u.user_id, 'pandit', req.body || {}));
 });
 router.post('/feature', (req, res) => {
   if ((process.env.PAYMENT_MODE || 'mock') !== 'mock') return res.status(501).json({ error: 'Featured-listing billing is not wired to the gateway yet. See README.' });

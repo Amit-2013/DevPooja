@@ -246,7 +246,20 @@ router.post('/tickets', (req, res) => {
   const u = me(req), bid = v.str(req.body.b, 'Booking', { optional: true, max: 20 });
   if (bid && !db.prepare('SELECT 1 FROM bookings WHERE id=? AND user_id=?').get(bid, u.id)) throw notFound('Booking not found');
   const id = 'TK' + nextSeq('ticket_seq', 4);
-  db.prepare("INSERT INTO tickets(id,user_id,booking_id,text,status,prio) VALUES(?,?,?,?,'Open','Medium')").run(id, u.id, bid || null, v.str(req.body.t, 'Issue', { max: 600 }));
+  db.prepare("INSERT INTO tickets(id,user_id,booking_id,text,status,prio,updated_at) VALUES(?,?,?,?,'OPEN','Medium',?)")
+    .run(id, u.id, bid || null, v.str(req.body.t, 'Issue', { max: 600 }), Date.now());
   res.status(201).json({ ok: true, id });
+});
+/* Phase 19: own-ticket thread + reply (the customer half of the workflow). */
+router.get('/tickets/:id', (req, res) => {
+  const d = require('../services/tickets').detail(req.params.id);
+  if (d.ticket.userId !== me(req).id) throw notFound('Ticket not found');
+  res.json(d);
+});
+router.post('/tickets/:id/replies', (req, res) => {
+  const u = me(req);
+  const d = require('../services/tickets').detail(req.params.id);
+  if (d.ticket.userId !== u.id) throw notFound('Ticket not found');
+  res.json(require('../services/tickets').reply(req.params.id, u.id, 'customer', req.body || {}));
 });
 module.exports = router;
