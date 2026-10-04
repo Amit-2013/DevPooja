@@ -108,10 +108,13 @@ to use it for real.
 ```bash
 npm run build:pages     # writes dist/ from a throwaway database
 npm run preview:pages   # serves it at http://localhost:4173/DevPooja/
+npm run test:pages      # serves dist/ like Pages and asserts the fallbacks + images resolve
 ```
 
 The deploy runs from `.github/workflows/pages.yml` on every push to `main`, and weekly because the
-seed books pujas relative to today: an old snapshot would slowly fill up with past dates. If the
+seed books pujas relative to today: an old snapshot would slowly fill up with past dates. Every run
+builds the artifact and then smoke-tests it (`tests/pages-smoke.js` — shim, snapshot fallbacks,
+media under the `/<repo>/` subpath) before uploading, so a broken demo never publishes. If the
 workflow cannot create the Pages site on its first run, set Settings, Pages, Source to
 *GitHub Actions* and re-run it.
 
