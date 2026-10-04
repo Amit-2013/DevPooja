@@ -84,7 +84,7 @@ async def lifespan(_app: FastAPI):
         stop_sweeper()
 
 
-app = FastAPI(title="DaivikPooja API (FastAPI)", version="1.0.0",
+app = FastAPI(title="DaivikPuja API (FastAPI)", version="1.0.0",
               docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 app.add_middleware(
@@ -111,7 +111,7 @@ async def media_cache_headers(request: Request, call_next):
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "service": "daivikpooja-api-python", "ts": int(time.time() * 1000)}
+    return {"ok": True, "service": "daivikpuja-api-python", "ts": int(time.time() * 1000)}
 
 
 @app.get("/api/state")

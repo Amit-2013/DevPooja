@@ -39,7 +39,7 @@ const customer = async () => (await call('POST', '/auth/email', { body: { email:
 test('demo footer links ride /state in order; the disabled one stays admin-only', async () => {
   const anon = (await call('GET', '/state')).json;
   assert.deepEqual(anon.socials.map((s) => s.platform), ['facebook', 'instagram', 'youtube'], 'FB/IG/YT seeded active, in order');
-  assert.equal(anon.socials[0].url, 'https://www.facebook.com/daivikpooja');
+  assert.equal(anon.socials[0].url, 'https://www.facebook.com/daivikpuja');
   assert.equal(anon.socials[0].icon, 'facebook', 'icon key points into the built-in SVG set');
   assert.ok(anon.socials.every((s) => s.active), 'the footer never receives a hidden row');
 
@@ -115,5 +115,5 @@ test('reorder refuses an empty list; platform and URL stay validated on edit', a
   assert.equal((await call('PATCH', '/admin/social-links/' + fb.id, { token: at, body: { url: 'javascript:alert(1)' } })).status, 400);
   assert.equal((await call('PATCH', '/admin/social-links/' + fb.id, { token: at, body: { platform: '' } })).status, 400);
   /* the row is untouched after both rejections */
-  assert.equal((await call('GET', '/admin/social-links', { token: at })).json.links.find((x) => x.id === fb.id).url, 'https://www.facebook.com/daivikpooja');
+  assert.equal((await call('GET', '/admin/social-links', { token: at })).json.links.find((x) => x.id === fb.id).url, 'https://www.facebook.com/daivikpuja');
 });

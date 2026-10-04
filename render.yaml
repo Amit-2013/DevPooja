@@ -1,4 +1,4 @@
-# Render Blueprint — DaivikPooja
+# Render Blueprint — DaivikPuja
 #
 # Declares the FastAPI (backend-python) service. One "Apply" in the Render
 # dashboard (New + → Blueprint → point at this repo) provisions it.

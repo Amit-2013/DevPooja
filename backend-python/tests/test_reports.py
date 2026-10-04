@@ -55,7 +55,7 @@ async def test_all_report_ids_render_valid_xlsx(client):
         wb = _load(r)
         ws = wb[rid[:28]]
         # professional layout: merged title in row 1, header row 4
-        assert str(ws.cell(row=1, column=1).value).startswith("DaivikPooja \u2014 "), rid
+        assert str(ws.cell(row=1, column=1).value).startswith("DaivikPuja \u2014 "), rid
         assert ws.freeze_panes == "A5", rid
         headers = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
         assert headers and all(h_ for h_ in headers), rid

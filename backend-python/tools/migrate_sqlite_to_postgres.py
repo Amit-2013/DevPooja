@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time SQLite -> PostgreSQL migration for DaivikPooja.
+"""One-time SQLite -> PostgreSQL migration for DaivikPuja.
 
 Preserves EVERY table, row and primary-key id from the Node/SQLite database
 (users, bookings, payments, kundalis, puja_media photo metadata, ...) so the

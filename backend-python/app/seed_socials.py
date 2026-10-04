@@ -18,10 +18,10 @@ from .util import rid
 
 # (platform, url, active, order)
 DEMO_SOCIAL_LINKS = [
-    ("facebook", "https://www.facebook.com/daivikpooja", 1, 1),
-    ("instagram", "https://www.instagram.com/daivikpooja", 1, 2),
-    ("youtube", "https://www.youtube.com/@daivikpooja", 1, 3),
-    ("linkedin", "https://www.linkedin.com/company/daivikpooja", 0, 4),
+    ("facebook", "https://www.facebook.com/daivikpuja", 1, 1),
+    ("instagram", "https://www.instagram.com/daivikpuja", 1, 2),
+    ("youtube", "https://www.youtube.com/@daivikpuja", 1, 3),
+    ("linkedin", "https://www.linkedin.com/company/daivikpuja", 0, 4),
 ]
 
 

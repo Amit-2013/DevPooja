@@ -17,7 +17,7 @@ function seedCatalog() {
     catalog.temples.forEach((t) => db.prepare('INSERT INTO temples(id,name,city,deity,icon,pujas,offering,descr) VALUES(?,?,?,?,?,?,?,?)').run(t.id, t.name, t.city, t.deity, t.icon, JSON.stringify(t.pujas), t.offering, t.descr));
     catalog.festivals.forEach((f) => db.prepare('INSERT INTO festivals(id,name,date,pujas,note) VALUES(?,?,?,?,?)').run(f.id, f.name, f.date, JSON.stringify(f.pujas), f.note));
     setSetting('commission', 20);
-    [['DAIVIKPOOJA10', 'pct', 10, 500, 1500], ['FIRST100', 'flat', 100, 100, 1000], ['FESTIVE15', 'pct', 15, 750, 3000]].forEach((c) => db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(...c));
+    [['DAIVIKPUJA10', 'pct', 10, 500, 1500], ['FIRST100', 'flat', 100, 100, 1000], ['FESTIVE15', 'pct', 15, 750, 3000]].forEach((c) => db.prepare('INSERT INTO coupons(code,type,val,max,min,active,used) VALUES(?,?,?,?,?,1,0)').run(...c));
     db.prepare('INSERT INTO banners(id,text,enabled) VALUES(?,?,1)').run('b1', 'Diwali Lakshmi Puja: book early');
   })();
 }
@@ -66,8 +66,8 @@ function seedDemo() {
     ['p6', 'Pt. Dinesh Pandey', 'Pune', 10, ['Marathi', 'Hindi'], ['ganesh', 'satyanarayan', 'namkaran', 'griha'], 4.5, 140, 420, 0.9, 'Ganesh and life-event ceremonies in Marathi and Hindi.', '#a5201a', 'verified', 0],
     ['p7', 'Acharya Gopal Rao', 'Bengaluru', 16, ['Kannada', 'Telugu', 'English'], ['durga', 'lakshmi', 'rudra', 'vivah'], 4.7, 215, 760, 1.05, 'Conducts pujas in Kannada, Telugu and English for families across Bengaluru.', '#1f6a3a', 'verified', 0],
     ['p8', 'Pt. Mahesh Tiwari', 'Varanasi', 22, ['Hindi', 'Sanskrit'], ['rudra', 'pitru', 'mrityunjaya', 'kaalsarp'], 4.9, 330, 1180, 1.1, 'Pitru and Shiva rituals from Kashi tradition.', '#6b4e00', 'verified', 0],
-    ['p9', 'Pt. Sanjay Dubey', 'Hyderabad', 7, ['Hindi', 'Telugu'], ['ganesh', 'satyanarayan'], 0, 0, 0, 0.9, 'Recently applied to join DaivikPooja.', '#555555', 'pending', 0],
-    ['p10', 'Pt. Rakesh Pathak', 'Delhi NCR', 9, ['Hindi'], ['hanuman', 'lakshmi'], 0, 0, 0, 0.9, 'Recently applied to join DaivikPooja.', '#555555', 'pending', 0]
+    ['p9', 'Pt. Sanjay Dubey', 'Hyderabad', 7, ['Hindi', 'Telugu'], ['ganesh', 'satyanarayan'], 0, 0, 0, 0.9, 'Recently applied to join DaivikPuja.', '#555555', 'pending', 0],
+    ['p10', 'Pt. Rakesh Pathak', 'Delhi NCR', 9, ['Hindi'], ['hanuman', 'lakshmi'], 0, 0, 0, 0.9, 'Recently applied to join DaivikPuja.', '#555555', 'pending', 0]
   ];
   P.forEach((p, i) => {
     const mobile = '98100000' + String(i + 1).padStart(2, '0'), uid = 'pu' + (i + 1);
@@ -165,8 +165,8 @@ function seedDemoPeople() {
       city: 'Delhi NCR', country: 'India', exp: 38, order: 1,
       quals: 'Shastri and Acharya in Jyotish, Sampurnanand Sanskrit University, Varanasi',
       expertise: ['Vedic ritual design', 'Temple restoration', 'Community seva', 'Pandit welfare'],
-      intro: 'Founder of DaivikPooja — three decades of puja seva, temple service and building a trusted home for Sanatan traditions.',
-      bio: 'Shri Devendra Shastri began his seva as a young pandit in the lanes of Kashi, performing griha pravesh and satyanarayan katha for families who had no one to guide them through the vidhi. Over three decades he conducted pujas in homes, temples and villages across twelve states, and saw the same difficulty everywhere: families who wanted to worship properly could not find a trustworthy pandit, and learned pandits could not reach the families who needed them. DaivikPooja was founded to close that gap — a platform where every ritual is performed by a verified pandit, every samagri reaches the devotee, and no family is turned away for want of guidance. He continues to review the platform\'s ritual standards and personally mentors young pandits joining the seva.',
+      intro: 'Founder of DaivikPuja — three decades of puja seva, temple service and building a trusted home for Sanatan traditions.',
+      bio: 'Shri Devendra Shastri began his seva as a young pandit in the lanes of Kashi, performing griha pravesh and satyanarayan katha for families who had no one to guide them through the vidhi. Over three decades he conducted pujas in homes, temples and villages across twelve states, and saw the same difficulty everywhere: families who wanted to worship properly could not find a trustworthy pandit, and learned pandits could not reach the families who needed them. DaivikPuja was founded to close that gap — a platform where every ritual is performed by a verified pandit, every samagri reaches the devotee, and no family is turned away for want of guidance. He continues to review the platform\'s ritual standards and personally mentors young pandits joining the seva.',
       background: 'Born into a family of Kashi pandits; studied at Sampurnanand Sanskrit University and spent his early years serving temples in Varanasi and Delhi.',
       sanatanWork: 'Guides the platform\'s ritual standards, leads the annual Kashi pandit meet, and supports the education of children of pandits through the seva fund.',
       socials: []
@@ -217,10 +217,10 @@ function seedDemoPeople() {
 function seedSocialLinks() {
   if (db.prepare('SELECT COUNT(*) c FROM social_links').get().c) return;
   const rows = [
-    ['facebook', 'https://www.facebook.com/daivikpooja', 1, 1],
-    ['instagram', 'https://www.instagram.com/daivikpooja', 1, 2],
-    ['youtube', 'https://www.youtube.com/@daivikpooja', 1, 3],
-    ['linkedin', 'https://www.linkedin.com/company/daivikpooja', 0, 4]
+    ['facebook', 'https://www.facebook.com/daivikpuja', 1, 1],
+    ['instagram', 'https://www.instagram.com/daivikpuja', 1, 2],
+    ['youtube', 'https://www.youtube.com/@daivikpuja', 1, 3],
+    ['linkedin', 'https://www.linkedin.com/company/daivikpuja', 0, 4]
   ];
   const ins = db.prepare('INSERT INTO social_links(id,platform,icon,url,active,sort_order,created) VALUES(?,?,?,?,?,?,?)');
   const now = Date.now();

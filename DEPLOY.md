@@ -1,4 +1,4 @@
-# Hosting DaivikPooja
+# Hosting DaivikPuja
 
 Two deliverables, two homes:
 

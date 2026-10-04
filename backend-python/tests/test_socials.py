@@ -20,7 +20,7 @@ async def test_demo_footer_links_ride_state_in_order(client, db_session):
     anon = (await client.get("/api/state")).json()
     assert [s["platform"] for s in anon["socials"]] == ["facebook", "instagram", "youtube"], \
         "FB/IG/YT seeded active, in order"
-    assert anon["socials"][0]["url"] == "https://www.facebook.com/daivikpooja"
+    assert anon["socials"][0]["url"] == "https://www.facebook.com/daivikpuja"
     assert anon["socials"][0]["icon"] == "facebook", "icon key points into the built-in SVG set"
     assert all(s["active"] for s in anon["socials"]), "the footer never receives a hidden row"
 
@@ -139,4 +139,4 @@ async def test_reorder_guard_and_edit_validation(client):
     # the row is untouched after both rejections
     fb2 = next(x for x in (await client.get("/api/admin/social-links", headers=_h(at))).json()["links"]
                if x["id"] == fb["id"])
-    assert fb2["url"] == "https://www.facebook.com/daivikpooja"
+    assert fb2["url"] == "https://www.facebook.com/daivikpuja"

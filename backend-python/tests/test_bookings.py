@@ -26,7 +26,7 @@ async def test_server_quote_matches_shared_pricing_and_validates_coupons(client)
     kit = next(k for k in st["catalog"]["kits"] if k["id"] == "k_lakshmi")
     r = await client.post("/api/quote", headers={"Authorization": "Bearer " + tok},
                           json={"pujaId": "lakshmi", "mode": "home", "panditId": "p1",
-                                "sam": ["k_lakshmi"], "pra": [], "coupon": "DAIVIKPOOJA10"})
+                                "sam": ["k_lakshmi"], "pra": [], "coupon": "DAIVIKPUJA10"})
     expected = p_quote("home", {"puja": {"price": puja["price"]}, "pandit": {"pf": 1.15},
                                 "plus": False, "kits": [{"price": kit["p"]}], "prasad": [],
                                 "coupon": {"active": True, "type": "pct", "val": 10,

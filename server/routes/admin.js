@@ -645,7 +645,7 @@ router.post('/custom-requests/:id/convert', (req, res) => {
       'Customised puja created from request ' + r.id + (r.purpose ? ': ' + r.purpose : '.') + '.', kit.id, String(req.body.name || r.name).toLowerCase());
   db.prepare(`UPDATE custom_requests SET status='SCHEDULED', puja_id=?, history=?, admin_notes=?, updated_at=datetime('now') WHERE id=?`)
     .run(id, crHistory(r, 'Converted to puja ' + id + ' (admin)'), (r.admin_notes ? r.admin_notes + ' | ' : '') + 'Converted to puja ' + id + '.', r.id);
-  if (r.user_id) notify(r.user_id, 'WhatsApp', `Good news! Your custom puja request ${r.id} is now bookable on DaivikPooja.`);
+  if (r.user_id) notify(r.user_id, 'WhatsApp', `Good news! Your custom puja request ${r.id} is now bookable on DaivikPuja.`);
   res.status(201).json({ ok: true, pujaId: id });
 });
 
@@ -1035,7 +1035,7 @@ router.get('/export/:report.xlsx', wrap(async (req, res) => {
 
   ws.mergeCells(1, 1, 1, ncols);
   const t1 = ws.getCell(1, 1);
-  t1.value = 'DaivikPooja \u2014 ' + (REPORT_TITLES[req.params.report] || req.params.report) + ' Report';
+  t1.value = 'DaivikPuja \u2014 ' + (REPORT_TITLES[req.params.report] || req.params.report) + ' Report';
   t1.font = { bold: true, size: 14, color: { argb: 'FF0C4B49' } };
   ws.mergeCells(2, 1, 2, ncols);
   const t2 = ws.getCell(2, 1);
@@ -1081,7 +1081,7 @@ router.get('/export/:report.xlsx', wrap(async (req, res) => {
   db.prepare('INSERT INTO export_logs(admin_id,report,filters,rows,ts) VALUES(?,?,?,?,?)')
     .run(req.auth.uid, req.params.report, JSON.stringify(req.query), data.rows.length, Date.now());
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename="daivikpooja-' + req.params.report + '-' + new Date().toISOString().slice(0, 10) + '.xlsx"');
+  res.setHeader('Content-Disposition', 'attachment; filename="daivikpuja-' + req.params.report + '-' + new Date().toISOString().slice(0, 10) + '.xlsx"');
   res.send(Buffer.from(await wb.xlsx.writeBuffer()));
 }));
 

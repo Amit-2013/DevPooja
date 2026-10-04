@@ -1,4 +1,4 @@
-# DaivikPooja — Partner Demo Guide
+# DaivikPuja — Partner Demo Guide
 
 Everything you need to demo the full platform to partners in about five minutes.
 The demo database ships with **10 customer accounts, 10 pandit profiles (5 demo logins)

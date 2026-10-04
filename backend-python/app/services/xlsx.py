@@ -39,7 +39,7 @@ def build_xlsx(report_id: str, title: str, data: dict, filters_text: str) -> byt
     # 1: title
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
     t1 = ws.cell(row=1, column=1)
-    t1.value = "DaivikPooja \u2014 " + (title or report_id) + " Report"
+    t1.value = "DaivikPuja \u2014 " + (title or report_id) + " Report"
     t1.font = Font(bold=True, size=14, color=TEAL)
 
     # 2: generated on (IST) + row count

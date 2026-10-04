@@ -1,11 +1,11 @@
-# DaivikPooja — FastAPI backend image (the repo-root Dockerfile stays the Node one).
+# DaivikPuja — FastAPI backend image (the repo-root Dockerfile stays the Node one).
 #
 # The build context is the REPO ROOT (render.yaml: dockerContext: .) because the
 # app reads two paths outside backend-python/ at runtime:
 #   server/data/catalog.json — catalogue seed loaded on boot
 #   public/                  — the vanilla-JS SPA served at "/"
-# Local test:  docker build -f backend-python/Dockerfile -t daivikpooja-api .
-#              docker run -p 8000:8000 -e JWT_SECRET=... daivikpooja-api
+# Local test:  docker build -f backend-python/Dockerfile -t daivikpuja-api .
+#              docker run -p 8000:8000 -e JWT_SECRET=... daivikpuja-api
 # Render:      wired up automatically by render.yaml.
 
 # ---- stage 1: build wheels (the toolchain never reaches the final image) ----

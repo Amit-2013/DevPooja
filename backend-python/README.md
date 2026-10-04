@@ -1,4 +1,4 @@
-# DaivikPooja — Python Backend (FastAPI)
+# DaivikPuja — Python Backend (FastAPI)
 
 Restructure of the Node/Express backend to **Python + FastAPI**, targeting
 **Supabase PostgreSQL** on **Render**, tested with **pytest** (Playwright E2E
@@ -175,8 +175,8 @@ blueprint prompts for it; without it the service boots on throwaway SQLite),
 `JWT_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `PAYMENT_MODE`,
 `ENVIRONMENT=production`, `DEMO_MODE=false`.
 
-Local image test: `docker build -f backend-python/Dockerfile -t daivikpooja-api .`
-then `docker run -p 8000:8000 -e JWT_SECRET=... daivikpooja-api`.
+Local image test: `docker build -f backend-python/Dockerfile -t daivikpuja-api .`
+then `docker run -p 8000:8000 -e JWT_SECRET=... daivikpuja-api`.
 A root `.dockerignore` keeps secrets, databases and venvs out of both image
 builds (Node and Python).
 

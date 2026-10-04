@@ -229,7 +229,7 @@ app.use((err, _req, res, _next) => {
 
 const port = process.env.PORT || 3000;
 if (require.main === module) {
-  app.listen(port, () => console.log(`DaivikPooja running at http://localhost:${port}  (payments: ${process.env.PAYMENT_MODE || 'mock'})`));
+  app.listen(port, () => console.log(`DaivikPuja running at http://localhost:${port}  (payments: ${process.env.PAYMENT_MODE || 'mock'})`));
   require('./services/kyc').startSweeper(); // KYC expiry sweep on a schedule (KYC_SWEEP_MS, default 6h; 0 disables)
   require('./services/cancellation').startNoShowSweeper(); // Phase 16: no-show sweep (NOSHOW_SWEEP_MS, default 1h; 0 disables)
   require('./services/digestSweep').startSweeper(); // Daily reopen-digest digest sweep (DIGEST_SWEEP_MS, default 24h; 0 disables)

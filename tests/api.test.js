@@ -200,7 +200,7 @@ test('server quote matches shared pricing and validates coupons', async () => {
   const st = (await call('GET', '/state', { token: t })).json;
   const puja = st.catalog.pujas.find((p) => p.id === 'lakshmi');
   const kit = st.catalog.kits.find((k) => k.id === 'k_lakshmi');
-  const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DAIVIKPOOJA10' } });
+  const r = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', panditId: 'p1', sam: ['k_lakshmi'], pra: [], coupon: 'DAIVIKPUJA10' } });
   const expected = P.quote('home', { puja: { price: puja.price }, pandit: { pf: 1.15 }, plus: false, kits: [{ price: kit.p }], prasad: [], coupon: { active: true, type: 'pct', val: 10, max: 500, min: 1500 }, points: 0 });
   assert.equal(r.json.q.total, expected.total);
   const bad = await call('POST', '/quote', { token: t, body: { pujaId: 'lakshmi', mode: 'home', coupon: 'NOPE' } });

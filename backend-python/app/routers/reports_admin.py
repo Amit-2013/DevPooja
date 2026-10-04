@@ -63,7 +63,7 @@ async def export_report(report_id: str, request: Request,
     await db.flush()
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    filename = quote(f"daivikpooja-{report_id}-{today}.xlsx")
+    filename = quote(f"daivikpuja-{report_id}-{today}.xlsx")
     return Response(
         content=xlsx,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

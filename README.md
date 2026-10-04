@@ -1,4 +1,6 @@
-# DaivikPooja – Sanatan Seva Platform
+# DaivikPuja – Sanatan Seva Platform
+
+> Business requirements: **[BRD.md](BRD.md)** · Technical audit: **[MASTER-AUDIT.md](MASTER-AUDIT.md)**
 
 [![CI](https://github.com/Amit-2013/DevPooja/actions/workflows/ci.yml/badge.svg)](https://github.com/Amit-2013/DevPooja/actions/workflows/ci.yml)
 
@@ -70,7 +72,7 @@ The kundali flow (`#/kundali`) is fully database-driven and bilingual:
 - **Full admin puja editing** — name, Hindi name, category, deity, benefits (English + हिंदी), duration, price, kit and visibility via the Pujas tab.
 - **Communication** — WhatsApp/SMS/email notification service on booking, assignment, samagri, prasad, refunds; customer notifications tab; admin push to all customers.
 
-Other commands: `npm test` (API tests + engine tests), `npm run test:ui` (drives the real UI in jsdom), `npm run reset` (clear and reseed), `npm run backup` (timestamped working backup into `backups/` — source + `node_modules` + WAL-checkpointed databases + uploads, zipped; keeps the newest 5, `BACKUP_KEEP` to change), `docker build -t daivikpooja . && docker run -p 3000:3000 -v dp:/data -e JWT_SECRET=... daivikpooja`.
+Other commands: `npm test` (API tests + engine tests), `npm run test:ui` (drives the real UI in jsdom), `npm run reset` (clear and reseed), `npm run backup` (timestamped working backup into `backups/` — source + `node_modules` + WAL-checkpointed databases + uploads, zipped; keeps the newest 5, `BACKUP_KEEP` to change), `docker build -t daivikpuja . && docker run -p 3000:3000 -v dp:/data -e JWT_SECRET=... daivikpuja`.
 
 ## Hosting (backend + Netlify frontend)
 
@@ -179,7 +181,7 @@ Admin: `/api/admin/...` bookings (assign, status, refund, escalate, ops, manual)
 
 - **Razorpay and Twilio/SendGrid were not run against live accounts.** The order creation, signature check, webhook idempotency and hold-expiry logic are covered by tests using a stubbed gateway; use test keys first
 - **Live video puja** is a placeholder screen. Integrate Jitsi, Daily or Zoom and store the room link on the booking
-- **Standalone samagri/prasad orders** are placed as pay-on-delivery. **DaivikPooja Plus** and **featured listings** activate without billing in mock mode and return 501 in Razorpay mode until you add subscription billing
+- **Standalone samagri/prasad orders** are placed as pay-on-delivery. **DaivikPuja Plus** and **featured listings** activate without billing in mock mode and return 501 in Razorpay mode until you add subscription billing
 - **WhatsApp** through Twilio needs a WhatsApp Business sender and approved message templates
 - **Customized-puja payment** ends at `PAYMENT_PENDING`/`PAID` bookkeeping on the request; in Razorpay mode wire the quote amount to a real order the same way bookings do (the mock path completes the workflow for demos)
 - **Temple payouts and outstation/travel charges** follow the platform commission setting; per-temple agreements and zone-based travel calculators are not built

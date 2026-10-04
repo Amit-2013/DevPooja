@@ -1,7 +1,7 @@
 {
-  "name": "daivikpooja",
+  "name": "daivikpuja",
   "version": "1.0.0",
-  "description": "DaivikPooja – Sanatan Seva Platform: full-stack puja booking platform (Express + SQLite + vanilla JS SPA)",
+  "description": "DaivikPuja – Sanatan Seva Platform: full-stack puja booking platform (Express + SQLite + vanilla JS SPA)",
   "main": "server/index.js",
   "private": true,
   "repository": {

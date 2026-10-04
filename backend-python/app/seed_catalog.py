@@ -13,7 +13,7 @@ from .models import Banner, Coupon, Festival, Kit, Prasad, Puja, Setting, Temple
 CATALOG = Path(__file__).resolve().parents[2] / "server" / "data" / "catalog.json"
 STOCK = {"k_basic": 60, "k_lakshmi": 14, "k_satya": 35, "k_griha": 9, "k_shiv": 28,
          "k_havan": 40, "k_nav": 22, "k_pitru": 31, "k_ganesh": 25}
-COUPONS = [["DAIVIKPOOJA10", "pct", 10, 500, 1500],
+COUPONS = [["DAIVIKPUJA10", "pct", 10, 500, 1500],
            ["FIRST100", "flat", 100, 100, 1000],
            ["FESTIVE15", "pct", 15, 750, 3000]]
 

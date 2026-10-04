@@ -1,6 +1,6 @@
 /* Router, event handlers and startup. Every mutation goes to the API; the server is the source of truth. */
 const ROUTES={'':home,pujas,puja:pujaDetail,book,pandits:panditsPage,pandit:panditProfile,temples,samagri:samagriPage,prasad:prasadPage,festivals:festivalsPage,astrology,corporate,about,contact,account,rewards:rewardsPage,plus:plusPage,partner,'register-pandit':regPandit,portal,admin,'custom-puja':customPujaPage,'nri-packages':nriPackagesPage,'our-people':ourPeoplePage,people:personProfilePage,gallery:galleryPage,kundali(r){return r.arg==='result'?kundaliResult():kundaliForm()}};
-function render(keep){const r=route();if(r.page!=='book')W=null;const fn=ROUTES[r.page]||nf;header();$('#view').innerHTML=fn(r);const h=$('#view h1');document.title=(h?h.textContent.slice(0,60)+' | ':'')+'DaivikPooja';if(!keep)scrollTo(0,0)}
+function render(keep){const r=route();if(r.page!=='book')W=null;const fn=ROUTES[r.page]||nf;header();$('#view').innerHTML=fn(r);const h=$('#view h1');document.title=(h?h.textContent.slice(0,60)+' | ':'')+'DaivikPuja';if(!keep)scrollTo(0,0)}
 async function logout(){setToken(null);try{await sync()}catch(e){}location.hash='#/';render()}
 const chk=v=>v&&v.trim().length>0;
 /* Lead capture helper. `contact` carries STRUCTURED mobile/email when the form
@@ -136,7 +136,7 @@ const ACT={
  async bcanok(){await closeAnd(run(()=>api('/bookings/'+PAGE.cn+'/cancel',{body:{}}),'Booking cancelled. Refund initiated.'))},
  blive(d){const b=B(d.id),pd=PD(b.panditId);modal('<h2>Live puja</h2><div class="vid"><div style="font-size:3rem" class="flame">🪔</div><b>'+esc(pd?pd.n:'Pandit')+' is conducting the puja</b><span class="sm" style="opacity:.8">Video room. Plug in your video provider (see README)</span></div><p class="sm mut mt">Your sankalp is read with your name and gotra. Photos and a certificate follow after completion.</p><button class="btn mt" data-act="close">Leave call</button>')},
  bmed(d){const b=B(d.id),m=b.mediaUrls||[];modal('<h2>Photos and video</h2><div class="grid g3 mt">'+(m.length?m.map(u=>isImg(u)?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img src="'+esc(mediaUrl(u))+'" alt="Puja photo" style="width:100%;border-radius:8px;aspect-ratio:4/3;object-fit:cover"></a>':'<video controls src="'+esc(mediaUrl(u))+'" style="width:100%;border-radius:8px"></video>').join(''):'<div class="ph">🪔</div>')+'</div>'+(m.length?'':'<p class="sm mut mt">The pandit has not uploaded media for this puja.</p>'))},
- bcert(d){const b=B(d.id),pd=PD(b.panditId);modal('<div class="cert"><h2>Puja Completion Certificate</h2><p class="mt">This confirms that</p><h3 style="font-size:1.5rem">'+esc(PU(b.pujaId).n)+'</h3><p>was performed for <b>'+esc(b.member&&b.member!=='Self'?b.member:me().n)+'</b> on '+fmtD(b.date)+'<br>by <b>'+esc(pd?pd.n:'DaivikPooja pandit')+'</b> ('+MODES[b.mode].n+')</p><p class="sm mut mt">Booking '+b.id+'. Digital confirmation by DaivikPooja.</p></div><button class="btn s mt noprint" data-act="print">Print</button>')},
+ bcert(d){const b=B(d.id),pd=PD(b.panditId);modal('<div class="cert"><h2>Puja Completion Certificate</h2><p class="mt">This confirms that</p><h3 style="font-size:1.5rem">'+esc(PU(b.pujaId).n)+'</h3><p>was performed for <b>'+esc(b.member&&b.member!=='Self'?b.member:me().n)+'</b> on '+fmtD(b.date)+'<br>by <b>'+esc(pd?pd.n:'DaivikPuja pandit')+'</b> ('+MODES[b.mode].n+')</p><p class="sm mut mt">Booking '+b.id+'. Digital confirmation by DaivikPuja.</p></div><button class="btn s mt noprint" data-act="print">Print</button>')},
  brev(d){PAGE.rv={id:d.id,r:5};modal('<h2>Rate your puja</h2><div class="row mt" id="rst">'+[1,2,3,4,5].map(n=>'<button class="chip on" data-act="rstar" data-v="'+n+'" aria-label="'+n+' stars">'+n+' ★</button>').join('')+'</div><label class="f mt">Your review<textarea id="rvt" maxlength="500"></textarea></label><button class="btn mt" data-act="brevok">Submit review</button>')},
  rstar(d){PAGE.rv.r=+d.v;$$('#rst .chip').forEach((c,i)=>c.classList.toggle('on',i<+d.v))},
  async brevok(){await closeAnd(run(()=>api('/bookings/'+PAGE.rv.id+'/review',{body:{r:PAGE.rv.r,t:val('rvt')}}),'Thank you. You earned 10 points.'))},
@@ -161,14 +161,14 @@ const ACT={
 /* NRI gateway flow: open Razorpay in the PACKAGE currency, then verify the
    signature server-side (the money moment). Mirrors razorpayCheckout for bookings. */
  async nriGateway(payment,order,pkg){const u=me();await loadScript('https://checkout.razorpay.com/v1/checkout.js',()=>window.Razorpay);
-  await new Promise((resolve,reject)=>{new Razorpay({key:payment.keyId,amount:payment.amount,currency:payment.currency||order.currency,name:'DaivikPooja',description:pkg.name+' — package '+order.id,order_id:payment.orderId,prefill:u?{name:u.n,contact:u.m,email:u.e}:{},theme:{color:'#0c4b49'},
+  await new Promise((resolve,reject)=>{new Razorpay({key:payment.keyId,amount:payment.amount,currency:payment.currency||order.currency,name:'DaivikPuja',description:pkg.name+' — package '+order.id,order_id:payment.orderId,prefill:u?{name:u.n,contact:u.m,email:u.e}:{},theme:{color:'#0c4b49'},
    handler:async resp=>{try{await api('/nri-orders/'+order.id+'/verify',{body:resp});resolve()}catch(e){reject(e)}},
    modal:{ondismiss:()=>reject(new Error('Payment was not completed. Your package order is held — retry purchase to pay.'))}}).open()});
   toast('Package paid — '+order.id);},
  akfc(){PAGE.kf={billing:'',kind:'',q:''};try{api('/kundali/mine').then(m=>{db.myKundalis=m.kundalis;if(db.kundaliPricing)db.kundaliPricing.quota=m.quota;render(true)}).catch(()=>{})}catch(e){}render(true)},
  fdel(d){run(()=>api('/me/family/'+d.id,{method:'DELETE'}))},
  tadd(){run(()=>api('/tickets',{body:{b:val('tb'),t:val('tt')}}),'Ticket raised')},
- plus(d){if(!me()){afterLogin=()=>render(true);loginModal();return}run(()=>api('/me/plus',{body:{on:true}}),'Welcome to DaivikPooja Plus')},
+ plus(d){if(!me()){afterLogin=()=>render(true);loginModal();return}run(()=>api('/me/plus',{body:{on:true}}),'Welcome to DaivikPuja Plus')},
  plusx(){run(()=>api('/me/plus',{body:{on:false}}),'Membership cancelled')},
  /* public forms */
  astr(d){modal('<h2>'+esc(d.n)+'</h2><div class="frm mt"><label class="f">Name<input id="an"></label><label class="f">Mobile<input id="am" inputmode="numeric" maxlength="10"></label></div><button class="btn mt" data-act="astrok" data-n="'+esc(d.n)+'">Request callback</button>')},
@@ -612,4 +612,4 @@ document.addEventListener('change',e=>{const el=e.target;if(!el.dataset||!el.dat
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if(e.key==='Enter'||e.key===' '){const el=e.target.closest&&e.target.closest('.opt[data-act]');if(el){e.preventDefault();el.click()}}if(e.key==='Enter'){if(e.target.id==='aq')ACT.ask();if(e.target.id==='hq')ACT.hsearch()}});
 window.addEventListener('hashchange',()=>{const p=pageOf();if(['account','portal','admin','book'].includes(p))sync().then(()=>render()).catch(()=>render());else render()});
 const th=store.get('dp_theme',null);if(th)document.documentElement.dataset.theme=th;
-(async()=>{try{await sync();if(token&&!session)setToken(null)}catch(e){$('#view').innerHTML='<div class="page"><div class="wrap"><h1>DaivikPooja is unavailable</h1><p class="mut mt">'+esc(e.message)+'</p></div></div>';return}footer();render()})();
+(async()=>{try{await sync();if(token&&!session)setToken(null)}catch(e){$('#view').innerHTML='<div class="page"><div class="wrap"><h1>DaivikPuja is unavailable</h1><p class="mut mt">'+esc(e.message)+'</p></div></div>';return}footer();render()})();
