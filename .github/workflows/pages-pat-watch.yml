@@ -1,0 +1,117 @@
+name: PAGES_PAT watch
+
+# Daily liveness probe for the fine-grained PAT sealed into Actions as PAGES_PAT.
+# pages.yml depends on it — configure-pages runs with `secrets.PAGES_PAT ||
+# github.token` — and a revoked or expired token would otherwise surface only as
+# a failing deploy, days later and unexplained (token #1 died six minutes after
+# it was minted; the Oct 5 security-log forensics took a dedicated session to
+# attribute). This probe fails LOUDLY instead:
+#   - the run turns red with ::error annotations naming the exact failed check;
+#   - a tracking issue is opened (or the existing one commented) so the failure
+#     cannot scroll away with the run list.
+# A passing run is silent. Side effect worth knowing: the daily probe keeps the
+# token's "Last used" field fresh, so routine CI usage is what GitHub sees.
+#
+# Note: GitHub disables scheduled workflows after 60 days of repo inactivity
+# (same caveat as ci.yml) — if this ever stops firing, re-enable it in Actions.
+
+on:
+  schedule:
+    # Daily 01:37 UTC (07:07 IST). Off-peak minute: top-of-hour crons queue longest.
+    - cron: '37 1 * * *'
+  push:
+    branches: [main]
+    # Self-test: the probe runs whenever its own definition changes, so a broken
+    # edit fails on the pushing commit instead of waiting for tomorrow's cron.
+    paths:
+      - .github/workflows/pages-pat-watch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The failure path opens/refreshes an issue — the "loudly" part.
+  issues: write
+
+concurrency:
+  group: pages-pat-watch
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Probe PAGES_PAT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe token (auth + Pages read on both repos)
+        env:
+          PAT: ${{ secrets.PAGES_PAT }}
+        run: |
+          set -euo pipefail
+          fail=0
+          err() { echo "::error::$1"; fail=1; }
+
+          if [ -z "${PAT:-}" ]; then
+            err "PAGES_PAT secret is missing — pages.yml would silently fall back to GITHUB_TOKEN, which cannot create a Pages site. Seal the fine-grained token into the PAGES_PAT secret again."
+            exit 1
+          fi
+
+          probe() {
+            # $1 = API path. Prints "<status> <first 300 chars of body>". The
+            # token is never echoed, and GitHub masks secrets in logs anyway.
+            code=$(curl -sS -o /tmp/pat-probe-body.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${PAT}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$1") || code=000
+            body=$(tr -d '\n' < /tmp/pat-probe-body.json 2>/dev/null | head -c 300 || true)
+            echo "${code} ${body}"
+          }
+
+          # Identity proof: any valid token answers 200; a revoked or expired
+          # one answers 401 "Bad credentials" — the exact failure that killed
+          # token #1 on Oct 5.
+          out=$(probe https://api.github.com/rate_limit)
+          case "${out%% *}" in
+            200) echo "auth OK: rate_limit answered 200" ;;
+            401) err "PAGES_PAT was revoked or expired (rate_limit -> 401): ${out}" ;;
+            *)   err "PAGES_PAT probe got no API answer (rate_limit -> ${out})" ;;
+          esac
+
+          # Capability proof: configure-pages reads GET /repos/<repo>/pages with
+          # this token. 403 means the grant lost Pages access (perms edited);
+          # 404 means no site exists — the token is fine and deploy's
+          # enablement recreates the site, so that is a warning, not a failure.
+          for repo in Amit-2013/DevPooja Amit-2013/daivikpujarender; do
+            out=$(probe "https://api.github.com/repos/${repo}/pages")
+            case "${out%% *}" in
+              200) echo "Pages readable: ${repo}" ;;
+              404) echo "::warning::${repo} has no Pages site right now — token is alive (deploy recreates it), probe passes" ;;
+              401) err "PAGES_PAT revoked while reading ${repo}/pages: ${out}" ;;
+              *)   err "PAGES_PAT lost Pages access on ${repo} (status ${out%% *}): ${out}" ;;
+            esac
+          done
+
+          exit "${fail}"
+
+      - name: Open or refresh the failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TITLE="PAGES_PAT probe failed — Pages deploys are at risk"
+          BODY="The daily PAGES_PAT probe failed: ${RUN_URL}
+
+          Until PAGES_PAT works again, configure-pages falls back to GITHUB_TOKEN, which cannot create or enable a GitHub Pages site (\"Resource not accessible by integration\").
+
+          Fix: mint a fine-grained token with **Administration (read/write)** + **Pages (read/write)** on \`Amit-2013/DevPooja\` and \`Amit-2013/daivikpujarender\`, seal it into the \`PAGES_PAT\` Actions secret in BOTH repos, then rerun this workflow.
+
+          _Opened automatically by the probe; close it once the secret is replaced — the next failed run comments here instead of opening a duplicate._"
+          existing=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open \
+            --search "PAGES_PAT probe failed in:title" --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body "Still failing: ${RUN_URL}"
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --body "${BODY}"
+          fi
