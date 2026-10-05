@@ -3,6 +3,7 @@ const { db, getSetting } = require('../db');
 const S = require('./serialize');
 const { j } = require('./util');
 const pay = require('../services/payments');
+const { isFamily } = require('./permissions'); /* Phase 21: finance + customer_support get the admin view */
 const { expireUnpaid } = require('../services/bookings');
 
 const mask = (m) => (m ? m.slice(0, 2) + 'XXXXXX' + m.slice(-2) : '');
@@ -10,8 +11,9 @@ const mask = (m) => (m ? m.slice(0, 2) + 'XXXXXX' + m.slice(-2) : '');
 function buildState(auth) {
   expireUnpaid();
   const role = auth && auth.role;
+  const isAdmin = isFamily(role);
   const kits = db.prepare('SELECT * FROM kits').all();
-  const pujaRows = db.prepare(role === 'admin' ? 'SELECT * FROM pujas' : 'SELECT * FROM pujas WHERE hidden=0').all();
+  const pujaRows = db.prepare(isAdmin ? 'SELECT * FROM pujas' : 'SELECT * FROM pujas WHERE hidden=0').all();
   const kitItems = Object.fromEntries(kits.map((k) => [k.id, j(k.items, [])]));
 
   const st = {
@@ -49,8 +51,8 @@ function buildState(auth) {
   const pRows = db.prepare('SELECT * FROM pandits').all();
   /* Per-pandit flagging follow-up: admins see which pandits are currently
      flagged by the repeat-reopen digest (drives the pandit-module surfacing). */
-  const flaggedIds = role === 'admin' ? require('../services/incidents').flaggedPanditIds() : [];
-  st.pandits = pRows.filter((p) => role === 'admin' || p.status === 'verified' || (role === 'pandit' && p.id === auth.pid)).map((p) => S.pandit(p, { admin: role === 'admin', self: role === 'pandit' && p.id === auth.pid, flagged: flaggedIds.includes(p.id) }));
+  const flaggedIds = isAdmin ? require('../services/incidents').flaggedPanditIds() : [];
+  st.pandits = pRows.filter((p) => isAdmin || p.status === 'verified' || (role === 'pandit' && p.id === auth.pid)).map((p) => S.pandit(p, { admin: isAdmin, self: role === 'pandit' && p.id === auth.pid, flagged: flaggedIds.includes(p.id) }));
   st.busy = db.prepare("SELECT id, pandit_id p, date, slot FROM bookings WHERE pandit_id IS NOT NULL AND status NOT IN ('Cancelled')").all();
   st.reviews = db.prepare("SELECT b.pandit_id pid, b.review, b.puja_id FROM bookings b WHERE b.review IS NOT NULL AND b.review_hidden=0 AND b.pandit_id IS NOT NULL").all()
     .map((r) => { const rv = j(r.review, {}); return { pid: r.pid, r: rv.r, t: rv.t, by: rv.by, puja: r.puja_id }; });
@@ -75,7 +77,7 @@ function buildState(auth) {
     st.users = ids.map((id) => db.prepare('SELECT id,name,mobile FROM users WHERE id=?').get(id)).filter(Boolean).map((u) => ({ id: u.id, n: u.name, m: mask(u.mobile), e: '', pts: 0, plus: false, addr: [], fam: [], pref: {}, joined: '' }));
     st.payouts = db.prepare('SELECT * FROM payouts WHERE pandit_id=?').all(auth.pid).map(S.payout);
     st.set = { comm: getSetting('commission', 20) };
-  } else if (role === 'admin') {
+  } else if (isAdmin) {
     st.bookings = db.prepare("SELECT * FROM bookings WHERE status != 'PendingPayment' ORDER BY created DESC").all().map(S.booking);
     st.users = db.prepare("SELECT * FROM users WHERE role='customer'").all().map(S.user);
     st.orders = db.prepare('SELECT * FROM orders ORDER BY date DESC').all().map(S.order);

@@ -8,10 +8,27 @@ const S = require('../lib/serialize');
 const upload = require('../lib/upload');
 const { notify } = require('../services/notify');
 const PE = require('../services/payoutEngine');
-const { v, bad, conflict, notFound, j, today, rid, wrap } = require('../lib/util');
+const { v, bad, conflict, notFound, j, today, rid, wrap, HttpError } = require('../lib/util');
+const RBAC = require('../lib/permissions');
 const P = require('../../shared/pricing');
 
-router.use(requireRole('admin'));
+/* Phase 21 RBAC: the admin family (admin / finance / customer_support) may enter
+   the router at all; every request is then checked against the permission map in
+   lib/permissions.js — money for finance, service for customer_support, and
+   platform (plus every export outside the finance report list) for FULL admins
+   only. The default is admin-only, so a new route is admin-only until classified. */
+router.use(requireRole(...RBAC.ADMIN_FAMILY));
+router.use((req, _res, next) => {
+  const group = RBAC.groupFor(req.path);
+  if (group === 'export') {
+    const raw = req.path.slice('/export/'.length);
+    const reportId = raw.endsWith('.xlsx') ? raw.slice(0, -5) : raw;
+    if (!RBAC.canExport(req.auth.role, reportId)) return next(new HttpError(403, 'Not allowed for your role'));
+    return next();
+  }
+  if (!RBAC.can(req.auth.role, group)) return next(new HttpError(403, 'Not allowed for your role'));
+  next();
+});
 const one = (b) => S.booking(B.getBooking(b));
 
 router.post('/bookings/manual', (req, res) => res.status(201).json({ booking: S.booking(B.adminManual(req.body)) }));
@@ -1206,6 +1223,28 @@ router.post('/users/:id/status', (req, res) => {
   AUDIT.audit(req.auth.uid, 'account.status', 'user', u.id, { from: u.status || 'active', to: status },
     (req.body || {}).reason || 'Account lifecycle change from the admin accounts screen');
   res.json({ ok: true, status });
+});
+
+/* Phase 21 RBAC: hand out (or revoke) an operations seat — FINANCE or
+   CUSTOMER_SUPPORT, or back to customer. Platform group: full admins only.
+   Reason required (audited as old→new), self-change refused, the last active
+   full admin can never be demoted, and because authenticate() re-reads the role
+   from the DB the change lands on live tokens immediately. */
+router.post('/users/:id/role', (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) throw notFound('User not found');
+  const role = v.oneOf(String((req.body || {}).role || ''), RBAC.ASSIGNABLE, 'Role');
+  const reason = String((req.body || {}).reason || '').trim();
+  if (!reason) throw bad('A reason is required');
+  if (u.id === req.auth.uid) throw bad('You cannot change your own role');
+  if (u.role === role) throw conflict('That user already has this role');
+  if (u.role === 'admin' && role !== 'admin' && (u.status || 'active') === 'active') {
+    const actives = db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND status='active'").get().c;
+    if (actives <= 1) throw conflict('At least one active admin must remain');
+  }
+  db.prepare('UPDATE users SET role=? WHERE id=?').run(role, u.id);
+  AUDIT.audit(req.auth.uid, 'account.role_changed', 'user', u.id, { targetRole: role },
+    { reason, oldValue: u.role, newValue: role });
+  res.json({ ok: true, user: { id: u.id, role } });
 });
 
 /* Audit trail (admin actions) for the admin UI. */

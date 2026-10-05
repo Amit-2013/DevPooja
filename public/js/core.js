@@ -36,6 +36,12 @@ async function sync(){applyState(await api('/state'))}
 /* run a mutation, refresh state, re-render. Returns the API result, or null after showing the error. */
 async function run(fn,ok){try{const r=await fn();await sync();if(ok)toast(ok);render(true);return r||true}catch(e){toast(e.message);return null}}
 
+/* Phase 21 RBAC: the admin family may open the admin panel; the permission map
+   (mirrors server/lib/permissions.js) decides what each seat can see and do. */
+const ADMIN_ROLES=['admin','finance','customer_support'];
+const isAdminRole=(r)=>ADMIN_ROLES.includes(r);
+const FIN_REPORTS=['payments','payouts','payout-audit','dakshina','transactions','revenue','commission','refunds','customer-accounts','pandit-accounts','coupon-redemptions','coupon-usage'];
+const canXlsx=(role,id)=>role==='admin'?true:(role==='finance'?FIN_REPORTS.includes(id):false);
 const me=()=>session&&session.role==='customer'?db.me:null;
 const PU=id=>PUJAS.find(p=>p.id===id);
 const PD=id=>db.pandits.find(p=>p.id===id);
@@ -73,7 +79,7 @@ function header(){
  let usr='<button class="btn s" data-act="login">'+t('login')+'</button>';
  if(u)usr='<a class="btn s sec" href="#/account">'+esc(u.n.split(' ')[0])+(u.plus?' Plus':'')+'</a>';
  if(session&&session.role==='pandit')usr='<a class="btn s sec" href="#/portal">Pandit portal</a>';
- if(session&&session.role==='admin')usr='<a class="btn s sec" href="#/admin">Admin</a>';
+ if(session&&isAdminRole(session.role))usr='<a class="btn s sec" href="#/admin">Admin</a>';
  const langSel='<span class="langsel" role="group" aria-label="Language"><button data-act="setlang" data-v="en" '+(lang==='en'?'class="on"':'')+' aria-pressed="'+(lang==='en')+'">English</button><span aria-hidden="true">|</span><button data-act="setlang" data-v="hi" '+(lang==='hi'?'class="on"':'')+' aria-pressed="'+(lang==='hi')+'">हिंदी</button></span>';
  /* Notifications centre (item): bell badge for every signed-in role — the count
     is state.notifsUnread, cleared by POST /me/notifs/read when the panel opens. */

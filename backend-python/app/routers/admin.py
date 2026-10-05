@@ -24,7 +24,13 @@ from ..services.payout_engine import payout_rules, set_adjustment, transition
 from ..util import bad, conflict, j, not_found, rid, v_arr, v_date, v_int, v_one_of, v_str
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-admin_dep = require_role("admin")
+# Phase 21 RBAC: the admin family (admin / finance / customer_support) enters the
+# router; permissions.admin_access then applies the same permission matrix as
+# server/routes/admin.js — money for finance, service for customer_support, and
+# platform (plus every export outside the finance report list) for FULL admins.
+from ..permissions import admin_access  # noqa: E402
+
+admin_dep = admin_access
 
 
 @router.post("/bookings/manual", status_code=201)
@@ -609,6 +615,42 @@ async def pandit_lifecycle_set(pandit_id: str, body: dict, auth: dict = Depends(
     from ..serialize import pandit as s_pandit
 
     return {"lifecycle": AS.current_lifecycle(p), "pandit": s_pandit(p, admin=True)}
+
+
+# --- Phase 21 RBAC: hand out (or revoke) an operations seat -------------------
+@router.post("/users/{user_id}/role")
+async def change_role(user_id: str, body: dict, auth: dict = Depends(admin_dep),
+                      db: AsyncSession = Depends(get_db)):
+    """FINANCE / CUSTOMER_SUPPORT seats (or back to customer). Platform group:
+    full admins only, reason required (audited as old->new), self-change refused,
+    the last active full admin can never be demoted — and because current_auth
+    re-reads the role per request, live tokens pick the change up immediately."""
+    from ..permissions import ASSIGNABLE
+    u = await db.get(User, user_id)
+    if not u:
+        raise not_found("User not found")
+    role = v_one_of(str((body or {}).get("role") or ""), ASSIGNABLE, "Role")
+    reason = str((body or {}).get("reason") or "").strip()
+    if not reason:
+        raise bad("A reason is required")
+    if u.id == auth["uid"]:
+        raise bad("You cannot change your own role")
+    if u.role == role:
+        raise conflict("That user already has this role")
+    if u.role == "admin" and role != "admin" and (u.status or "active") == "active":
+        actives = (await db.execute(select(func.count()).select_from(User).where(
+            User.role == "admin", User.status == "active"))).scalar_one()
+        if actives <= 1:
+            raise conflict("At least one active admin must remain")
+    old = u.role
+    u.role = role
+    db.add(AuditLog(actor_user_id=auth["uid"], actor_role="admin",
+                    action="account.role_changed", entity="user", entity_id=u.id,
+                    detail=json.dumps({"targetRole": role}), reason=reason[:300],
+                    old_value=json.dumps(old), new_value=json.dumps(role),
+                    created_at=int(time.time() * 1000)))
+    await db.commit()
+    return {"ok": True, "user": {"id": u.id, "role": role}}
 
 
 @router.get("/audit")

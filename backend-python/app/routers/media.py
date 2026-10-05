@@ -17,6 +17,12 @@ from ..util import bad, not_found, v_one_of
 
 router = APIRouter(prefix="/api", tags=["media"])
 
+# Phase 21 RBAC: the /api/admin media routes answer to the permission map like
+# every other admin surface (platform group: full admins only) — swapping the
+# raw role check for the map keeps one source of truth for both twins.
+from ..permissions import admin_access
+admin_dep = admin_access
+
 
 def _read_upload_files(files: list[UploadFile] | None) -> list[tuple[bytes, str, str]]:
     """Read small uploads fully into memory (40 MB cap from settings)."""
@@ -78,7 +84,7 @@ async def pandit_media_delete(media_id: str, auth: dict = Depends(require_role("
 @router.get("/admin/media")
 async def admin_media_list(status: str | None = None, source: str | None = None,
                            limit: int = 300,
-                           auth: dict = Depends(require_role("admin")),
+                           auth: dict = Depends(admin_dep),
                            db: AsyncSession = Depends(get_db)):
     return {"media": await media.admin_list(db, status=status, source=source, limit=limit)}
 
@@ -90,7 +96,7 @@ async def admin_media_upload(puja_id: str,
                              category: str = Form("puja"),
                              published: str = Form("true"),
                              primary: str = Form("false"),
-                             auth: dict = Depends(require_role("admin")),
+                             auth: dict = Depends(admin_dep),
                              db: AsyncSession = Depends(get_db)):
     files = _read_upload_files(media_files or [])
     if not files:
@@ -106,7 +112,7 @@ async def admin_media_upload(puja_id: str,
 
 @router.patch("/admin/media/{media_id}")
 async def admin_media_moderate(media_id: str, body: dict,
-                               auth: dict = Depends(require_role("admin")),
+                               auth: dict = Depends(admin_dep),
                                db: AsyncSession = Depends(get_db)):
     return {"media": await media.moderate(
         db, uid=auth["uid"], id=media_id, status=body.get("status"),
@@ -115,7 +121,7 @@ async def admin_media_moderate(media_id: str, body: dict,
 
 
 @router.post("/admin/media/bulk")
-async def admin_media_bulk(body: dict, auth: dict = Depends(require_role("admin")),
+async def admin_media_bulk(body: dict, auth: dict = Depends(admin_dep),
                            db: AsyncSession = Depends(get_db)):
     op = v_one_of(body.get("op"), ["approve", "reject", "publish", "unpublish", "delete"], "Operation")
     return await media.bulk(db, uid=auth["uid"], ids=body.get("ids", []), op=op,
@@ -123,7 +129,7 @@ async def admin_media_bulk(body: dict, auth: dict = Depends(require_role("admin"
 
 
 @router.get("/admin/media/credits")
-async def admin_media_credits(auth: dict = Depends(require_role("admin")),
+async def admin_media_credits(auth: dict = Depends(admin_dep),
                               db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(PujaMedia).order_by(PujaMedia.created_at))).scalars().all()
     return {"credits": [media.out(r) for r in rows]}
@@ -131,7 +137,7 @@ async def admin_media_credits(auth: dict = Depends(require_role("admin")),
 
 @router.delete("/admin/media/{media_id}")
 async def admin_media_delete(media_id: str, body: dict | None = None,
-                             auth: dict = Depends(require_role("admin")),
+                             auth: dict = Depends(admin_dep),
                              db: AsyncSession = Depends(get_db)):
     return await media.remove(db, uid=auth["uid"], role="admin", pid=None, id=media_id,
                               reason=(body or {}).get("reason"))

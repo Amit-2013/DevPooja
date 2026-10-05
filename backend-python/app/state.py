@@ -16,6 +16,7 @@ from .services import gallery as GALLERY
 from .services.bookings import expire_unpaid, get_setting
 from .services.reopen_digest import flagged_pandit_ids
 from .util import j
+from .permissions import is_family
 
 
 def _mask(m: str | None) -> str:
@@ -41,9 +42,10 @@ async def _service_toggles(db: AsyncSession) -> dict:
 async def build_state(db: AsyncSession, auth: dict | None) -> dict:
     await expire_unpaid(db)
     role = auth and auth.get("role")
+    is_admin = is_family(role)
     kits = (await db.execute(select(Kit))).scalars().all()
     puja_rows = (await db.execute(
-        select(Puja) if role == "admin" else select(Puja).where(Puja.hidden == 0))).scalars().all()
+        select(Puja) if is_admin else select(Puja).where(Puja.hidden == 0))).scalars().all()
     kit_items = {k.id: j(k.items, []) for k in kits}
     demo = (os.environ.get("DEMO_MODE") or "true").lower() == "true"
 
@@ -91,12 +93,12 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
     p_rows = (await db.execute(select(Pandit))).scalars().all()
     # Per-pandit flagging follow-up: admins see which pandits are currently
     # flagged by the repeat-reopen digest (drives the pandit-module surfacing).
-    flagged_ids = (await flagged_pandit_ids(db)) if role == "admin" else []
-    st["pandits"] = [pandit(p, admin=(role == "admin"),
+    flagged_ids = (await flagged_pandit_ids(db)) if is_admin else []
+    st["pandits"] = [pandit(p, admin=is_admin,
                             self=(role == "pandit" and p.id == auth.get("pid")),
                             flagged=(p.id in flagged_ids))
                      for p in p_rows
-                     if role == "admin" or p.status == "verified"
+                     if is_admin or p.status == "verified"
                      or (role == "pandit" and p.id == auth.get("pid"))]
     busy_rows = (await db.execute(select(Booking.id, Booking.pandit_id, Booking.date, Booking.slot).where(
         Booking.pandit_id.isnot(None), Booking.status != "Cancelled"))).all()
@@ -138,7 +140,7 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["payouts"] = [s_payout(p) for p in (await db.execute(
             select(Payout).where(Payout.pandit_id == auth["pid"]))).scalars().all()]
         st["set"] = {"comm": await get_setting(db, "commission", 20)}
-    elif role == "admin":
+    elif is_admin:
         st["bookings"] = [booking(b) for b in (await db.execute(
             select(Booking).where(Booking.status != "PendingPayment")
             .order_by(Booking.created.desc()))).scalars().all()]

@@ -1,8 +1,9 @@
 """Admin export routes — port of GET /admin/export/:report.xlsx and
 GET /admin/export-logs from server/routes/admin.js.
 
-Every export requires the admin role, is written to export_logs (admin, report,
-filters, row count), and streams a real .xlsx built with openpyxl in the same
+Every export runs through the Phase 21 permission map (admin family; the
+finance sub-role may export only its finance-domain reports), is written to
+export_logs (admin, report, filters, row count), and streams a real .xlsx built with openpyxl in the same
 professional layout as the Node server. Sensitive fields stay excluded by
 design: the report queries never select password hashes, tokens or OTPs."""
 import json
@@ -17,13 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import ExportLog, User
-from ..security import require_role
+from ..permissions import admin_access
 from ..services import reports
 from ..services.xlsx import build_xlsx
 from ..util import http_error
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-admin_dep = require_role("admin")
+admin_dep = admin_access
 
 REPORT_TITLES = {
     "customers": "Customer", "customer-accounts": "Customer Login / Account",
