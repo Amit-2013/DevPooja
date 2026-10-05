@@ -57,7 +57,14 @@ jobs:
         run: node tests/pages-smoke.js
       - uses: actions/configure-pages@v5
         with:
+          # enablement can only CREATE a Pages site with a PAT: the default
+          # GITHUB_TOKEN gets "Resource not accessible by integration" (the
+          # failure that blocked daivikpujarender until its site was made by
+          # hand). PAGES_PAT (classic, repo scope) reads and creates; the
+          # fallback keeps GET-only runs working where the secret is absent.
+          # Rotate the secret whenever that PAT is rotated.
           enablement: true
+          token: ${{ secrets.PAGES_PAT || github.token }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
