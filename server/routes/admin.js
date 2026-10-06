@@ -936,6 +936,66 @@ const REPORTS = {
     if (f.q) { const q = String(f.q).replace(/[%_]/g, '').trim(); if (q) { w.push('(name LIKE ? OR mobile LIKE ? OR email LIKE ? OR details LIKE ?)'); a.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); } }
     return select('SELECT id, type, name, mobile, email, service, location, status, assigned_to, follow_up_at, converted_booking_id, details, date FROM leads' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY id DESC', a,
       ['Lead ID', 'Source', 'Name', 'Mobile', 'Email', 'Interested service', 'Location', 'Status', 'Assigned to', 'Follow-up', 'Converted booking', 'Notes', 'Captured']);
+  },
+  /* Phase 30 — the registry catches up with the modules that grew their own
+     tables after the original set: KYC documents, incidents, agreement
+     versions, commission tiers and NRI packages. Filters mirror each module's
+     own list view. All five ids are deliberately admin-export-only — Phase 21's
+     FINANCE_REPORTS keeps its twelve finance-domain reports. */
+  kyc: (f) => {
+    const w = [], a = [];
+    if (f.status) { w.push('k.status=?'); a.push(String(f.status)); }
+    if (f.from) { w.push("datetime(k.uploaded_at/1000,'unixepoch')>=?"); a.push(String(f.from) + ' 00:00:00'); }
+    if (f.to) { w.push("datetime(k.uploaded_at/1000,'unixepoch')<=?"); a.push(String(f.to) + ' 23:59:59'); }
+    return select(`SELECT k.id, k.pandit_id, p.name AS pandit, k.doc_type, k.file_name, k.status,
+      datetime(k.uploaded_at/1000,'unixepoch') AS uploaded, COALESCE(k.verified_by,'') AS verified_by,
+      COALESCE(datetime(k.verified_at/1000,'unixepoch'),'') AS verified_at,
+      COALESCE(k.reject_reason,'') AS reject_reason,
+      COALESCE(datetime(k.expires_at/1000,'unixepoch'),'') AS expires_at,
+      COALESCE(datetime(k.next_reverification_at/1000,'unixepoch'),'') AS next_reverification
+      FROM kyc_documents k LEFT JOIN pandits p ON p.id=k.pandit_id` + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY k.uploaded_at DESC', a,
+      ['Document ID', 'Pandit ID', 'Pandit', 'Document type', 'File name', 'Status', 'Uploaded', 'Verified by', 'Verified at', 'Reject reason', 'Expires at', 'Next re-verification']);
+  },
+  incidents: (f) => {
+    const w = [], a = [];
+    if (f.status) { w.push('i.status=?'); a.push(String(f.status)); }
+    if (f.category) { w.push('i.category=?'); a.push(String(f.category)); }
+    if (f.from) { w.push("datetime(i.reported_at/1000,'unixepoch')>=?"); a.push(String(f.from) + ' 00:00:00'); }
+    if (f.to) { w.push("datetime(i.reported_at/1000,'unixepoch')<=?"); a.push(String(f.to) + ' 23:59:59'); }
+    return select(`SELECT i.id, i.pandit_id, p.name AS pandit, i.booking_id, i.customer_id, i.category, i.description, i.status,
+      COALESCE(i.admin_notes,'') AS admin_notes, COALESCE(i.resolution,'') AS resolution,
+      datetime(i.reported_at/1000,'unixepoch') AS reported,
+      COALESCE(datetime(i.resolved_at/1000,'unixepoch'),'') AS resolved
+      FROM incidents i LEFT JOIN pandits p ON p.id=i.pandit_id` + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY i.reported_at DESC, i.id DESC', a,
+      ['Incident ID', 'Pandit ID', 'Pandit', 'Booking ID', 'Customer ID', 'Category', 'Description', 'Status', 'Admin notes', 'Resolution', 'Reported', 'Resolved']);
+  },
+  agreements: (f) => {
+    const w = [], a = [];
+    if (f.status) { w.push('a.status=?'); a.push(String(f.status)); }
+    return select(`SELECT a.id, a.version, a.title, a.status, COALESCE(a.document_hash,'') AS document_hash,
+      COALESCE(a.file_name,'') AS file_name, COALESCE(a.created_by,'') AS created_by,
+      COALESCE(a.effective_from,'') AS effective_from,
+      datetime(a.created_at/1000,'unixepoch') AS created,
+      COALESCE(datetime(a.published_at/1000,'unixepoch'),'') AS published,
+      COALESCE(datetime(a.archived_at/1000,'unixepoch'),'') AS archived,
+      (SELECT COUNT(*) FROM agreement_acceptances g WHERE g.agreement_id=a.id) AS acceptances
+      FROM agreements a` + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY a.version DESC, a.created_at DESC', a,
+      ['Agreement ID', 'Version', 'Title', 'Status', 'Document hash', 'File name', 'Created by', 'Effective from', 'Created', 'Published', 'Archived', 'Acceptances']);
+  },
+  'commission-tiers': (f) => {
+    const w = [], a = [];
+    if (f.active === '1' || f.active === '0') { w.push('active=?'); a.push(Number(f.active)); }
+    return select("SELECT id, tier, service_category, commission_pct, pandit_share_pct, COALESCE(effective_from,'') AS effective_from, COALESCE(effective_to,'') AS effective_to, active FROM commission_tiers" + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY active DESC, commission_pct DESC, id', a,
+      ['Tier ID', 'Tier', 'Service category', 'Commission %', 'Pandit share %', 'Effective from', 'Effective to', 'Active']);
+  },
+  'nri-packages': (f) => {
+    const w = [], a = [];
+    if (f.active === '1' || f.active === '0') { w.push('active=?'); a.push(Number(f.active)); }
+    const rows = db.prepare(`SELECT id, name, descr, price, currency, inr_equiv, includes, active,
+      datetime(created/1000,'unixepoch') AS created FROM nri_packages` + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY active DESC, price, id').all(...a);
+    const list = (s) => { try { const v = JSON.parse(s || '[]'); return Array.isArray(v) ? v.join(', ') : String(s || ''); } catch { return String(s || ''); } };
+    return { columns: ['Package ID', 'Name', 'Description', 'Price', 'Currency', 'INR equivalent', 'Includes', 'Active', 'Created'],
+             rows: rows.map((r) => [r.id, r.name, r.descr || '', r.price, r.currency, r.inr_equiv, list(r.includes), r.active, r.created]) };
   }
 };
 
@@ -966,7 +1026,9 @@ const REPORT_TITLES = {
   prasad: 'Prasad', orders: 'Order', payments: 'Payment', refunds: 'Refund', coupons: 'Coupon', campaigns: 'Campaign',
   payouts: 'Pandit Payout', 'payout-audit': 'Payout Ledger (holds, refs, UTR)', revenue: 'Revenue by Month', commission: 'Commission by Month', 'puja-performance': 'Puja Performance',
   'coupon-redemptions': 'Coupon Redemptions (money-moment ledger)', 'coupon-usage': 'Coupon Usage (per code / per user)', 'pandit-performance': 'Pandit Performance', 'customer-activity': 'Customer Activity', 'login-activity': 'Login Activity',
-  'audit-logs': 'Audit Log', media: 'Puja Media', dakshina: 'Dakshina (Pandit Earnings Ledger)', transactions: 'Transactions Ledger', leads: 'Lead'
+  'audit-logs': 'Audit Log', media: 'Puja Media', dakshina: 'Dakshina (Pandit Earnings Ledger)', transactions: 'Transactions Ledger', leads: 'Lead',
+  kyc: 'KYC Documents', incidents: 'Pandit Incidents', agreements: 'Agreement Versions',
+  'commission-tiers': 'Commission Tiers', 'nri-packages': 'NRI Packages'
 };
 
 /* --- KYC documents (Phase 4): admin screen data + decisions --- */

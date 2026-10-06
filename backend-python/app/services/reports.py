@@ -512,7 +512,101 @@ async def report(db: AsyncSession, report_id: str, f: dict) -> dict | None:
                           r.status, r.assigned_to or "", r.follow_up_at or "", r.converted_booking_id or "",
                           r.details or "", r.date] for r in rows]}
 
+
+    if report_id == "kyc":
+        w, p = [], {}
+        if f.get("status"):
+            w.append("k.status = :status")
+            p["status"] = str(f["status"])
+        if f.get("from"):
+            w.append("k.uploaded_at >= :from")
+            p["from"] = _day_start_ms(f["from"])
+        if f.get("to"):
+            w.append("k.uploaded_at <= :to")
+            p["to"] = _day_end_ms(f["to"])
+        rows = await _all(db, "SELECT k.*, p.name AS pandit FROM kyc_documents k LEFT JOIN pandits p ON p.id = k.pandit_id"
+                          + (" WHERE " + " AND ".join(w) if w else "") + " ORDER BY k.uploaded_at DESC", p)
+        return {"columns": ["Document ID", "Pandit ID", "Pandit", "Document type", "File name", "Status",
+                            "Uploaded", "Verified by", "Verified at", "Reject reason", "Expires at", "Next re-verification"],
+                "rows": [[r.id, r.pandit_id, r.pandit or "", r.doc_type, r.file_name, r.status,
+                          _ms_to_sqlite_dt(r.uploaded_at), r.verified_by or "",
+                          _ms_to_sqlite_dt(r.verified_at), r.reject_reason or "",
+                          _ms_to_sqlite_dt(r.expires_at), _ms_to_sqlite_dt(r.next_reverification_at)]
+                         for r in rows]}
+
+    if report_id == "incidents":
+        w, p = [], {}
+        if f.get("status"):
+            w.append("i.status = :status")
+            p["status"] = str(f["status"])
+        if f.get("category"):
+            w.append("i.category = :category")
+            p["category"] = str(f["category"])
+        if f.get("from"):
+            w.append("i.reported_at >= :from")
+            p["from"] = _day_start_ms(f["from"])
+        if f.get("to"):
+            w.append("i.reported_at <= :to")
+            p["to"] = _day_end_ms(f["to"])
+        rows = await _all(db, "SELECT i.*, p.name AS pandit FROM incidents i LEFT JOIN pandits p ON p.id = i.pandit_id"
+                          + (" WHERE " + " AND ".join(w) if w else "") + " ORDER BY i.reported_at DESC, i.id DESC", p)
+        return {"columns": ["Incident ID", "Pandit ID", "Pandit", "Booking ID", "Customer ID", "Category",
+                            "Description", "Status", "Admin notes", "Resolution", "Reported", "Resolved"],
+                "rows": [[r.id, r.pandit_id, r.pandit or "", r.booking_id or "", r.customer_id or "", r.category,
+                          r.description, r.status, r.admin_notes or "", r.resolution or "",
+                          _ms_to_sqlite_dt(r.reported_at), _ms_to_sqlite_dt(r.resolved_at)] for r in rows]}
+
+    if report_id == "agreements":
+        w, p = [], {}
+        if f.get("status"):
+            w.append("a.status = :status")
+            p["status"] = str(f["status"])
+        rows = await _all(db, "SELECT a.*, (SELECT COUNT(*) FROM agreement_acceptances g"
+                              " WHERE g.agreement_id = a.id) AS acceptances FROM agreements a"
+                          + (" WHERE " + " AND ".join(w) if w else "")
+                          + " ORDER BY a.version DESC, a.created_at DESC", p)
+        return {"columns": ["Agreement ID", "Version", "Title", "Status", "Document hash", "File name",
+                            "Created by", "Effective from", "Created", "Published", "Archived", "Acceptances"],
+                "rows": [[r.id, r.version, r.title, r.status, r.document_hash or "", r.file_name or "",
+                          r.created_by or "", r.effective_from or "", _ms_to_sqlite_dt(r.created_at),
+                          _ms_to_sqlite_dt(r.published_at), _ms_to_sqlite_dt(r.archived_at), r.acceptances]
+                         for r in rows]}
+
+    if report_id == "commission-tiers":
+        w, p = [], {}
+        if f.get("active") in ("0", "1"):
+            w.append("active = :active")
+            p["active"] = int(f["active"])
+        rows = await _all(db, "SELECT * FROM commission_tiers"
+                          + (" WHERE " + " AND ".join(w) if w else "")
+                          + " ORDER BY active DESC, commission_pct DESC, id", p)
+        return {"columns": ["Tier ID", "Tier", "Service category", "Commission %", "Pandit share %",
+                            "Effective from", "Effective to", "Active"],
+                "rows": [[r.id, r.tier, r.service_category, r.commission_pct, r.pandit_share_pct,
+                          r.effective_from or "", r.effective_to or "", r.active] for r in rows]}
+
+    if report_id == "nri-packages":
+        w, p = [], {}
+        if f.get("active") in ("0", "1"):
+            w.append("active = :active")
+            p["active"] = int(f["active"])
+        rows = await _all(db, "SELECT * FROM nri_packages"
+                          + (" WHERE " + " AND ".join(w) if w else "")
+                          + " ORDER BY active DESC, price, id", p)
+        return {"columns": ["Package ID", "Name", "Description", "Price", "Currency", "INR equivalent",
+                            "Includes", "Active", "Created"],
+                "rows": [[r.id, r.name, r.descr or "", r.price, r.currency, r.inr_equiv,
+                          _comma_list(r.includes), r.active, _ms_to_sqlite_dt(r.created)] for r in rows]}
+
     return None
+
+def _comma_list(raw) -> str:
+    # nri_packages.includes JSON array -> a readable 'a, b' cell (Node parity).
+    try:
+        v = json.loads(raw or "[]")
+        return ", ".join(str(x) for x in v) if isinstance(v, list) else str(raw or "")
+    except Exception:
+        return str(raw or "")
 
 
 def _day_start_ms(day: str) -> int:

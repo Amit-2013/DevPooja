@@ -10,19 +10,21 @@ import re
 import pytest
 from openpyxl import load_workbook
 
-from tests.conftest import admin_login, login
+from tests.conftest import admin_login, login, otp_login
 
 pytestmark = pytest.mark.asyncio
 
-# Every report id the Node server exposes (REPORTS registry parity).
+# Every report id the Node server exposes (REPORTS registry parity — all 38).
 ALL_REPORTS = [
     "customers", "pandits", "temples", "pujas", "bookings", "payments", "orders",
     "kundalis", "kundali-payments", "family-members", "custom-requests",
-    "samagri", "prasad", "coupons", "campaigns", "payouts", "payout-audit",
+    "samagri", "prasad", "coupons", "coupon-redemptions", "coupon-usage",
+    "campaigns", "payouts", "payout-audit",
     "dakshina", "transactions", "revenue",
     "puja-performance", "commission", "customer-accounts", "pandit-accounts",
     "refunds", "pandit-performance", "customer-activity", "login-activity",
-    "audit-logs", "media",
+    "audit-logs", "media", "leads",
+    "kyc", "incidents", "agreements", "commission-tiers", "nri-packages",
 ]
 
 
@@ -189,3 +191,177 @@ async def test_pandit_performance_service_value(client, db_session):
             break
     else:
         pytest.fail("demo pandit row not found in pandit-performance")
+
+
+async def _seat(client, db, mobile: str, role: str) -> str:
+    """Local copy of tests/test_rbac.py::seat — OTP-created customer, then the
+    role written straight to the DB (current_auth re-reads it per request)."""
+    from sqlalchemy import select, update
+
+    from app.models import User
+
+    tok = await otp_login(client, mobile, "Report Probe")
+    uid = (await db.execute(select(User.id).where(User.mobile == mobile))).scalar_one()
+    await db.execute(update(User).where(User.id == uid).values(role=role))
+    await db.commit()
+    return tok
+
+
+def _rows(ws, headers):
+    """Data rows (row 5 onward) as dicts, with the bold totals row dropped."""
+    out = []
+    for i in range(5, ws.max_row + 1):
+        vals = [ws.cell(row=i, column=c).value for c in range(1, len(headers) + 1)]
+        if not vals or vals[0] in (None, "Total"):
+            continue
+        out.append(dict(zip(headers, vals)))
+    return out
+
+
+async def test_phase30_module_reports_rows_filters_and_access(client, db_session):
+    """Phase 30: the five module reports (kyc, incidents, agreements,
+    commission-tiers, nri-packages) render their exact columns, honour each
+    module's own filters, and stay admin-export-only (finance 403 — they are
+    deliberately outside FINANCE_REPORTS)."""
+    import time
+
+    from app.models import (Agreement, AgreementAcceptance, CommissionTier,
+                            Incident, KycDocument, NriPackage)
+
+    now = int(time.time() * 1000)
+    old = 1584268800000  # 2020-03-15T10:00:00Z
+    db_session.add_all([
+        KycDocument(id="kycdrill1", pandit_id="p1", doc_type="Aadhaar",
+                    file_name="a-front.png", status="PENDING", uploaded_at=now),
+        KycDocument(id="kycdrill2", pandit_id="p1", doc_type="PAN",
+                    file_name="pan-card.png", status="VERIFIED", uploaded_at=old),
+        Incident(id="INCDRILL1", pandit_id="p1", category="SAFETY_CONCERN",
+                 description="Stray dogs blocked the courtyard.", status="OPEN",
+                 reported_at=now),
+        Incident(id="INCDRILL2", pandit_id="p1", category="OTHER",
+                 description="Balance payment refused on arrival.",
+                 status="UNDER_REVIEW", reported_at=old),
+        Agreement(id="AGRDRILL1", version=1, title="Report drill agreement",
+                  body="v1 body", status="PUBLISHED",
+                  document_hash="a" * 64, created_at=now, published_at=now),
+        AgreementAcceptance(id="acc_drill_1", agreement_id="AGRDRILL1",
+                            pandit_id="p1", accepted_at=now),
+        AgreementAcceptance(id="acc_drill_2", agreement_id="AGRDRILL1",
+                            pandit_id="p2", method="MANUAL", accepted_at=now),
+        CommissionTier(tier="DRILL ACTIVE", service_category="ALL",
+                       commission_pct=15, pandit_share_pct=85, active=1),
+        CommissionTier(tier="DRILL PAUSED", service_category="ALL",
+                       commission_pct=50, pandit_share_pct=50, active=0),
+        NriPackage(id="nrp-drill", name="Drill package", descr="Inactive probe",
+                   price=99, currency="USD", inr_equiv=8300,
+                   includes=json.dumps(["Alpha seva", "Beta prasad"]),
+                   active=0, created=now),
+    ])
+    await db_session.commit()
+
+    admin = await admin_login(client)
+    h = {"Authorization": "Bearer " + admin}
+
+    # --- exact header contract (mirrors tests/reports.test.js EXPECTED) ---
+    expected = {
+        "kyc": ["Document ID", "Pandit ID", "Pandit", "Document type", "File name",
+                "Status", "Uploaded", "Verified by", "Verified at", "Reject reason",
+                "Expires at", "Next re-verification"],
+        "incidents": ["Incident ID", "Pandit ID", "Pandit", "Booking ID",
+                      "Customer ID", "Category", "Description", "Status",
+                      "Admin notes", "Resolution", "Reported", "Resolved"],
+        "agreements": ["Agreement ID", "Version", "Title", "Status", "Document hash",
+                       "File name", "Created by", "Effective from", "Created",
+                       "Published", "Archived", "Acceptances"],
+        "commission-tiers": ["Tier ID", "Tier", "Service category", "Commission %",
+                             "Pandit share %", "Effective from", "Effective to", "Active"],
+        "nri-packages": ["Package ID", "Name", "Description", "Price", "Currency",
+                         "INR equivalent", "Includes", "Active", "Created"],
+    }
+    for rid, cols in expected.items():
+        ws = _load(await client.get(f"/api/admin/export/{rid}.xlsx", headers=h))[rid]
+        got = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+        assert got == cols, f"{rid} headers"
+        assert ws.freeze_panes == "A5", rid
+
+    # --- kyc: status + ms-epoch from/to day window ---
+    ws = _load(await client.get("/api/admin/export/kyc.xlsx", headers=h))["kyc"]
+    hdr = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+    assert {r["Document ID"] for r in _rows(ws, hdr)} == {"kycdrill1", "kycdrill2"}
+
+    ws = _load(await client.get("/api/admin/export/kyc.xlsx", params={"status": "PENDING"},
+                                headers=h))["kyc"]
+    assert [r["Document ID"] for r in _rows(ws, hdr)] == ["kycdrill1"]
+    assert "status: PENDING" in str(ws.cell(row=3, column=1).value)
+
+    ws = _load(await client.get("/api/admin/export/kyc.xlsx", params={"from": "2021-01-01"},
+                                headers=h))["kyc"]
+    assert [r["Document ID"] for r in _rows(ws, hdr)] == ["kycdrill1"]
+    ws = _load(await client.get("/api/admin/export/kyc.xlsx", params={"to": "2020-12-31"},
+                                headers=h))["kyc"]
+    assert [r["Document ID"] for r in _rows(ws, hdr)] == ["kycdrill2"]
+    assert _rows(ws, hdr)[0]["Status"] == "VERIFIED"
+
+    # --- incidents: status, category and stacked filters ---
+    ws = _load(await client.get("/api/admin/export/incidents.xlsx", headers=h))["incidents"]
+    ihdr = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+    assert {"INCDRILL1", "INCDRILL2"} <= {r["Incident ID"] for r in _rows(ws, ihdr)}
+    ws = _load(await client.get("/api/admin/export/incidents.xlsx", params={"status": "OPEN"},
+                                headers=h))["incidents"]
+    assert [r["Incident ID"] for r in _rows(ws, ihdr)] == ["INCDRILL1"]
+    ws = _load(await client.get("/api/admin/export/incidents.xlsx", params={"category": "OTHER"},
+                                headers=h))["incidents"]
+    assert [r["Incident ID"] for r in _rows(ws, ihdr)] == ["INCDRILL2"]
+    assert _rows(ws, ihdr)[0]["Status"] == "UNDER_REVIEW"
+    ws = _load(await client.get("/api/admin/export/incidents.xlsx",
+                                params={"status": "OPEN", "category": "OTHER"},
+                                headers=h))["incidents"]
+    assert _rows(ws, ihdr) == [], "stacked filters combine"
+
+    # --- agreements: acceptance count subquery + status filter ---
+    ws = _load(await client.get("/api/admin/export/agreements.xlsx", headers=h))["agreements"]
+    ahdr = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+    row = next(r for r in _rows(ws, ahdr) if r["Agreement ID"] == "AGRDRILL1")
+    assert row["Status"] == "PUBLISHED"
+    assert row["Acceptances"] == 2, "acceptance count is a subquery, not a literal"
+    assert len(str(row["Document hash"])) == 64
+    ws = _load(await client.get("/api/admin/export/agreements.xlsx",
+                                params={"status": "DRAFT"}, headers=h))["agreements"]
+    assert "AGRDRILL1" not in {r["Agreement ID"] for r in _rows(ws, ahdr)}
+
+    # --- commission-tiers / nri-packages: active flag + includes parsing ---
+    ws = _load(await client.get("/api/admin/export/commission-tiers.xlsx",
+                                params={"active": "1"}, headers=h))["commission-tiers"]
+    thdr = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+    tiers = _rows(ws, thdr)
+    assert any(t["Tier"] == "DRILL ACTIVE" for t in tiers)
+    assert not any(t["Tier"] == "DRILL PAUSED" for t in tiers)
+    ws = _load(await client.get("/api/admin/export/commission-tiers.xlsx",
+                                params={"active": "0"}, headers=h))["commission-tiers"]
+    assert [t["Tier"] for t in _rows(ws, thdr)] == ["DRILL PAUSED"]
+
+    ws = _load(await client.get("/api/admin/export/nri-packages.xlsx",
+                                params={"active": "0"}, headers=h))["nri-packages"]
+    nhdr = [ws.cell(row=4, column=i).value for i in range(1, ws.max_column + 1)]
+    pkgs = _rows(ws, nhdr)
+    assert [p["Package ID"] for p in pkgs] == ["nrp-drill"]
+    assert pkgs[0]["Includes"] == "Alpha seva, Beta prasad", "JSON array -> comma list"
+    ws = _load(await client.get("/api/admin/export/nri-packages.xlsx",
+                                params={"active": "1"}, headers=h))["nri-packages"]
+    live = _rows(ws, nhdr)
+    assert len(live) >= 3, "the demo catalogue is active"
+    assert "nrp-drill" not in {p["Package ID"] for p in live}
+
+    # --- access: admin-export-only (Phase 21 FINANCE_REPORTS unchanged) ---
+    finance = await _seat(client, db_session, "9811100311", "finance")
+    support = await _seat(client, db_session, "9811100312", "customer_support")
+    for rid in expected:
+        assert (await client.get(f"/api/admin/export/{rid}.xlsx",
+                                 headers={"Authorization": "Bearer " + finance})).status_code == 403, rid
+        assert (await client.get(f"/api/admin/export/{rid}.xlsx",
+                                 headers={"Authorization": "Bearer " + support})).status_code == 403, rid
+        assert (await client.get(f"/api/admin/export/{rid}.xlsx",
+                                 headers=h)).status_code == 200, rid
+    assert (await client.get("/api/admin/export/payments.xlsx",
+                             headers={"Authorization": "Bearer " + finance})).status_code == 200
+    assert (await client.get("/api/admin/export/kyc.xlsx")).status_code == 401

@@ -42,6 +42,9 @@ REPORT_TITLES = {
     "login-activity": "Login Activity", "audit-logs": "Audit Log", "media": "Puja Media",
     "dakshina": "Dakshina (Pandit Earnings Ledger)", "transactions": "Transactions Ledger",
     "leads": "Lead",
+    "kyc": "KYC Documents", "incidents": "Pandit Incidents",
+    "agreements": "Agreement Versions", "commission-tiers": "Commission Tiers",
+    "nri-packages": "NRI Packages",
 }
 
 
