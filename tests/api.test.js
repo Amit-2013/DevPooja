@@ -1067,3 +1067,47 @@ test('availability calendar: weekly off, holidays, blocked dates, slots, flags, 
   const ok = await call('POST', '/bookings', { token: tc, body: bookingBody({ date: dayPlus(90), slot: '10:00 AM', panditId: 'p1' }) });
   assert.equal(ok.status, 201, 'bookable again after rules cleared');
 });
+
+/* Phase 32 — dashboard summary: the dash KPI block rides the admin /state payload. */
+test('phase 32 dashboard: dash rides the family payload only', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const st = (await call('GET', '/state', { token: admin })).json;
+  assert.ok(st.dash, 'admin state carries the dashboard summary');
+  for (const k of ['agreementsPending', 'incidentsOpen', 'kundalis', 'campaigns', 'leadsLive',
+                   'payoutPendingN', 'payoutPendingAmt', 'payoutOnHoldN', 'payoutOnHoldAmt']) {
+    assert.ok(Number.isFinite(st.dash[k]), k + ' is a finite number');
+    assert.ok(st.dash[k] >= 0, k + ' is never negative');
+  }
+  const anon = (await call('GET', '/state')).json;
+  assert.equal(anon.dash, undefined, 'anonymous state never carries the dashboard summary');
+  const cust = (await call('GET', '/state', { token: await login('customer') })).json;
+  assert.equal(cust.dash, undefined, 'customer state never carries the dashboard summary');
+  const pandit = (await call('GET', '/state', { token: await login('pandit') })).json;
+  assert.equal(pandit.dash, undefined, 'pandit state never carries the dashboard summary');
+});
+
+test('phase 32 dashboard: dash numbers agree with the module endpoints', async () => {
+  const admin = (await call('POST', '/auth/admin', { body: { email: 'admin@daivikpuja.in', password: 'admin123' } })).json.token;
+  const st = (await call('GET', '/state', { token: admin })).json;
+
+  const agr = (await call('GET', '/admin/agreements', { token: admin })).json;
+  assert.equal(st.dash.agreementsPending, agr.agreements.filter((a) => a.status === 'DRAFT').length,
+    'pending agreements counts the DRAFT versions the agreements tab lists');
+
+  const inc = (await call('GET', '/admin/incidents', { token: admin })).json;
+  assert.equal(st.dash.incidentsOpen, (inc.counts.OPEN || 0) + (inc.counts.UNDER_REVIEW || 0),
+    'open incidents = OPEN + UNDER_REVIEW');
+
+  assert.equal(st.dash.campaigns, st.campaigns.length, 'campaigns agrees with the marketing rows');
+  assert.equal(st.dash.leadsLive, st.leads.filter((l) => ['NEW', 'CONTACTED', 'QUALIFIED'].includes(l.st)).length,
+    'live leads = NEW + CONTACTED + QUALIFIED');
+  assert.equal(st.dash.payoutPendingN, st.payouts.filter((p) => p.st === 'PENDING').length, 'pending payout count');
+  assert.equal(st.dash.payoutOnHoldN, st.payouts.filter((p) => p.st === 'ON_HOLD').length, 'on-hold payout count');
+  assert.equal(st.dash.payoutPendingAmt, st.payouts.filter((p) => p.st === 'PENDING').reduce((s, p) => s + (p.amt || 0), 0),
+    'pending payout amount');
+  assert.equal(st.dash.payoutOnHoldAmt, st.payouts.filter((p) => p.st === 'ON_HOLD').reduce((s, p) => s + (p.amt || 0), 0),
+    'on-hold payout amount');
+
+  const kundalis = (await call('GET', '/admin/kundali/analyses', { token: admin })).json.analyses;
+  assert.ok(st.dash.kundalis >= kundalis.length, 'kundalis generated covers the analyses list (last 100)');
+});

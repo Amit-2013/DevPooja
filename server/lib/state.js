@@ -98,6 +98,24 @@ function buildState(auth) {
     st.peopleCatsAdmin = PEOPLE.listCategories();
     st.socialsAdmin = SOCIALS.list();
     st.galleryAdmin = GALLERY.adminBundle();
+    /* Phase 32 — dashboard summary: the admin KPI numbers the payload does not
+       otherwise carry (agreements, incidents and kundali rows live behind their
+       own admin endpoints). Counted here so BOTH twins serve identical numbers
+       through /state; the day-sensitive tiles (today's pujas + revenue) stay
+       FE-computed from the client-local date, matching the pandit portal. */
+    const num = (sql, ...a) => db.prepare(sql).get(...a).n;
+    const liveLeads = require('../services/leads').LIVE;
+    const pend = st.payouts.filter((p) => p.st === 'PENDING');
+    const hold = st.payouts.filter((p) => p.st === 'ON_HOLD');
+    st.dash = {
+      agreementsPending: num("SELECT COUNT(*) n FROM agreements WHERE status='DRAFT'"),
+      incidentsOpen: num("SELECT COUNT(*) n FROM incidents WHERE status IN ('OPEN','UNDER_REVIEW')"),
+      kundalis: num('SELECT COUNT(*) n FROM kundalis'),
+      campaigns: num('SELECT COUNT(*) n FROM campaigns'),
+      leadsLive: num(`SELECT COUNT(*) n FROM leads WHERE status IN (${liveLeads.map(() => '?').join(',')})`, ...liveLeads),
+      payoutPendingN: pend.length, payoutPendingAmt: pend.reduce((s, p) => s + (p.amt || 0), 0),
+      payoutOnHoldN: hold.length, payoutOnHoldAmt: hold.reduce((s, p) => s + (p.amt || 0), 0)
+    };
   }
   /* Admin notifications centre (item): own notifs + unread count for EVERY
      signed-in role — the bell badge lives in the main header, so admins and

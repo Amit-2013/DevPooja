@@ -102,6 +102,9 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   // admin
   await go('#/admin'); await click('[data-act=alogin]', 600);
   for (const t of ['dashboard', 'bookings', 'pandits', 'pujas', 'kundali', 'samagri', 'prasad', 'accounts', 'customers', 'finance', 'marketing', 'ops', 'analytics', 'support', 'reports', 'audit', 'demo', 'socials', 'gallery', 'people']) await go('#/admin/' + t);
+  // Phase 32: the admin dashboard carries the extended KPI block
+  await go('#/admin/dashboard');
+  if (!/Today's pujas/.test(text()) || !/Payouts pending/.test(text()) || !/Open incidents/.test(text()) || !/Kundalis generated/.test(text())) errs.push('MISSING Phase 32 dashboard KPI tiles');
   // Phase E: sidebar groups + merged tabs (people = profiles + categories, gallery = photos + videos)
   console.log('admin sidebar groups:', /Overview/.test(text()) && /Catalog/.test(text()) && /Engagement/.test(text()));
   await go('#/admin/gallery');

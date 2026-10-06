@@ -288,7 +288,7 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 |---|---|---|
 | **Phase 21 — RBAC** | Open | FINANCE / CUSTOMER_SUPPORT sub-roles and a permission matrix; sub-role guards on admin routes (a pandit must never export) |
 | **Phase 30 — Reports** | Partially open | Extend both report registries for KYC, incidents, agreements, commission tiers and NRI packages |
-| **Phase 32 — Dashboard** | Partially open | Pending agreements, today's pujas/revenue, payout pending/on-hold, incidents, campaigns, leads, kundalis-generated KPIs |
+| **Phase 32 — Dashboard** | Done | Landed on both backends (the `dash` summary block on the admin /state payload) and the FE KPI grid: pending agreements, today's pujas/revenue, payout pending/on-hold, incidents, campaigns, leads, kundalis-generated |
 | Pages deploy on the secondary remote | Open (pre-existing) | The daivikpujarender Pages workflow fails at configure-pages because Pages is not enabled on that repository |
 
 ## 13. Appendix — verification baseline

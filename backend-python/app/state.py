@@ -6,8 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .services import payments as pay
-from .models import (Banner, Booking, Campaign, Coupon, Festival, Kit, Kundali, Lead, Notif, Order,
-                     Pandit, Prasad, Payout, Puja, Temple, Ticket, User)
+from .models import (Agreement, Banner, Booking, Campaign, Coupon, Festival, Incident, Kit, Kundali, Lead,
+                     Notif, Order, Pandit, Prasad, Payout, Puja, Temple, Ticket, User)
 from .serialize import (booking, coupon, festival, kit, lead as s_lead, notif, order, pandit,
                         prasad, puja, temple, ticket, payout as s_payout, user)
 from .services import people as PEOPLE
@@ -172,6 +172,28 @@ async def build_state(db: AsyncSession, auth: dict | None) -> dict:
         st["peopleCatsAdmin"] = await PEOPLE.list_categories(db)
         st["socialsAdmin"] = await SOCIALS.list_all(db)
         st["galleryAdmin"] = await GALLERY.admin_bundle(db)
+        # Phase 32 — dashboard summary: twin of st.dash in server/lib/state.js. The
+        # KPI numbers the dashboard tiles render but the payload does not otherwise
+        # carry (agreements, incidents and kundali rows live behind their own admin
+        # endpoints); the day-sensitive tiles (today's pujas + revenue) stay
+        # FE-computed from the client-local date, matching the pandit portal.
+        from .services.leads import LIVE as LIVE_LEADS
+        _pend = [p for p in st["payouts"] if p.get("st") == "PENDING"]
+        _hold = [p for p in st["payouts"] if p.get("st") == "ON_HOLD"]
+        st["dash"] = {
+            "agreementsPending": (await db.execute(select(func.count()).select_from(Agreement)
+                                   .where(Agreement.status == "DRAFT"))).scalar() or 0,
+            "incidentsOpen": (await db.execute(select(func.count()).select_from(Incident)
+                              .where(Incident.status.in_(("OPEN", "UNDER_REVIEW"))))).scalar() or 0,
+            "kundalis": (await db.execute(select(func.count()).select_from(Kundali))).scalar() or 0,
+            "campaigns": (await db.execute(select(func.count()).select_from(Campaign))).scalar() or 0,
+            "leadsLive": (await db.execute(select(func.count()).select_from(Lead)
+                           .where(Lead.status.in_(LIVE_LEADS)))).scalar() or 0,
+            "payoutPendingN": len(_pend),
+            "payoutPendingAmt": sum((p.get("amt") or 0) for p in _pend),
+            "payoutOnHoldN": len(_hold),
+            "payoutOnHoldAmt": sum((p.get("amt") or 0) for p in _hold),
+        }
     # Admin notifications centre (item): own notifs + unread count for EVERY
     # signed-in role — the bell badge lives in the main header, so admins and
     # pandits get their ops alerts here too (Node parity: lib/state.js).
