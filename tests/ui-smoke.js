@@ -105,6 +105,15 @@ class Loader extends ResourceLoader { fetch(url, o) { return url.startsWith('htt
   // Phase 32: the admin dashboard carries the extended KPI block
   await go('#/admin/dashboard');
   if (!/Today's pujas/.test(text()) || !/Payouts pending/.test(text()) || !/Open incidents/.test(text()) || !/Kundalis generated/.test(text())) errs.push('MISSING Phase 32 dashboard KPI tiles');
+  // Master sections: every master link lands on real, endpoint-backed content
+  await go('#/admin/pm-base');
+  if (!/Puja management/.test(text())) errs.push('MISSING price-master alias content');
+  await go('#/admin/rm-exports');
+  if (!/Export audit log/.test(text())) errs.push('MISSING report-master alias content');
+  await go('#/admin/sm-visibility');
+  if (!/Service visibility/.test(text())) errs.push('MISSING service-master alias content');
+  await go('#/admin/cc-places');
+  if (!/Place index/.test(text()) || !/Service coverage areas/.test(text())) errs.push('MISSING country/city master section');
   // Phase E: sidebar groups + merged tabs (people = profiles + categories, gallery = photos + videos)
   console.log('admin sidebar groups:', /Overview/.test(text()) && /Catalog/.test(text()) && /Engagement/.test(text()));
   await go('#/admin/gallery');
