@@ -49,7 +49,7 @@ with old→new values and reasons; a bilingual (English/Hindi) single-page exper
 | O4 | Pay pandits fairly and on time | Payouts disbursed within cycle; no held payout without a reason |
 | O5 | Retain devotees | Repeat-booking rate; reward-point redemption rate |
 | O6 | Operate with a clean paper trail | 100% of privileged actions audited with actor, reason, old→new values |
-| O7 | Ship without parity drift | Both backends pass their full suites on every commit (Node 121 / Python 187) |
+| O7 | Ship without parity drift | Both backends pass their full suites on every commit (Node 137 / Python 198) |
 
 ## 3. Scope
 
@@ -249,7 +249,7 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 | NFR-04 | **Auditability** — every privileged action writes actor, role, entity, old/new values and reason |
 | NFR-05 | **Localisation** — English and Hindi copy for customer-facing surfaces |
 | NFR-06 | **Accessibility** — labelled controls, keyboard-reachable flows, no native blocking dialogs in admin/pandit flows |
-| NFR-07 | **Testability** — every business rule covered on both twins; suites gate every push (Node 121, Python 187 tests; UI smoke; Pages smoke of 131 assertions) |
+| NFR-07 | **Testability** — every business rule covered on both twins; suites gate every push (Node 137, Python 198 tests; UI smoke; Pages smoke of 131 assertions) |
 | NFR-08 | **Deployability** — container image, Render blueprint, Netlify build and the static Pages demo derive from one source; migrations run at boot |
 | NFR-09 | **Performance** — SQLite/WAL single-node profile; the static demo serves pre-built snapshots; media variants generated once and cached |
 
@@ -286,18 +286,19 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 
 | Item | State | What remains |
 |---|---|---|
-| **Phase 21 — RBAC** | Open | FINANCE / CUSTOMER_SUPPORT sub-roles and a permission matrix; sub-role guards on admin routes (a pandit must never export) |
-| **Phase 30 — Reports** | Partially open | Extend both report registries for KYC, incidents, agreements, commission tiers and NRI packages |
+| **Phase 21 — RBAC** | Done | FINANCE / CUSTOMER_SUPPORT seats, the permission matrix (`app/permissions.py` / `lib/permissions.js`) and sub-role guards on every admin route, pinned by `tests/rbac.test.js` + `backend-python/tests/test_rbac.py` |
+| **Phase 30 — Reports** | Done | Both registries carry the 38 ids incl. KYC, incidents, agreements, commission tiers and NRI packages, pinned by `tests/reports.test.js` + `backend-python/tests/test_reports.py` |
 | **Phase 32 — Dashboard** | Done | Landed on both backends (the `dash` summary block on the admin /state payload) and the FE KPI grid: pending agreements, today's pujas/revenue, payout pending/on-hold, incidents, campaigns, leads, kundalis-generated |
 | Pages deploy on the secondary remote | Open (pre-existing) | The daivikpujarender Pages workflow fails at configure-pages because Pages is not enabled on that repository |
 
 ## 13. Appendix — verification baseline
 
-- **Node suite:** 121 tests (API, security, KYC, agreements, QA, ledger, cancellation,
-  trial, incident, incident-digest, media date-gate, leads, review-hold, digest-sweep,
-  comms, temple, pricing, NRI, coupons, accounts, people, socials, gallery, tickets) plus
-  the regression runner.
-- **Python suite:** 187 tests, including the audit-claims and CI-wiring guards.
+- **Node suite:** 137 tests (API incl. kundali-history and the phase-32 dashboard,
+  security, KYC, agreements, QA, ledger, cancellation, trial, incident, incident-digest,
+  media date-gate, leads, review-hold, digest-sweep, comms, temple, pricing, NRI,
+  coupons, accounts, people, socials, gallery, tickets, rbac, reports) plus the
+  regression runner.
+- **Python suite:** 198 tests, including the audit-claims and CI-wiring guards.
 - **UI smoke:** drives the real SPA in jsdom — NO UI ERRORS.
 - **Pages smoke:** 131 assertions over the built static artifact.
 - **Schema:** migrations 001–035 (Node) with mirrored SQLAlchemy models (Python).
