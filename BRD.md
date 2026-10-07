@@ -49,7 +49,7 @@ with old→new values and reasons; a bilingual (English/Hindi) single-page exper
 | O4 | Pay pandits fairly and on time | Payouts disbursed within cycle; no held payout without a reason |
 | O5 | Retain devotees | Repeat-booking rate; reward-point redemption rate |
 | O6 | Operate with a clean paper trail | 100% of privileged actions audited with actor, reason, old→new values |
-| O7 | Ship without parity drift | Both backends pass their full suites on every commit (Node 137 / Python 198) |
+| O7 | Ship without parity drift | Both backends pass their full suites on every commit (Node 143 / Python 198) |
 
 ## 3. Scope
 
@@ -249,7 +249,7 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 | NFR-04 | **Auditability** — every privileged action writes actor, role, entity, old/new values and reason |
 | NFR-05 | **Localisation** — English and Hindi copy for customer-facing surfaces |
 | NFR-06 | **Accessibility** — labelled controls, keyboard-reachable flows, no native blocking dialogs in admin/pandit flows |
-| NFR-07 | **Testability** — every business rule covered on both twins; suites gate every push (Node 137, Python 198 tests; UI smoke; Pages smoke of 131 assertions) |
+| NFR-07 | **Testability** — every business rule covered on both twins; suites gate every push (Node 143, Python 198 tests; UI smoke; Pages smoke of 131 assertions) |
 | NFR-08 | **Deployability** — container image, Render blueprint, Netlify build and the static Pages demo derive from one source; migrations run at boot |
 | NFR-09 | **Performance** — SQLite/WAL single-node profile; the static demo serves pre-built snapshots; media variants generated once and cached |
 
@@ -293,11 +293,11 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 
 ## 13. Appendix — verification baseline
 
-- **Node suite:** 137 tests (API incl. kundali-history and the phase-32 dashboard,
+- **Node suite:** 143 tests (API incl. kundali-history and the phase-32 dashboard,
   security, KYC, agreements, QA, ledger, cancellation, trial, incident, incident-digest,
   media date-gate, leads, review-hold, digest-sweep, comms, temple, pricing, NRI,
-  coupons, accounts, people, socials, gallery, tickets, rbac, reports) plus the
-  regression runner.
+  coupons, accounts, people, socials, gallery, tickets, rbac, reports, and the
+  i18n/mandala frontend gate) plus the regression runner.
 - **Python suite:** 198 tests, including the audit-claims and CI-wiring guards.
 - **UI smoke:** drives the real SPA in jsdom — NO UI ERRORS.
 - **Pages smoke:** 131 assertions over the built static artifact.
