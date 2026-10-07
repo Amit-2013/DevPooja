@@ -9,6 +9,10 @@ uploads/*
 backups/
 .freebuff/
 /daivikpuja-*.zip
+# stray root-level artifacts from local dev runs (logs, one-off exports) — never tracked
+/*.zip
+/*.log
+/*.log.log
 
 # Python backend
 backend-python/.venv/
