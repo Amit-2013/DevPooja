@@ -30,7 +30,7 @@ settings = get_settings()
 async def lifespan(_app: FastAPI):
     """Boot bootstrap (Node seed.js parity): create tables if missing, then run
     the idempotent demo seeder. Safe on every restart."""
-    from .db import Base, SessionLocal, engine
+    from .db import Base, SessionLocal, engine, reconcile_columns
     from .seed_catalog import seed_catalog
     from .seed_demo import seed_demo
     from .seed_kundali import seed_kundali
@@ -40,6 +40,16 @@ async def lifespan(_app: FastAPI):
     from .seed_nri import seed_nri_packages
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Self-heal: create_all never ALTERs an existing table, so a database file
+    # written by an older checkout used to kill the boot ("no such column:
+    # users.account_type"). Additive reconciliation runs before any seeder or
+    # route can touch a stale column; a conformant database is a no-op.
+    healed = await reconcile_columns()
+    if healed:
+        # flush=True: boot notices must reach a piped/container log even if the
+        # process is stopped abruptly before stdout's block buffer fills.
+        print(f"[schema] self-heal added {len(healed)} missing column(s): {', '.join(healed)}",
+              flush=True)
     async with SessionLocal() as db:
         await seed_catalog(db)
         await seed_people(db)   # categories always; demo people only when DEMO_MODE
