@@ -15,7 +15,10 @@ Under guard:
   package.json's test script is named in the document (both directions);
 - the TEST COUNTS the document claims (MASTER-AUDIT Tests row + the three BRD
   sites) agree with each other AND with reality: the Node total against the
-  suites wired into npm test, the Python total against pytest's own collection.
+  suites wired into npm test, the Python total against pytest's own collection;
+  the Tests row's audit-claims itemisation and the Phase-34 security-suite
+  counts are pinned the same way (phase-history rows like "at audit time" are
+  deliberately not pinned — they document the past, not the current baseline).
 
 If a guard fails: the code changed (update the document as part of the same
 commit) or the document claims something the code no longer does (fix the doc
@@ -219,3 +222,21 @@ def test_claimed_test_counts_match_reality_and_every_doc_site():
     own = len(re.findall(r"^def test_", Path(__file__).read_text(encoding="utf-8"), re.M))
     assert int(bd.group(1)) == own, (
         f"Tests row says {bd.group(1)} audit-claims tests; this file defines {own}")
+
+    # and the one per-suite count the document states as CURRENT (Phase 34's
+    # security harness) — the only such claim outside the headline totals
+    sec = next((ln for ln in doc.splitlines() if "tests/security.test.js" in ln
+                and "Node," in ln), None)
+    assert sec, "MASTER-AUDIT must keep the Phase-34 security-suite citation"
+    n_m = re.search(r"tests/security\.test\.js` \(Node, (\d+) tests\)", sec)
+    p_m = re.search(r"test_security\.py` \((\d+) tests\)", sec)
+    assert n_m and p_m, f"cannot parse the security suite counts from: {sec[:160]}"
+    real_n = len(re.findall(r"(?<![\w$.])test\(",
+                             (ROOT / "tests" / "security.test.js").read_text(encoding="utf-8")))
+    real_p = len(re.findall(r"^(?:async +)?def +test_",
+                             (ROOT / "backend-python" / "tests" / "test_security.py").read_text(encoding="utf-8"),
+                             re.M))
+    assert int(n_m.group(1)) == real_n, (
+        f"doc claims security.test.js has {n_m.group(1)} tests; it defines {real_n}")
+    assert int(p_m.group(1)) == real_p, (
+        f"doc claims test_security.py has {p_m.group(1)} tests; it defines {real_p}")
