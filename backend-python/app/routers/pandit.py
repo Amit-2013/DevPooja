@@ -1,21 +1,23 @@
 """Pandit routes — port of server/routes/pandit.js booking actions, availability,
 profile and featured listing (media endpoints already live in routers/media.py;
-pandit registration arrives with KYC uploads)."""
+public registration with KYC uploads below)."""
 import json
+import time
 
 from fastapi import APIRouter, Depends, Request, UploadFile, File, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import Pandit, Puja
+from ..models import Pandit, Puja, User
 from ..security import require_role
 from ..serialize import booking as s_booking
 from ..services import bookings as B
 from ..services import kyc as KYC
 from ..services.availability import check as av_check, config_of, resolve_place
-from ..services.otp import issue as otp_issue
-from ..util import bad, j, not_found, rid, v_date, v_int, v_one_of, v_str
+from ..services.otp import issue as otp_issue, verify as otp_verify
+from ..util import (bad, conflict, j, not_found, rid, v_date, v_int, v_mobile,
+                    v_one_of, v_str)
 from ..pricing import SLOTS
 
 router = APIRouter(prefix="/api/pandit", tags=["pandit"])
@@ -35,6 +37,84 @@ async def _verified(db: AsyncSession, pid: str) -> None:
     p = await db.get(Pandit, pid)
     if not p or p.status != "verified":
         raise bad("Your KYC is not verified yet")
+
+
+# --- Public: registration with KYC documents (multipart) ---------------------
+@router.post("/register", status_code=201)
+async def register(request: Request, db: AsyncSession = Depends(get_db)):
+    """Twin of server/routes/pandit.js POST /register — an OTP-verified mobile
+    plus an ID document create a pandit in `pending`: never bookable until an
+    operator reviews it. Public route (no auth). The multipart form is parsed
+    manually so every validation failure surfaces as a 400 like Node rather
+    than FastAPI's 422 for missing fields. File magic bytes are checked before
+    the OTP is consumed (Node's verifyMagic middleware runs ahead of the
+    handler), and nothing is written to disk until every check has passed."""
+    from ..config import get_settings
+    from ..util import verify_upload as vu
+
+    form = await request.form()
+    mobile = v_mobile(form.get("mobile"))
+
+    # files first (middleware position in Node): size + magic-byte validation
+    parsed: dict[str, tuple[bytes, str]] = {}
+    for key in ("idDoc", "cert", "photo"):
+        f = form.get(key)
+        if not hasattr(f, "read"):
+            continue
+        limit = get_settings().max_upload_mb * 1024 * 1024
+        data = await f.read(limit + 1)
+        if len(data) > limit:
+            raise bad("File too large")
+        claimed = f.content_type or ""
+        if claimed == "application/pdf":
+            if data[:5] != b"%PDF-":
+                raise bad("File content does not match its type")
+        else:
+            vu(data, claimed)
+        parsed[key] = (data, claimed)
+
+    # OTP verified server-side (consumes the code — a retried attempt resends)
+    await otp_verify(db, mobile, form.get("otp"))
+    name = v_str(form.get("name"), "Name", max_len=80)
+    puja_ids = set((await db.execute(select(Puja.id))).scalars().all())
+    spec = [s for s in _list(form.get("spec")) if s in puja_ids]
+    langs = _list(form.get("langs"))[:10]
+    if not spec:
+        raise bad("Select at least one puja")
+    if not langs:
+        raise bad("Select at least one language")
+    if "idDoc" not in parsed:
+        raise bad("Attach an ID document")
+    if (await db.execute(select(User.id).where(User.mobile == mobile))).scalar_one_or_none():
+        raise conflict("This mobile number is already registered")
+
+    # every check passed — persist the files, then the rows
+    import pathlib
+
+    kyc_dir = pathlib.Path(get_settings().upload_dir) / "kyc"
+    kyc_dir.mkdir(parents=True, exist_ok=True)
+    files: dict[str, str] = {}
+    for key, (data, claimed) in parsed.items():
+        file_name = rid(16) + (".pdf" if claimed == "application/pdf"
+                               else "." + (claimed.split("/")[-1] or "bin"))
+        (kyc_dir / file_name).write_bytes(data)
+        files[key] = file_name
+
+    uid, pid = "pu" + rid(3), "p" + rid(3)
+    db.add(User(id=uid, role="pandit", name=name, mobile=mobile,
+                joined=time.strftime("%Y-%m-%d"), created_at=int(time.time() * 1000)))
+    await db.flush()
+    city = form.get("city")
+    db.add(Pandit(id=pid, user_id=uid, name=name,
+                  city=city if city in CITIES else "Delhi NCR",
+                  exp=v_int(form.get("exp") or 0, "Experience", min_val=0, max_val=70),
+                  langs=json.dumps(langs), spec=json.dumps(spec), pf=0.9,
+                  bio="New pandit applicant.", color="#555555", status="pending",
+                  mobile=mobile,
+                  kyc=json.dumps({"idType": str(form.get("idType") or "")[:30],
+                                  "files": files})))
+    await db.flush()
+    return {"ok": True}
 
 
 @router.post("/bookings/{booking_id}/complete")

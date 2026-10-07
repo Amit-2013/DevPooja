@@ -12,11 +12,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import (AuditLog, Booking, Coupon, Kundali, KycDocument, Kit, Order,
+from ..models import (AuditLog, Booking, Coupon, CustomRequest, Kundali,
+                      KycDocument, Kit, Notif, Order,
                       Pandit, Prasad, Puja, Setting, Temple, User)
 from ..pricing import MODES
 from ..security import require_role
 from ..serialize import booking as s_booking, coupon as s_coupon, payout as s_payout, temple as s_temple
+from ..serialize import custom_request as s_cr
 from ..services import bookings as B
 from ..services import kyc as KYC
 from ..services import account_status as AS
@@ -286,6 +288,141 @@ async def payout_adjustment(payout_id: str, body: dict, auth: dict = Depends(adm
     amt = v_int(b.get("amount"), "Adjustment", min_val=-10_000_000, max_val=10_000_000)
     return {"payout": s_payout(await set_adjustment(db, payout_id, amt, auth["uid"],
                                                     reason=b.get("reason")))}
+
+
+# --- Customized Puja requests (from POST /api/custom-puja) -------------------
+# Full workflow (migration 008): NEW -> UNDER_REVIEW -> ... -> COMPLETED |
+# REJECTED | CANCELLED | EXPIRED | REFUNDED. History is tracked per row.
+CR_STATUSES = ["NEW", "UNDER_REVIEW", "PANDIT_CONSULTATION", "QUOTE_PREPARED",
+               "CUSTOMER_APPROVAL_PENDING", "APPROVED", "PAYMENT_PENDING", "PAID",
+               "PANDIT_ASSIGNED", "TEMPLE_ASSIGNED", "SCHEDULED", "IN_PROGRESS",
+               "COMPLETED", "REJECTED", "CANCELLED", "EXPIRED", "REFUNDED"]
+
+
+def _cr_history(row: CustomRequest, entry: str) -> str:
+    return json.dumps([*j(row.history, []),
+                       [entry, time.strftime("%Y-%m-%d %H:%M", time.gmtime())]])
+
+
+@router.get("/custom-requests")
+async def custom_requests_list(status: str | None = None, auth: dict = Depends(admin_dep),
+                               db: AsyncSession = Depends(get_db)):
+    q = select(CustomRequest)
+    if status:
+        q = q.where(CustomRequest.status == str(status))  # unknown -> empty (Node parity)
+    rows = (await db.execute(q.order_by(CustomRequest.created_at.desc(),
+                                        CustomRequest.id.desc()).limit(500))).scalars().all()
+    return {"requests": [s_cr(r) for r in rows]}
+
+
+@router.patch("/custom-requests/{request_id}")
+async def custom_requests_patch(request_id: str, body: dict, auth: dict = Depends(admin_dep),
+                                db: AsyncSession = Depends(get_db)):
+    row = await db.get(CustomRequest, request_id)
+    if not row:
+        raise not_found("Request not found")
+    b = body or {}
+    status = v_one_of(b.get("status"), CR_STATUSES, "Status") if b.get("status") is not None else row.status
+
+    def opt_str(key: str, label: str) -> str:
+        return (v_str(b.get(key), label, max_len=800, optional=True)
+                if b.get(key) is not None else (getattr(row, {"adminNotes": "admin_notes",
+                                                              "panditNotes": "pandit_notes"}[key])) or "")
+
+    admin_notes = opt_str("adminNotes", "Note")
+    pandit_notes = opt_str("panditNotes", "Pandit note")
+    quote_amount = (v_int(b.get("quoteAmount"), "Quote", min_val=0, max_val=10000000)
+                    if b.get("quoteAmount") is not None else row.quote_amount)
+    final_price = (v_int(b.get("finalPrice"), "Final price", min_val=0, max_val=10000000)
+                   if b.get("finalPrice") is not None else row.final_price)
+    payment_status = (v_one_of(b.get("paymentStatus"), ["Unpaid", "Paid", "Refunded"], "Payment status")
+                      if b.get("paymentStatus") is not None else (row.payment_status or ""))
+    assigned_pandit_id = (str(b.get("assignedPanditId") or "")[:20] or None
+                          if b.get("assignedPanditId") is not None else row.assigned_pandit_id)
+    assigned_temple_id = (str(b.get("assignedTempleId") or "")[:20] or None
+                          if b.get("assignedTempleId") is not None else row.assigned_temple_id)
+    if assigned_pandit_id and not await db.get(Pandit, assigned_pandit_id):
+        raise bad("Unknown pandit")
+    if assigned_temple_id and not await db.get(Temple, assigned_temple_id):
+        raise bad("Unknown temple")
+
+    status_changed = status != row.status
+    history = _cr_history(row, "Status: " + row.status + " -> " + status + " (admin)") \
+        if status_changed else (row.history or "[]")
+    row.status, row.admin_notes, row.pandit_notes = status, admin_notes or "", pandit_notes or ""
+    row.quote_amount, row.final_price, row.payment_status = quote_amount, final_price, payment_status
+    row.assigned_pandit_id, row.assigned_temple_id = assigned_pandit_id, assigned_temple_id
+    row.history = history
+    row.updated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+    await db.flush()
+    if status_changed and row.user_id:
+        db.add(Notif(user_id=row.user_id, channel="WhatsApp",
+                     message=f"Update on your custom puja request {row.id}: "
+                             f"{status.replace('_', ' ').lower()}.",
+                     ts=int(time.time() * 1000)))
+        await db.flush()
+    return {"ok": True}
+
+
+@router.post("/custom-requests/{request_id}/convert", status_code=201)
+async def custom_requests_convert(request_id: str, body: dict, auth: dict = Depends(admin_dep),
+                                  db: AsyncSession = Depends(get_db)):
+    """Convert an approved request into a real catalogue puja (hidden until priced)."""
+    row = await db.get(CustomRequest, request_id)
+    if not row:
+        raise not_found("Request not found")
+    kit = (await db.execute(select(Kit).where(Kit.active == 1)
+                            .order_by(Kit.id).limit(1))).scalar_one_or_none()
+    if not kit:
+        raise bad("Create a samagri kit first")
+    b = body or {}
+    puja_id = "c" + rid(3)
+    name = v_str(b.get("name") or (row.deity + " Puja" if row.deity else "Custom Puja"),
+                 "Name", max_len=80)
+    hindi = v_str(b.get("hindi") or row.deity or b.get("name") or "विशेष पूजा",
+                  "Hindi name", max_len=80)
+    dur = v_int(b.get("dur") or 90, "Duration", min_val=15, max_val=720)
+    price = v_int(b.get("price") or row.quote_amount or 2500, "Price",
+                  min_val=100, max_val=1000000)
+    db.add(Puja(id=puja_id, name=name, hindi=hindi, cat="Life Event", icon="🕉️",
+                dur=dur, price=price, deity=v_str(row.deity or "Custom", "Deity", max_len=60),
+                ben="Customised puja created from request " + row.id
+                    + (f": {row.purpose}" if row.purpose else ".") + ".",
+                kit=kit.id, pop=0, tags=str(b.get("name") or row.name).lower(), hidden=1))
+    row.status = "SCHEDULED"
+    row.puja_id = puja_id
+    row.history = _cr_history(row, "Converted to puja " + puja_id + " (admin)")
+    row.admin_notes = ((row.admin_notes + " | ") if row.admin_notes else "") + \
+        "Converted to puja " + puja_id + "."
+    row.updated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+    await db.flush()
+    if row.user_id:
+        db.add(Notif(user_id=row.user_id, channel="WhatsApp",
+                     message=f"Good news! Your custom puja request {row.id} is now bookable on DaivikPuja.",
+                     ts=int(time.time() * 1000)))
+        await db.flush()
+    return {"ok": True, "pujaId": puja_id}
+
+
+@router.get("/pandits/{pandit_id}/docs/{key}")
+async def pandit_doc(pandit_id: str, key: str, auth: dict = Depends(admin_dep),
+                     db: AsyncSession = Depends(get_db)):
+    """KYC documents are private: streamed only to admins (twin of admin.js)."""
+    import pathlib
+    from fastapi.responses import FileResponse
+
+    from ..config import get_settings
+
+    p = await db.get(Pandit, pandit_id)
+    if not p:
+        raise not_found()
+    f = (j(p.kyc, {}) or {}).get("files", {}).get(key)
+    if not f:
+        raise not_found("Document not found")
+    file = pathlib.Path(get_settings().upload_dir) / "kyc" / pathlib.Path(str(f)).name
+    if not file.is_file():
+        raise not_found("File missing")
+    return FileResponse(file)
 
 
 # --- audit log viewer (Phase 31) -------------------------------------------------

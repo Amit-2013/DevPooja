@@ -12,17 +12,79 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import (AuditLog, Booking, Coupon, Kit, Notif, Order, Prasad,
-                      Setting, Ticket, User)
-from ..security import require_role
+from ..models import (AuditLog, Booking, Coupon, CustomRequest, Kit, Notif, Order,
+                      Prasad, Setting, Ticket, User)
+from ..security import current_auth, require_role
 from ..serialize import booking as s_booking, order as s_order, user as s_user
 from ..services import bookings as B
 from ..services import payments as pay
 from ..util import (bad, conflict, http_error, j, not_found, rid, v_arr,
-                     v_email, v_int, v_one_of, v_str)
+                     v_email, v_int, v_mobile, v_one_of, v_str)
 
 router = APIRouter(prefix="/api", tags=["customer"])
 customer_dep = require_role("customer")
+
+
+# --- Customized Puja request intake (public) ---------------------------------
+@router.post("/custom-puja", status_code=201)
+async def custom_puja_request(body: dict, auth: dict | None = Depends(current_auth),
+                              db: AsyncSession = Depends(get_db)):
+    """Twin of server/index.js POST /api/custom-puja: a guest-friendly form that
+    lands in the admin Puja-requests queue (migration 008 workflow) as NEW. The
+    session is OPTIONAL — a signed-in devotee is linked via user_id, a guest is
+    not. (Node additionally rate-limits this route per IP; Python has no
+    request limiter infrastructure — infra protection, not an API contract.)"""
+    b = body or {}
+    name = v_str(b.get("name"), "Name", max_len=80)
+    mobile = v_mobile(b.get("mobile"))
+
+    def opt(key: str, label: str, max_len: int) -> str:
+        return v_str(b.get(key), label, max_len=max_len, optional=True) if b.get(key) else ""
+
+    lang = opt("language", "Language", 30)
+    requirement = opt("requirement", "Requirement", 1000)
+    purpose = v_str(b.get("purpose"), "Purpose", max_len=200) if b.get("purpose") else ""
+    deity = v_str(b.get("deity"), "Deity", max_len=60) if b.get("deity") else ""
+    occasion = opt("occasion", "Occasion", 100)
+    preferred_date = (str(b.get("preferredDate"))
+                      if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(b.get("preferredDate") or ""))
+                      else "")
+    preferred_time = opt("preferredTime", "Preferred time", 20)
+    location = opt("location", "Location", 200)
+    city = opt("city", "City", 80)
+    state_ = opt("state", "State", 80)
+    country = opt("country", "Country", 80)
+    participants = v_int(b.get("participants"), "Participants", min_val=1, max_val=5000) \
+        if b.get("participants") not in (None, "") else None
+    budget = v_int(b.get("budget"), "Budget", min_val=0, max_val=10000000) \
+        if b.get("budget") not in (None, "") else None
+    kundali_id = (str(b.get("kundaliId"))
+                  if re.fullmatch(r"K[a-f0-9]{12}", str(b.get("kundaliId") or "")) else "")
+    dosh = opt("doshCondition", "Dosh/condition", 120)
+    remedy = opt("remedy", "Remedy", 300)
+    sankalp = opt("sankalp", "Sankalp", 300)
+    samagri = opt("samagri", "Samagri", 300)
+    notes = v_str(b.get("notes"), "Notes", max_len=800) if b.get("notes") else ""
+    attachments = json.dumps([str(x)[:200] for x in (b.get("attachments") or [])[:5]]
+                             if isinstance(b.get("attachments"), list) else [])
+
+    row = CustomRequest(
+        id="CR" + rid(5),
+        user_id=(auth or {}).get("uid"),
+        name=name, mobile=mobile, language=lang, requirement=requirement,
+        purpose=purpose, deity=deity, occasion=occasion,
+        preferred_date=preferred_date, preferred_time=preferred_time,
+        location=location, city=city, state=state_, country=country,
+        participants=participants, budget=budget, kundali_id=kundali_id,
+        dosh_condition=dosh, remedy=remedy, sankalp=sankalp, samagri_req=samagri,
+        notes=notes, attachments=attachments, status="NEW",
+        # migration 008 has DEFAULT (datetime('now')) on created_at; create_all
+        # creates the column WITHOUT that SQLite default, so stamp it here.
+        created_at=time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+    )
+    db.add(row)
+    await db.flush()
+    return {"ok": True, "id": row.id}
 
 
 def _me(db: AsyncSession, auth: dict) -> User:

@@ -235,3 +235,24 @@ def lead(r) -> dict:
             "followUpAt": r.follow_up_at or None,
             "convertedBookingId": r.converted_booking_id or None,
             "dupCount": r.dup_count or 0, "lastDupAt": r.last_dup_at or None}
+
+
+def custom_request(r) -> dict:
+    """Admin-queue row for a customized-puja request — twin of server/routes/
+    admin.js crOut() (the workflow keeps both camelCase and the full history)."""
+    return {"id": r.id, "userId": r.user_id, "name": r.name, "mobile": r.mobile,
+            "language": r.language or "", "requirement": r.requirement or "",
+            "purpose": r.purpose or "", "deity": r.deity or "", "occasion": r.occasion or "",
+            "preferredDate": r.preferred_date or "", "preferredTime": r.preferred_time or "",
+            "location": r.location or "", "city": r.city or "", "state": r.state or "",
+            "country": r.country or "", "participants": r.participants, "budget": r.budget,
+            "kundaliId": r.kundali_id or "", "doshCondition": r.dosh_condition or "",
+            "remedy": r.remedy or "", "sankalp": r.sankalp or "",
+            "samagriReq": r.samagri_req or "", "notes": r.notes or "",
+            "attachments": j(r.attachments, []), "status": r.status,
+            "adminNotes": r.admin_notes or "", "panditNotes": r.pandit_notes or "",
+            "quoteAmount": r.quote_amount, "finalPrice": r.final_price,
+            "paymentStatus": r.payment_status or "", "assignedPanditId": r.assigned_pandit_id,
+            "assignedTempleId": r.assigned_temple_id, "bookingId": r.booking_id or "",
+            "pujaId": r.puja_id, "history": j(r.history, []),
+            "createdAt": r.created_at, "updatedAt": r.updated_at}

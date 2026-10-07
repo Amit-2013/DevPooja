@@ -2,12 +2,12 @@
 §33–37 item "E2E workflows to script-test: onboarding, booking (with
 availability), customized puja, KYC, agreement, payout".
 
-Where the Node suite walks all six journeys, this file scripts the five the
-FastAPI twin actually serves. The sixth — the public Customized-Puja request
-queue (POST /custom-puja -> admin queue -> convert) — has no Python route,
-model or test anywhere in backend-python, and neither does the multipart pandit
-registration (POST /pandit/register); both are recorded as open parity items in
-MASTER-AUDIT rather than papered over with a test that asserts an absence.
+All six journeys are now served by BOTH backends: this file scripts them over
+the FastAPI twin exactly as the Node suite drives Express — including the two
+flows that used to be Node-only (the public Customized-Puja request queue
+POST /custom-puja -> admin queue -> convert, and multipart pandit registration
+POST /pandit/register). The routes and the queue serializer are new; the
+custom_requests model was always mirrored. Nothing here asserts an absence.
 
 Each test is a whole journey over the ASGI app: who acts, in what order, and
 what must hold at every hop (slot contention, role gates, version locks,
@@ -21,6 +21,7 @@ import pytest
 pytestmark = pytest.mark.asyncio
 
 JPEG = bytes([0xFF, 0xD8, 0xFF, 0xD9, 0x11, 0x22, 0x33, 0x44])
+PDF = b"%PDF-1.4\n%fake-id-document\n"
 
 
 def h(token: str) -> dict:
@@ -81,6 +82,41 @@ async def test_e2e_onboarding_guest_otp_becomes_a_visible_customer(client):
     bad = await client.post("/api/auth/otp/verify", json={"mobile": mobile, "otp": "000000"})
     assert not bad.json().get("token"), "a wrong OTP issues no token"
 
+    # --- pandit: multipart registration is gated on OTP + an ID document ---
+    pm = "9000044451"
+
+    async def reg(with_doc: bool):
+        data = {"name": "Pt. E2E Onboard", "mobile": pm, "otp": "123456",
+                "city": "Pune", "exp": "5", "langs": "Hindi", "spec": "ganesh,lakshmi"}
+        if with_doc:
+            return await client.post("/api/pandit/register", data=data,
+                                     files={"idDoc": ("id.pdf", io.BytesIO(PDF), "application/pdf")})
+        return await client.post("/api/pandit/register", data=data)
+
+    await client.post("/api/auth/otp/send", json={"mobile": pm})
+    assert (await reg(False)).status_code == 400, "no ID document -> refused"
+    await client.post("/api/auth/otp/send", json={"mobile": pm})
+    created = await reg(True)
+    assert created.status_code == 201, created.text
+
+    st2 = (await client.get("/api/state", headers=h(aa))).json()
+    np_ = next((p for p in st2["pandits"] if p["n"] == "Pt. E2E Onboard"), None)
+    assert np_, "the new pandit exists"
+    assert np_["st"] == "pending", "a fresh registration is NOT bookable until reviewed"
+    assert np_["kyc"] == ["idDoc"], "the uploaded document is attached to the profile"
+
+    # operations can promote it — and only then does it become bookable
+    pid = np_["id"]
+    act = await client.post(f"/api/admin/pandits/{pid}/lifecycle", headers=h(aa),
+                            json={"lifecycle": "ACTIVE", "reason": "Documents reviewed"})
+    assert act.status_code == 200, act.text
+    assert act.json()["lifecycle"] == "ACTIVE", "reviewed registration activated"
+
+    # promotion is on the audit trail with old -> new
+    log = await _audit(client, aa, "pandit.lifecycle")
+    assert any(e.get("entityId") == pid and (e.get("detail") or {}).get("to") == "ACTIVE"
+               for e in log), "activation audited"
+
 
 # -------------------------------------------------- 2. booking with availability
 async def test_e2e_booking_availability_contention_and_release(client):
@@ -126,7 +162,62 @@ async def test_e2e_booking_availability_contention_and_release(client):
     assert (await client.post("/api/bookings", json=_booking_body(70), headers=h(rival))).status_code == 201
 
 
-# ------------------------------------------------------------------------ 3. KYC
+# ------------------------------------------------------------------------ 3. customized puja
+async def test_e2e_custom_puja_public_request_to_catalog(client):
+    aa = await _admin(client)
+
+    # the public form validates before it ever reaches the queue
+    bad = await client.post("/api/custom-puja", json={"name": "X", "mobile": "123"})
+    assert bad.status_code == 400, "incomplete request refused"
+
+    submit = await client.post("/api/custom-puja", json={
+        "name": "E2E Custom Devotee", "mobile": "9876500011",
+        "purpose": "Special griha shanti", "deity": "Shiva", "city": "Pune",
+        "budget": 6000, "notes": "Family tradition, north-Indian vidhi"})
+    assert submit.status_code == 201, submit.text
+
+    # a customer must not see the operations queue
+    ct = {"Authorization": "Bearer " + (await client.post("/api/auth/demo",
+                                                           json={"role": "customer"})).json()["token"]}
+    assert (await client.get("/api/admin/custom-requests", headers=ct)).status_code == 403, \
+        "queue is admin-only"
+
+    listing = (await client.get("/api/admin/custom-requests", headers=h(aa))).json()["requests"]
+    req = next((r for r in listing if r["name"] == "E2E Custom Devotee"), None)
+    assert req, "request landed in the admin queue"
+    assert req["status"] == "NEW"
+
+    # review it, with history
+    p = await client.patch(f"/api/admin/custom-requests/{req['id']}", headers=h(aa),
+                           json={"status": "UNDER_REVIEW", "adminNotes": "Called, confirmed details"})
+    assert p.status_code == 200, p.text
+    reviewed = next(r for r in (await client.get("/api/admin/custom-requests",
+                                                 headers=h(aa))).json()["requests"]
+                    if r["id"] == req["id"])
+    assert any("UNDER_REVIEW" in str(x[0]) for x in reviewed["history"]), \
+        "status history tracked"
+
+    # convert: the request becomes a real (hidden) catalog entry
+    conv = await client.post(f"/api/admin/custom-requests/{req['id']}/convert", headers=h(aa),
+                             json={"name": "E2E Special Griha Shanti", "hindi": "E2E विशेष",
+                                   "price": 5500})
+    assert conv.status_code == 201, conv.text
+    assert conv.json()["pujaId"]
+
+    cst = (await client.get("/api/state", headers=h(aa))).json()
+    made = next((x for x in cst["catalog"]["pujas"] if x["id"] == conv.json()["pujaId"]), None)
+    assert made, "the converted puja is in the catalog"
+    assert made["price"] == 5500, "price carried over"
+    assert made["hidden"] is True, "stays hidden until an operator unmasks it"
+
+    done = next(r for r in (await client.get("/api/admin/custom-requests",
+                                             headers=h(aa))).json()["requests"]
+                if r["id"] == req["id"])
+    assert done["status"] == "SCHEDULED", "conversion schedules the request against the new puja"
+    assert done["pujaId"] == conv.json()["pujaId"], "the request points at the puja it became"
+
+
+# ------------------------------------------------------------------------ 4. KYC
 async def test_e2e_kyc_upload_review_verify_visible_and_audited(client):
     aa = await _admin(client)
     pt = (await client.post("/api/auth/demo", json={"role": "pandit"})).json()["token"]
@@ -181,7 +272,7 @@ async def test_e2e_kyc_upload_review_verify_visible_and_audited(client):
     assert (await client.get("/api/admin/kyc", headers=h(ct))).status_code == 403
 
 
-# ------------------------------------------------------------------ 4. agreement
+# ------------------------------------------------------------------ 5. agreement
 async def test_e2e_agreement_publish_accept_registry_and_lock(client):
     import hashlib
     aa = await _admin(client)
@@ -251,7 +342,7 @@ async def test_e2e_agreement_publish_accept_registry_and_lock(client):
     assert (await client.get("/api/admin/agreements", headers=h(pt))).status_code == 403
 
 
-# --------------------------------------------------------------------- 5. payout
+# --------------------------------------------------------------------- 6. payout
 async def test_e2e_payout_book_pay_complete_process_disburse(client):
     aa = await _admin(client)
     ct = (await client.post("/api/auth/demo", json={"role": "customer"})).json()["token"]
