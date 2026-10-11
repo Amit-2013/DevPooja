@@ -59,11 +59,15 @@ refunds, commission and payouts; prasad/samagri orders; temple sevas and NRI pac
 kundali and dosha services; pandit onboarding (registration, KYC, agreements, trials, QA);
 complaints and incidents; trust-and-safety holds; notifications and campaign marketing;
 leads CRM; content CMS (Our People, social links, gallery); admin dashboard, reports and
-audit log; demo mode and static Pages deployment.
+audit log; demo mode and static Pages deployment; centralised admin-console navigation,
+feature switches (Features ON/OFF), frontend page management, theme management, Ask
+DaivikPuja Guide settings and read-only live-environment status (sections 6.14–6.19).
 
 **Out of scope (this revision).** Native mobile apps; real banking/payout rails (mock
 gateway by default); warehouse/inventory management for samagri; trust/charity donations;
-third-party accounting; multi-currency settlement beyond NRI display pricing.
+third-party accounting; multi-currency settlement beyond NRI display pricing; Gaushala
+and Sadhana modules (explicitly excluded from the feature-switch inventory); runtime
+Live/Demo switching across separate databases (open item, section 12).
 
 ## 4. Personas and stakeholders
 
@@ -94,6 +98,11 @@ third-party accounting; multi-currency settlement beyond NRI display pricing.
 - **Campaign** — one-off or scheduled message to an audience across five channels.
 - **Lead** — captured enquiry moving NEW → CONTACTED → QUALIFIED → CONVERTED | LOST.
 - **Trial / QA** — the quality gates scoring a pandit (pass mark 3.5 of 5).
+- **Features ON/OFF** — the centralised, server-persisted feature-switch registry behind
+  the admin page of the same name; it replaces the "Services master switch" wording for
+  that surface and extends it with the approved feature categories.
+- **Frontend page** — an admin-authored page row (title, slug, menu label, order,
+  publish state, sections) rendered into the public site and navigation.
 - **DEMO_MODE** — seeded, resettable demo content guarded so it never overwrites real data.
 
 ## 6. Functional requirements
@@ -210,7 +219,7 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 | FR-110 | Admin dashboard of operational KPIs | KPIs derive from live rows, not cached numbers |
 | FR-111 | Reports with Excel export on both backends | Files open with the platform title row; the export is audited |
 | FR-112 | Audit log with actor, role, entity, detail, old/new value, reason, IP | The audit view shows reasons; entries are append-only |
-| FR-113 | Service master switch plus per-service toggles | Switching services off hides every bookable entry point and pauses the header |
+| FR-113 | Features ON/OFF (renamed from the service master switch) plus per-service visibility toggles | Switching services off hides every bookable entry point, pauses the header and is refused by the backend; every change is audited |
 | FR-114 | Backup command producing a timestamped, WAL-checked snapshot | Keeps the newest N backups; never includes secrets |
 | FR-115 | Demo RESET reseeds safely | Resets wipe allow-listed tables only and re-apply migration seed data |
 
@@ -221,6 +230,54 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 | FR-121 | Roles: admin, customer, pandit | Wrong role → 403; anonymous → 401 on every protected route |
 | FR-122 | Account types (normal / NRI) and profile consent on one account row | Profile saves merge rather than replace, preserving consent and mute |
 | FR-123 | Admin password reset and account suspend/disable with reason | Both are audited with the typed reason |
+
+### 6.14 Administration console navigation and layout
+
+Approved new requirement (admin-console master instruction): the existing sidebar is
+regrouped to the target structure while every existing route keeps working.
+
+| ID | Requirement | Acceptance criteria |
+|---|---|---|
+| FR-130 | Admin sidebar follows the approved target sections: Dashboard; Bookings (All Bookings, Manual Booking); Pujas and Masters (catalogue plus pricing, report and location master links); Samagri / Prasad / Kundali / Gallery; Features ON/OFF; Frontend Page Management; Theme & Appearance; Ask DaivikPuja Guide; Live Environment Settings; System & Security (Live/Demo status, Users and permissions, Audit log); pinned Logout | Every existing admin deep link still resolves to real content; no route, tab or permission rule is removed; the seat restrictions of section 6.13 are preserved |
+| FR-131 | Sidebar UI follows the approved visual reference: ~210 px expanded and ~70 px collapsed, a toggle, section icons, nested submenus with visible active states, keyboard access with :focus-visible, labels or tooltips when collapsed, responsive layouts, Logout pinned at the bottom | The collapse preference is display-only browser state; Logout stays reachable in both expanded and collapsed states; no duplicate navigation state or event handlers |
+
+### 6.15 Feature switches (Features ON/OFF)
+
+| ID | Requirement | Acceptance criteria |
+|---|---|---|
+| FR-132 | A central Features ON/OFF page lists every applicable feature with name, category, description, switch, current status, dependency information and last-updated timestamp/administrator, grouped by the approved categories with search, filtering and confirmation for sensitive changes | Only registered, implemented features are presented; Gaushala and Sadhana are excluded; features without a backing implementation are never presented as functional controls |
+| FR-133 | Switch state persists server-side in a settings-backed registry on both backends, and every change writes an audit entry with actor, feature key, previous and new value | Disabling a feature never deletes or mutates bookings, transactions, configuration or history |
+| FR-134 | The disabled state is enforced at each relevant backend route and business operation (quotes, booking creation, orders, kundali generation, guide, lead forms, campaigns, reviews, cancellations), not merely by hiding UI | A direct API call to a disabled feature returns a clear disabled-feature response; switching ON restores access subject to permissions and dependencies; no blanket middleware blocks unrelated APIs |
+| FR-135 | Critical authentication and security controls cannot be locked out through the switches | Such items expose a restricted operational control or are fixed ON with that status stated in the UI |
+
+### 6.16 Frontend page management
+
+| ID | Requirement | Acceptance criteria |
+|---|---|---|
+| FR-140 | Authorised administrators can add, edit, publish and unpublish frontend pages with title, slug, menu label, display order, menu/footer/homepage targets, ordered sections and content | Content renders through allow-listed section types only — no arbitrary code execution or unsafe HTML injection through the page editor |
+| FR-141 | Unpublished pages disappear from public navigation and public URLs while administrators can preview them | Content and configuration are preserved; unrelated navigation and linked pages keep working |
+| FR-142 | Menu order and homepage-section ordering are admin-controlled | Reordering takes effect on the public site without a redeploy; drafts can be previewed before publishing |
+
+### 6.17 Theme and appearance settings
+
+| ID | Requirement | Acceptance criteria |
+|---|---|---|
+| FR-150 | Admin theme controls: Light and Dark (plus other approved presets), shared design tokens (background, text, button, section, border, focus/interaction) and a preview that applies before saving | Theme changes never change business logic, disable services or alter the active environment; token values are validated server-side |
+| FR-151 | The "Coming up in the calendar" section follows the selected theme consistently: matching backgrounds and section transitions, readable button contrast (target ≥ 4.5:1 for normal text), no hardcoded colours overriding the tokens | Visual checks pass at desktop, tablet and mobile widths in both themes; no unrelated section is changed |
+
+### 6.18 Ask DaivikPuja Guide settings
+
+| ID | Requirement | Acceptance criteria |
+|---|---|---|
+| FR-160 | An independent settings page with its own master ON/OFF; when OFF the frontend button/panel is hidden and the guide endpoints refuse requests, while configuration, knowledge sources and history are preserved | Settings (welcome message, suggested questions, categories/topics, languages, frontend visibility, permissions, service status) persist server-side and apply immediately |
+| FR-161 | Controls without a backing implementation (AI provider/model configuration, usage limits, feedback analytics) are clearly labelled as not implemented | No credential or secret value is shown in the browser or ordinary logs |
+
+### 6.19 Live environment settings and operating mode
+
+| ID | Requirement | Acceptance criteria |
+|---|---|---|
+| FR-170 | A Live Environment Settings page restricted to the full administrator shows read-only status: database health and applied migrations, hosting/domain, SSL status, security configuration status, integration credential presence, backup recency and recent application/audit logs | Secret values, connection strings and keys are never returned, rendered or logged |
+| FR-171 | The operating mode (Live/Demo) is determined by backend configuration and displayed as an indicator; demo tooling stays gated by that configuration | Browser storage never determines the environment; mode changes are admin-gated and audited where supported |
 
 ## 7. Business rules
 
@@ -290,6 +347,9 @@ Acceptance criteria are stated per requirement; every requirement below is imple
 | **Phase 30 — Reports** | Done | Both registries carry the 38 ids incl. KYC, incidents, agreements, commission tiers and NRI packages, pinned by `tests/reports.test.js` + `backend-python/tests/test_reports.py` |
 | **Phase 32 — Dashboard** | Done | Landed on both backends (the `dash` summary block on the admin /state payload) and the FE KPI grid: pending agreements, today's pujas/revenue, payout pending/on-hold, incidents, campaigns, leads, kundalis-generated |
 | Pages deploy on the secondary remote | Open (pre-existing) | The daivikpujarender Pages workflow fails at configure-pages because Pages is not enabled on that repository |
+| **Admin console stages 1–6** | In progress | Approved staged build (navigation, Features ON/OFF, frontend pages, theme, Guide settings, live-environment status); implementation record in MASTER-AUDIT.md, status reported per stage |
+| **Live/Demo runtime switching** | Blocked (architecture) | Operating mode is env-driven (`DEMO_MODE`) on one shared database; a safe switch needs isolated demo data, sessions and credentials — infrastructure proposal required before any implementation (FR-171 delivers the read-only indicator instead) |
+| **Ask Guide advanced controls** | Not implemented | AI provider/model configuration, usage limits and feedback analytics have no backing implementation; the settings page must show them as not implemented (FR-161) |
 
 ## 13. Appendix — verification baseline
 
